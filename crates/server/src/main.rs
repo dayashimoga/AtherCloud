@@ -100,6 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/api/v1/health", get(health_handler))
         .route("/api/v1/mounts", get(list_mounts_handler))
+        .route("/api/v1/system/drives", get(system_drives_handler))
         .route("/api/v1/browse/:mount", get(browse_root_handler))
         .route("/api/v1/browse/:mount/*path", get(browse_path_handler))
         .route("/api/v1/stream/:mount/*path", get(stream_file_handler))
@@ -136,6 +137,13 @@ async fn health_handler(State(state): State<AppState>) -> Json<serde_json::Value
 async fn list_mounts_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "mounts": state.mounts.list_mounts()
+    }))
+}
+
+async fn system_drives_handler() -> Json<serde_json::Value> {
+    let drives = MountRegistry::discover_detailed_drives();
+    Json(serde_json::json!({
+        "drives": drives
     }))
 }
 

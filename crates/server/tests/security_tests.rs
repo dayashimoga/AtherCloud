@@ -110,6 +110,11 @@ fn test_master_manifest_generation() {
 fn test_drive_discovery() {
     let drives = MountRegistry::discover_system_drives();
     assert!(!drives.is_empty(), "Must discover at least one drive root");
+
+    let detailed = MountRegistry::discover_detailed_drives();
+    assert!(!detailed.is_empty(), "Must discover detailed drive specifications");
+    assert!(detailed.iter().any(|d| d.is_system), "Must detect system drive root");
+    println!("Discovered system drives: {:?}", detailed);
 }
 
 #[tokio::test]

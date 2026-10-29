@@ -11,7 +11,10 @@ param(
     [switch]$ValidateOnly,
 
     [Parameter(Mandatory=$false)]
-    [switch]$AutoApprove
+    [switch]$AutoApprove,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,10 +27,40 @@ Write-AetherLog "STEP" "EXECUTING STAGE 2: Storage Virtualization, I/O Subsystem
 
 function Test-Subphase-2-1-1 {
     Write-AetherLog "INFO" "Auditing Subphase 2.1.1: Cross-Platform Drive Discovery..."
+
+    # 1. Execute Rust integration test
     $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     $testOut = cargo test --test security_tests test_drive_discovery -- --nocapture 2>&1
     $ErrorActionPreference = $prev
     if ($LASTEXITCODE -ne 0) { throw "Drive discovery test failed: $testOut" }
+
+    # 2. Host Platform Discovery Telemetry
+    Write-AetherLog "INFO" "Querying host physical and logical volume roots..."
+    if ([System.Environment]::OSVersion.Platform -like "*Win*") {
+        $volumes = Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue
+        if ($volumes) {
+            foreach ($vol in $volumes) {
+                $typeStr = switch ($vol.DriveType) {
+                    2 { "Removable / USB" }
+                    3 { "Fixed Local Disk" }
+                    4 { "Network Drive" }
+                    5 { "Compact Disc" }
+                    default { "Other / Virtual ($($vol.DriveType))" }
+                }
+                $sizeGB = if ($vol.Size) { [math]::Round($vol.Size / 1GB, 2) } else { 0 }
+                $freeGB = if ($vol.FreeSpace) { [math]::Round($vol.FreeSpace / 1GB, 2) } else { 0 }
+                Write-AetherLog "SUCCESS" "Discovered Drive: $($vol.DeviceID) [$typeStr] - Volume: '$($vol.VolumeName)', Size: $sizeGB GB ($freeGB GB Free)"
+            }
+        }
+    } else {
+        $mountPoints = @("/media", "/mnt", "/Volumes")
+        foreach ($mp in $mountPoints) {
+            if (Test-Path $mp) {
+                Write-AetherLog "SUCCESS" "Discovered POSIX mount root: $mp"
+            }
+        }
+    }
+
     Write-AetherLog "SUCCESS" "System drive discovery logic verified across host partitions."
     return $true
 }
@@ -158,7 +191,7 @@ foreach ($entry in $subphases) {
 
     $state = Get-AetherState
     $rec = Get-SubphaseRecord -State $state -SubphaseId $entry.FullId
-    if ($rec -and $rec.Subphase.status -eq "COMPLETED") {
+    if (-not $Force -and -not $Subphase -and $rec -and $rec.Subphase.status -eq "COMPLETED") {
         Write-AetherLog "INFO" "Subphase $($entry.Id) is already marked COMPLETED in state tracker."
         continue
     }

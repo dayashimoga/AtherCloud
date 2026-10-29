@@ -48,6 +48,15 @@ pub enum MountPermission {
     StreamOnly,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoveredDrive {
+    pub path: PathBuf,
+    pub name: String,
+    pub drive_type: String,
+    pub is_system: bool,
+    pub is_removable: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct MountEntry {
     pub base_path: PathBuf,
@@ -67,9 +76,9 @@ impl MountRegistry {
         }
     }
 
-    /// Discovers system drive roots across Windows and POSIX systems
-    pub fn discover_system_drives() -> Vec<PathBuf> {
-        let mut drives = Vec::new();
+    /// Discovers system drive roots across Windows and POSIX systems with detailed metadata
+    pub fn discover_detailed_drives() -> Vec<DiscoveredDrive> {
+        let mut list = Vec::new();
 
         #[cfg(windows)]
         {
@@ -77,28 +86,67 @@ impl MountRegistry {
                 let drive_str = format!("{}:\\", letter as char);
                 let p = PathBuf::from(&drive_str);
                 if p.exists() {
-                    drives.push(p);
+                    let is_system = (letter as char) == 'C' || (letter as char) == 'c';
+                    let (drive_type, is_removable) = if is_system {
+                        ("system".to_string(), false)
+                    } else if (letter as char) == 'D' || (letter as char) == 'E' || (letter as char) == 'F' {
+                        ("secondary_partition".to_string(), false)
+                    } else {
+                        ("external_or_usb".to_string(), true)
+                    };
+
+                    list.push(DiscoveredDrive {
+                        path: p,
+                        name: format!("Local Disk ({}:)", letter as char),
+                        drive_type,
+                        is_system,
+                        is_removable,
+                    });
                 }
             }
         }
 
         #[cfg(not(windows))]
         {
-            let candidates = ["/media", "/mnt", "/Volumes"];
-            for cand in candidates {
+            list.push(DiscoveredDrive {
+                path: PathBuf::from("/"),
+                name: "Root System Partition (/)".to_string(),
+                drive_type: "system".to_string(),
+                is_system: true,
+                is_removable: false,
+            });
+
+            let candidates = [
+                ("/media", "removable_usb", true),
+                ("/mnt", "network_or_secondary_mount", false),
+                ("/Volumes", "macos_volume", true),
+            ];
+            for (cand, dtype, removable) in candidates {
                 let p = Path::new(cand);
                 if p.exists() && p.is_dir() {
                     if let Ok(entries) = std::fs::read_dir(p) {
                         for e in entries.flatten() {
-                            drives.push(e.path());
+                            let ep = e.path();
+                            let name = ep.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| cand.to_string());
+                            list.push(DiscoveredDrive {
+                                path: ep,
+                                name,
+                                drive_type: dtype.to_string(),
+                                is_system: false,
+                                is_removable: removable,
+                            });
                         }
                     }
                 }
             }
-            drives.push(PathBuf::from("/"));
         }
 
-        drives
+        list
+    }
+
+    /// Discovers system drive root paths across Windows and POSIX systems
+    pub fn discover_system_drives() -> Vec<PathBuf> {
+        Self::discover_detailed_drives().into_iter().map(|d| d.path).collect()
     }
 
     pub fn register(&mut self, name: &str, path: PathBuf, read_only: bool, description: Option<String>) {
