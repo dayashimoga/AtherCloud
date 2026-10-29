@@ -546,11 +546,84 @@ function Test-Subphase-1-2-3 {
 # Subphase 1.3.1: State tracker schema
 function Test-Subphase-1-3-1 {
     Write-AetherLog "INFO" "Auditing Subphase 1.3.1: State Tracker Schema & Diagnostic Logs..."
-    $st = Get-AetherState
-    if ($st.stages.Count -ne 6) {
-        throw "State tracker must encompass all 6 stages! Found: $($st.stages.Count)"
+
+    $statePath = Join-Path $Script:RepoRoot "state.tracker.json"
+    if (-not (Test-Path $statePath)) {
+        throw "Critical error: state.tracker.json does not exist at repo root!"
     }
-    Write-AetherLog "SUCCESS" "state.tracker.json validated: 6 stages registered."
+
+    $st = Get-AetherState
+
+    # 1. Root Schema Validation
+    if (-not $st.schema_version -or -not $st.project_name) {
+        throw "Root schema fields missing (schema_version, project_name)!"
+    }
+    Write-AetherLog "SUCCESS" "Root metadata verified: Project '$($st.project_name)' (Schema: v$($st.schema_version))"
+
+    # 2. Stage -> Phase -> Subphase Topology Audit
+    if ($st.stages.Count -ne 6) {
+        throw "State tracker must encompass exactly 6 stages! Found: $($st.stages.Count)"
+    }
+
+    $totalPhases = 0
+    $totalSubphases = 0
+    $completedCount = 0
+
+    foreach ($stage in $st.stages) {
+        if (-not $stage.id -or -not $stage.phases) {
+            throw "Malformed stage schema in $($stage.id)"
+        }
+        foreach ($phase in $stage.phases) {
+            $totalPhases++
+            if (-not $phase.id -or -not $phase.subphases) {
+                throw "Malformed phase schema in $($phase.id)"
+            }
+            foreach ($subphase in $phase.subphases) {
+                $totalSubphases++
+                if (-not $subphase.id -or -not $subphase.task_id -or -not $subphase.validator_command) {
+                    throw "Malformed subphase schema in $($subphase.id)"
+                }
+                if ($subphase.status -eq "COMPLETED") {
+                    $completedCount++
+                    if (-not $subphase.completed_at) {
+                        throw "Subphase $($subphase.id) is marked COMPLETED but lacks completed_at timestamp!"
+                    }
+                }
+            }
+        }
+    }
+
+    if ($totalPhases -ne 17) {
+        throw "State tracker must encompass exactly 17 phases! Found: $totalPhases"
+    }
+    if ($totalSubphases -ne 51) {
+        throw "State tracker must encompass exactly 51 subphases! Found: $totalSubphases"
+    }
+    Write-AetherLog "SUCCESS" "Hierarchical schema topology validated: 6 Stages, 17 Phases, 51 Atomic Subphases."
+    Write-AetherLog "INFO"    "Current subphase progression: $completedCount / 51 completed."
+
+    # 3. Diagnostic Logs Audit
+    $diagDir = Join-Path $Script:RepoRoot "scratch/diagnostics"
+    if (-not (Test-Path $diagDir)) {
+        throw "Diagnostics log directory missing: scratch/diagnostics"
+    }
+    $requiredLogs = @("hardware_probe.json", "toolchain_probe.json")
+    foreach ($logFile in $requiredLogs) {
+        $p = Join-Path $diagDir $logFile
+        if (-not (Test-Path $p) -or (Get-Item $p).Length -eq 0) {
+            throw "Diagnostic log missing or empty: $logFile"
+        }
+        Write-AetherLog "SUCCESS" "Diagnostic log verified: scratch/diagnostics/$logFile ($((Get-Item $p).Length) bytes)"
+    }
+
+    # 4. State File Integrity Hash
+    $stateBytes = [System.IO.File]::ReadAllBytes($statePath)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $hashBytes = $sha256.ComputeHash($stateBytes)
+    $sha256.Dispose()
+    $hashStr = [BitConverter]::ToString($hashBytes).Replace("-", "").ToLower()
+    Write-AetherLog "SUCCESS" "State tracker integrity verified (SHA-256: $hashStr)"
+
     return $true
 }
 

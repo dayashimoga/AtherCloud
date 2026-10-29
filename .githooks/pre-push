@@ -25,3 +25,4 @@ done
 
 echo "[HOOK SUCCESS] Pre-push verification passed."
 exit 0
+
