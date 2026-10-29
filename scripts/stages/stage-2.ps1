@@ -182,6 +182,20 @@ function Test-Subphase-2-3-2 {
 
 function Test-Subphase-2-3-3 {
     Write-AetherLog "INFO" "Auditing Subphase 2.3.3: Loopback Throughput & TTFB Benchmark..."
+
+    # 1. Run Rust multi-worker concurrent I/O throughput test
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $benchTestOut = cargo test --test security_tests test_concurrent_io_throughput_and_ttfb -- --nocapture 2>&1
+    $ErrorActionPreference = $prev
+    if ($LASTEXITCODE -ne 0) { throw "Concurrent benchmark test failed: $benchTestOut" }
+
+    # Extract benchmark metrics from test output
+    $benchLine = $benchTestOut | Where-Object { $_ -match "BENCHMARK" }
+    if ($benchLine) {
+        Write-AetherLog "SUCCESS" "Rust Reactor Telemetry: $benchLine"
+    }
+
+    # 2. Host I/O Loopback Stress Test (10 MB payload)
     $dummyDir = Join-Path $Script:RepoRoot "scratch/benchmark_test"
     New-Item -ItemType Directory -Path $dummyDir -Force | Out-Null
     $dummyFile = Join-Path $dummyDir "test_payload.bin"
@@ -193,7 +207,11 @@ function Test-Subphase-2-3-3 {
     $stream = [System.IO.File]::OpenRead($dummyFile)
     $buffer = New-Object byte[] (64 * 1024)
     $totalRead = 0
+    $ttfbMs = $null
     while (($bytesRead = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+        if ($null -eq $ttfbMs) {
+            $ttfbMs = $sw.ElapsedMilliseconds
+        }
         $totalRead += $bytesRead
     }
     $stream.Close()
@@ -201,7 +219,28 @@ function Test-Subphase-2-3-3 {
 
     $seconds = [math]::Max(0.001, $sw.Elapsed.TotalSeconds)
     $mbps = [math]::Round((($totalRead / (1024 * 1024)) / $seconds), 2)
-    Write-AetherLog "SUCCESS" "Loopback stream read speed: $mbps MB/s ($totalRead bytes in $($sw.ElapsedMilliseconds) ms, TTFB < 2ms)."
+    $gbps = [math]::Round(($mbps * 8 / 1000), 2)
+    Write-AetherLog "SUCCESS" "Loopback stream speed: $mbps MB/s ($gbps Gbps, TTFB: ${ttfbMs}ms, Elapsed: $($sw.ElapsedMilliseconds) ms)."
+
+    # 3. Persist Benchmark Telemetry Snapshot
+    $diagDir = Join-Path $Script:RepoRoot "scratch/diagnostics"
+    if (-not (Test-Path $diagDir)) {
+        New-Item -ItemType Directory -Path $diagDir -Force | Out-Null
+    }
+    $report = @{
+        timestamp_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        test_payload_bytes = $totalRead
+        elapsed_ms = $sw.ElapsedMilliseconds
+        ttfb_ms = $ttfbMs
+        throughput_mbps = $mbps
+        throughput_gbps = $gbps
+        concurrency = 8
+        sla_passed = ($ttfbMs -lt 5 -and $mbps -gt 500)
+    }
+    $reportJson = $report | ConvertTo-Json -Depth 4
+    $reportPath = Join-Path $diagDir "benchmark_report.json"
+    [System.IO.File]::WriteAllText($reportPath, $reportJson, (New-Object System.Text.UTF8Encoding($false)))
+    Write-AetherLog "SUCCESS" "Benchmark report persisted: scratch/diagnostics/benchmark_report.json"
 
     Remove-Item -Path $dummyDir -Recurse -Force
     return $true

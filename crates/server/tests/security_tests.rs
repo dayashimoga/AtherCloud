@@ -382,3 +382,77 @@ fn test_file_tree_indexer_and_search() {
     let stats_after = indexer.get_mount_stats("movies").unwrap();
     assert_eq!(stats_after.total_files, 1);
 }
+
+#[tokio::test]
+async fn test_concurrent_io_throughput_and_ttfb() {
+    use futures_util::StreamExt;
+    use std::sync::Arc;
+    use tokio::fs::File;
+    use tokio_util::io::ReaderStream;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let bench_file = temp_dir.path().join("bench_16mb.bin");
+
+    // Write 16 MiB payload
+    let total_size: usize = 16 * 1024 * 1024;
+    let data = vec![0xABu8; total_size];
+    tokio::fs::write(&bench_file, &data).await.unwrap();
+
+    let file_path = Arc::new(bench_file);
+    let concurrency = 8;
+    let mut handles = Vec::new();
+
+    let bench_start = std::time::Instant::now();
+
+    for _ in 0..concurrency {
+        let path = Arc::clone(&file_path);
+        handles.push(tokio::spawn(async move {
+            let task_start = std::time::Instant::now();
+            let file = File::open(&*path).await.unwrap();
+            let mut stream = ReaderStream::with_capacity(file, 64 * 1024);
+
+            let mut ttfb = None;
+            let mut bytes_read = 0usize;
+
+            while let Some(chunk) = stream.next().await {
+                if ttfb.is_none() {
+                    ttfb = Some(task_start.elapsed());
+                }
+                bytes_read += chunk.unwrap().len();
+            }
+
+            (ttfb.unwrap_or_default(), bytes_read)
+        }));
+    }
+
+    let mut max_ttfb = std::time::Duration::from_millis(0);
+    let mut total_transferred = 0usize;
+
+    for h in handles {
+        let (ttfb, bytes) = h.await.unwrap();
+        if ttfb > max_ttfb {
+            max_ttfb = ttfb;
+        }
+        total_transferred += bytes;
+    }
+
+    let total_elapsed = bench_start.elapsed();
+    let seconds = total_elapsed.as_secs_f64().max(0.0001);
+    let gigabits = (total_transferred as f64 * 8.0) / (1_000_000_000.0);
+    let gbps = gigabits / seconds;
+
+    println!(
+        "[BENCHMARK] Concurrent Workers: {} | Total: {} bytes | Time: {:.3}s | TTFB (max): {:.2?} | Rate: {:.2} Gbps",
+        concurrency, total_transferred, seconds, max_ttfb, gbps
+    );
+
+    assert!(
+        max_ttfb.as_millis() < 50,
+        "Max TTFB must be minimal under local loopback (measured {:.2?})",
+        max_ttfb
+    );
+    assert!(
+        total_transferred == total_size * concurrency,
+        "All workers must complete full stream"
+    );
+}
