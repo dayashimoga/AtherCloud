@@ -264,19 +264,72 @@ async fn test_resumable_upload_with_sha256() {
     let temp_dir = tempfile::tempdir().unwrap();
     let target_file = temp_dir.path().join("uploaded_video.mp4");
 
+    // 1. Direct stateless chunk write test
     let chunk1_data = b"chunk_1_payload_bytes";
     let mut hasher1 = Sha256::new();
     hasher1.update(chunk1_data);
     let chunk1_hash = hex::encode(hasher1.finalize());
 
-    // Write valid chunk 1
     let write_res1 = ResumableUploadManager::write_chunk(&target_file, 0, &chunk1_hash, chunk1_data).await;
     assert!(write_res1.is_ok());
 
-    // Write chunk 2 with corrupted checksum
+    // Write chunk with corrupted checksum
     let corrupted_hash = "0000000000000000000000000000000000000000000000000000000000000000";
     let write_res2 = ResumableUploadManager::write_chunk(&target_file, 1, corrupted_hash, b"chunk_2_corrupted").await;
     assert!(write_res2.is_err(), "Corrupted checksum must be rejected");
+
+    // 2. State-tracked multi-chunk resumable session test
+    let manager = ResumableUploadManager::new();
+    let session_target = temp_dir.path().join("session_final.mp4");
+    let chunk_size = 1000u64;
+    let total_size = 2000u64;
+
+    let chunk_a = vec![0x11u8; 1000];
+    let mut hasher_a = Sha256::new();
+    hasher_a.update(&chunk_a);
+    let hash_a = hex::encode(hasher_a.finalize());
+
+    let chunk_b = vec![0x22u8; 1000];
+    let mut hasher_b = Sha256::new();
+    hasher_b.update(&chunk_b);
+    let hash_b = hex::encode(hasher_b.finalize());
+
+    // Total file hash
+    let mut full_payload = Vec::new();
+    full_payload.extend_from_slice(&chunk_a);
+    full_payload.extend_from_slice(&chunk_b);
+    let mut full_hasher = Sha256::new();
+    full_hasher.update(&full_payload);
+    let full_hash = hex::encode(full_hasher.finalize());
+
+    // Initialize session
+    let upload_id = "upload_sess_abc123";
+    let sess = manager.init_session(upload_id, session_target.clone(), total_size, chunk_size).await.unwrap();
+    assert_eq!(sess.total_chunks, 2);
+
+    // Write Chunk 0
+    let res_chunk0 = manager.write_session_chunk(upload_id, 0, &hash_a, &chunk_a).await;
+    assert!(res_chunk0.is_ok());
+
+    // Simulate Pause & Query Progress
+    let progress = manager.get_session(upload_id).await.unwrap();
+    assert_eq!(progress.completed_chunks, vec![0]);
+    assert_eq!(progress.received_bytes, 1000);
+    assert!(!progress.is_completed);
+
+    // Write Chunk 1 with Corrupted Hash (should fail)
+    let bad_write = manager.write_session_chunk(upload_id, 1, "bad_hash_hex", &chunk_b).await;
+    assert!(bad_write.is_err(), "Corrupted session chunk must fail verification");
+
+    // Write Chunk 1 with Valid Hash (Resume)
+    let good_write = manager.write_session_chunk(upload_id, 1, &hash_b, &chunk_b).await;
+    assert!(good_write.is_ok());
+
+    // Complete Session & Verify File
+    let finalize_res = manager.complete_session(upload_id, Some(&full_hash)).await;
+    assert!(finalize_res.is_ok());
+    assert!(session_target.exists(), "Finalized target file must exist on disk");
+    assert_eq!(std::fs::metadata(&session_target).unwrap().len(), 2000);
 }
 
 #[test]

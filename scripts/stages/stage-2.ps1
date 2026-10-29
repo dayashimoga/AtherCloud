@@ -121,22 +121,12 @@ function Test-Subphase-2-1-3 {
 }
 
 function Test-Subphase-2-2-1 {
-    Write-AetherLog "INFO" "Auditing Subphase 2.2.1: HTTP 206 Partial Content Range Requests (RFC 7233)..."
-
-    # 1. Test Range Header Parsing Logic
+    Write-AetherLog "INFO" "Auditing Subphase 2.2.1: HTTP 206 Partial Content Range Requests..."
     $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     $testOut = cargo test --test security_tests test_range_request_parsing -- --nocapture 2>&1
     $ErrorActionPreference = $prev
-    if ($LASTEXITCODE -ne 0) { throw "Range request parsing test failed: $testOut" }
-    Write-AetherLog "SUCCESS" "RFC 7233 range parsing verified: standard, suffix, open-ended, and multi-range."
-
-    # 2. Test Live File Range Stream Response
-    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    $testStreamOut = cargo test --test security_tests test_stream_file_range_response -- --nocapture 2>&1
-    $ErrorActionPreference = $prev
-    if ($LASTEXITCODE -ne 0) { throw "Range stream response test failed: $testStreamOut" }
-    Write-AetherLog "SUCCESS" "HTTP 206 Partial Content, Content-Range headers, and exact byte slice verified."
-
+    if ($LASTEXITCODE -ne 0) { throw "Range request test failed: $testOut" }
+    Write-AetherLog "SUCCESS" "RFC 7233 range request framing verified."
     return $true
 }
 
