@@ -390,18 +390,60 @@ function Test-Subphase-1-1-3 {
 # Subphase 1.2.1: Git tracking, .gitattributes & .gitignore
 function Test-Subphase-1-2-1 {
     Write-AetherLog "INFO" "Auditing Subphase 1.2.1: Git Tracking, Line Endings & Gitignore..."
-    if (-not (Test-Path (Join-Path $Script:RepoRoot ".git"))) {
+
+    # 1. Verify Git Tracking Initialization
+    $gitDir = Join-Path $Script:RepoRoot ".git"
+    if (-not (Test-Path $gitDir)) {
         git init
-        Write-AetherLog "SUCCESS" "Initialized Git repository."
+        Write-AetherLog "SUCCESS" "Initialized Git repository tracking."
+    } else {
+        $curBranch = git rev-parse --abbrev-ref HEAD 2>&1
+        Write-AetherLog "SUCCESS" "Active Git repository verified on branch: $curBranch"
     }
 
+    # 2. Verify .gitattributes & Line Ending Normalization
     $ga = Join-Path $Script:RepoRoot ".gitattributes"
-    $gi = Join-Path $Script:RepoRoot ".gitignore"
-
-    if (-not (Test-Path $ga) -or -not (Test-Path $gi)) {
-        throw "Validation failed: .gitattributes or .gitignore missing!"
+    if (-not (Test-Path $ga)) {
+        throw "Validation failed: .gitattributes missing from repository root!"
     }
-    Write-AetherLog "SUCCESS" ".gitattributes and .gitignore verified with LF normalization."
+    $gaContent = [System.IO.File]::ReadAllText($ga)
+    $requiredAttrs = @("* text=auto", "*.sh text eol=lf", "*.ps1 text eol=lf", ".githooks/* text eol=lf")
+    foreach ($rule in $requiredAttrs) {
+        if (-not $gaContent.Contains($rule)) {
+            throw ".gitattributes missing required normalization rule: $rule"
+        }
+    }
+    Write-AetherLog "SUCCESS" ".gitattributes verified: LF normalization & script eol rules intact."
+
+    # Test Git attribute engine resolution
+    $testAttr = git check-attr eol scripts/common.ps1 2>&1
+    Write-AetherLog "SUCCESS" "Git attributes engine test: $testAttr"
+
+    # 3. Verify .gitignore for Multi-Platform Targets & Transcode Chunks
+    $gi = Join-Path $Script:RepoRoot ".gitignore"
+    if (-not (Test-Path $gi)) {
+        throw "Validation failed: .gitignore missing from repository root!"
+    }
+    $giContent = [System.IO.File]::ReadAllText($gi)
+    $requiredIgnores = @(
+        "/target/",
+        "node_modules/",
+        "/client/dist/",
+        "/scratch/",
+        "/temp/",
+        "*.m3u8",
+        "/client/android/build/",
+        "/client/ios/build/",
+        "/client/src-tauri/target/",
+        "!client/**/*.ts"
+    )
+    foreach ($ign in $requiredIgnores) {
+        if (-not $giContent.Contains($ign)) {
+            throw ".gitignore missing required exclusion pattern: $ign"
+        }
+    }
+    Write-AetherLog "SUCCESS" ".gitignore verified: targets, native builds, and transcode scratch excluded."
+
     return $true
 }
 
