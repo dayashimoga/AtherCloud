@@ -490,12 +490,56 @@ function Test-Subphase-1-2-2 {
 # Subphase 1.2.3: Append-only audit gates & git pre-commit hooks
 function Test-Subphase-1-2-3 {
     Write-AetherLog "INFO" "Auditing Subphase 1.2.3: Append-Only Audit Gates & Pre-Commit Hooks..."
-    $hook = Join-Path $Script:RepoRoot ".githooks/pre-commit"
-    if (-not (Test-Path $hook)) {
-        throw "Missing pre-commit hook!"
+
+    # 1. Verify and configure git hooks path
+    $preCommitHook = Join-Path $Script:RepoRoot ".githooks/pre-commit"
+    $prePushHook = Join-Path $Script:RepoRoot ".githooks/pre-push"
+
+    if (-not (Test-Path $preCommitHook)) {
+        throw "Missing pre-commit hook at: $preCommitHook"
     }
+    if (-not (Test-Path $prePushHook)) {
+        throw "Missing pre-push hook at: $prePushHook"
+    }
+
     git config core.hooksPath .githooks
-    Write-AetherLog "SUCCESS" "Git core.hooksPath configured. Append-only ledger protection active."
+    $configuredHooks = git config core.hooksPath
+    Write-AetherLog "SUCCESS" "Git core.hooksPath verified: $configuredHooks"
+
+    # 2. Verify append-only schemas of CHANGELOG.md and TODO.md
+    $changelogPath = Join-Path $Script:RepoRoot "CHANGELOG.md"
+    $todoPath = Join-Path $Script:RepoRoot "TODO.md"
+
+    if (-not (Test-Path $changelogPath) -or -not (Test-Path $todoPath)) {
+        throw "Missing CHANGELOG.md or TODO.md ledger files!"
+    }
+
+    $clContent = [System.IO.File]::ReadAllText($changelogPath)
+    if (-not $clContent.Contains("### [") -or -not $clContent.Contains("Atomic Delta Description")) {
+        throw "CHANGELOG.md does not adhere to mandatory append-only schema!"
+    }
+    Write-AetherLog "SUCCESS" "CHANGELOG.md schema verified: immutable audit headers and delta tags present."
+
+    $todoContent = [System.IO.File]::ReadAllText($todoPath)
+    if (-not $todoContent.Contains("TRANSACTION [TASK UPDATE]") -or -not $todoContent.Contains("Validation Proof")) {
+        throw "TODO.md does not adhere to mandatory append-only schema!"
+    }
+    Write-AetherLog "SUCCESS" "TODO.md schema verified: append-only task transition ledger intact."
+
+    # 3. Simulate pre-commit gate validation
+    $stateCheck = Join-Path $Script:RepoRoot "state.tracker.json"
+    if (Test-Path $stateCheck) {
+        $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+        if ($nodeCmd) {
+            & node -e "JSON.parse(require('fs').readFileSync('state.tracker.json', 'utf8').replace(/^\uFEFF/, ''))"
+            if ($LASTEXITCODE -ne 0) {
+                throw "state.tracker.json failed JSON syntax gate verification!"
+            }
+            Write-AetherLog "SUCCESS" "JSON syntax gate check passed on state.tracker.json."
+        }
+    }
+
+    Write-AetherLog "SUCCESS" "Append-only verification gates, pre-commit/pre-push hooks, and ledger schemas confirmed."
     return $true
 }
 

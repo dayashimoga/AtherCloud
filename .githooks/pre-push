@@ -1,0 +1,27 @@
+#!/bin/sh
+# AetherStream Pre-Push Hook: Force-Push & Non-Fast-Forward Defense
+
+echo "[HOOK] Running AetherStream pre-push governance verification..."
+
+# Prevent force pushes to protected branches (master, main)
+while read local_ref local_oid remote_ref remote_oid; do
+    if [ "$remote_ref" = "refs/heads/master" ] || [ "$remote_ref" = "refs/heads/main" ]; then
+        if [ "$local_oid" = "0000000000000000000000000000000000000000" ]; then
+            echo "[HOOK ERROR] CRITICAL GOVERNANCE VIOLATION: Branch deletion forbidden for $remote_ref!"
+            exit 1
+        fi
+
+        # Check if push is non-fast-forward
+        if [ "$remote_oid" != "0000000000000000000000000000000000000000" ]; then
+            MERGE_BASE=$(git merge-base "$local_oid" "$remote_oid" 2>/dev/null)
+            if [ "$MERGE_BASE" != "$remote_oid" ]; then
+                echo "[HOOK ERROR] CRITICAL GOVERNANCE VIOLATION: Force-push or non-fast-forward push forbidden on $remote_ref!"
+                echo "[HOOK ERROR] CONTRACT.md mandates immutable, append-only history."
+                exit 1
+            fi
+        fi
+    fi
+done
+
+echo "[HOOK SUCCESS] Pre-push verification passed."
+exit 0

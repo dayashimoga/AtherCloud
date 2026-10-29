@@ -14,12 +14,19 @@ if [ -f "state.tracker.json" ]; then
 fi
 
 # 2. Append-only check on CHANGELOG.md and TODO.md using git diff
-# If deletions were made to lines in CHANGELOG.md, fail immediately
+# If deletions were made to lines in CHANGELOG.md or TODO.md, fail immediately
 if git rev-parse --verify HEAD >/dev/null 2>&1; then
     DELETIONS_CHANGELOG=$(git diff --cached --numstat CHANGELOG.md 2>/dev/null | awk '{print $2}')
     if [ -n "$DELETIONS_CHANGELOG" ] && [ "$DELETIONS_CHANGELOG" -gt 0 ]; then
         echo "[HOOK ERROR] CRITICAL GOVERNANCE VIOLATION: Deletions detected in CHANGELOG.md ($DELETIONS_CHANGELOG lines deleted)!"
         echo "[HOOK ERROR] CONTRACT.md forbids any deletion or overwrite in CHANGELOG.md."
+        exit 1
+    fi
+
+    DELETIONS_TODO=$(git diff --cached --numstat TODO.md 2>/dev/null | awk '{print $2}')
+    if [ -n "$DELETIONS_TODO" ] && [ "$DELETIONS_TODO" -gt 0 ]; then
+        echo "[HOOK ERROR] CRITICAL GOVERNANCE VIOLATION: Deletions detected in TODO.md ($DELETIONS_TODO lines deleted)!"
+        echo "[HOOK ERROR] CONTRACT.md forbids any deletion or rewrite in TODO.md."
         exit 1
     fi
 fi
