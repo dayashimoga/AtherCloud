@@ -354,7 +354,31 @@ fn test_file_tree_indexer_and_search() {
     let count = indexer.index_mount("movies", temp_dir.path()).unwrap();
     assert_eq!(count, 1);
 
+    // 1. Search Query Test & Sub-millisecond Execution Assertion
+    let start_time = std::time::Instant::now();
     let search_res = indexer.search("glad");
+    let elapsed = start_time.elapsed();
+
     assert_eq!(search_res.len(), 1);
     assert_eq!(search_res[0].name, "gladiator.mp4");
+    assert!(elapsed.as_millis() < 5, "In-memory query search must execute in < 5ms (took {:?})", elapsed);
+
+    // 2. Incremental Watcher Addition Test (New File Event)
+    indexer.add_or_update_file("movies", "action/matrix.mp4", "matrix.mp4", 4500000, "video/mp4");
+    let after_add = indexer.search("matrix");
+    assert_eq!(after_add.len(), 1);
+    assert_eq!(after_add[0].name, "matrix.mp4");
+
+    // 3. Mount Stats Assertion
+    let stats = indexer.get_mount_stats("movies").unwrap();
+    assert_eq!(stats.total_files, 2);
+
+    // 4. Incremental Watcher Removal Test (File Deleted Event)
+    let removed = indexer.remove_file("movies", "action/matrix.mp4");
+    assert!(removed);
+    let after_remove = indexer.search("matrix");
+    assert_eq!(after_remove.len(), 0);
+
+    let stats_after = indexer.get_mount_stats("movies").unwrap();
+    assert_eq!(stats_after.total_files, 1);
 }
