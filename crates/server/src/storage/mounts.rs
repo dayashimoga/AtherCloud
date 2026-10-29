@@ -261,7 +261,25 @@ impl MountRegistry {
             .get(mount_id)
             .ok_or_else(|| MountError::MountNotFound(mount_id.to_string()))?;
 
-        // 1. Lexical checks for malicious parent navigation or root-prefixing
+        // 1. String-level injection and encoded sequence detection
+        let path_str = relative_path.to_string_lossy();
+        if path_str.contains('\0') {
+            warn!("Null byte injection detected in path: {:?}", relative_path);
+            return Err(MountError::PathTraversalAttempt);
+        }
+
+        let lower = path_str.to_lowercase();
+        if lower.contains("%2e%2e")
+            || lower.contains("..%2f")
+            || lower.contains("..%5c")
+            || lower.contains("%2f..")
+            || lower.contains("%5c..")
+        {
+            warn!("Encoded traversal sequence detected in path: {:?}", relative_path);
+            return Err(MountError::PathTraversalAttempt);
+        }
+
+        // 2. Lexical component checks for malicious parent navigation or root-prefixing
         for comp in relative_path.components() {
             match comp {
                 Component::ParentDir => {
@@ -276,7 +294,7 @@ impl MountRegistry {
             }
         }
 
-        // 2. Synthesize tentative target path
+        // 3. Synthesize tentative target path
         let candidate = entry.base_path.join(relative_path);
 
         // 3. If file exists, canonicalize and verify boundary confinement

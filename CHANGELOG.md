@@ -728,3 +728,15 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Implemented declarative virtual mount registry with Read, Write, and StreamOnly permission controls.
 - **Verification Signature:** SHA256:VERIFIED_PASS
 - **Executor:** System Bootstrapper (AetherStream Automation Suite)
+
+### [2026-10-29T17:28:57Z] - STAGE_2 / PHASE_2.1 / SUBPHASE_2.1.3
+- **Stage ID:** STAGE_2
+- **Phase ID:** PHASE_2.1
+- **Subphase ID:** SUBPHASE_2.1.3
+- **Status:** COMPLETED
+- **Components Modified:**
+  - crates/server/src/storage/mounts.rs
+  - crates/server/tests/security_tests.rs
+- **Atomic Delta Description:** Hardened canonical path resolution, symlink boundary escape neutralization, and traversal guards.
+- **Verification Signature:** SHA256:VERIFIED_PASS
+- **Executor:** System Bootstrapper (AetherStream Automation Suite)

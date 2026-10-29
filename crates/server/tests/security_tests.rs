@@ -36,7 +36,21 @@ fn test_path_traversal_prevention() {
     {
         let attack_win = registry.resolve_safe_path("media", Path::new("C:\\Windows\\System32\\cmd.exe"));
         assert!(attack_win.is_err(), "Windows absolute path must fail");
+
+        let attack_bs = registry.resolve_safe_path("media", Path::new("..\\..\\windows\\system32"));
+        assert!(attack_bs.is_err(), "Windows backslash traversal must fail");
     }
+
+    // 5. Encoded URI traversal sequences must be blocked
+    let attack_enc1 = registry.resolve_safe_path("media", Path::new("%2e%2e/outside.txt"));
+    assert!(attack_enc1.is_err(), "Encoded %2e%2e traversal must fail");
+
+    let attack_enc2 = registry.resolve_safe_path("media", Path::new("sub/%2e%2e%2foutside.txt"));
+    assert!(attack_enc2.is_err(), "Encoded %2e%2e%2f traversal must fail");
+
+    // 6. Null byte injection must be blocked
+    let attack_null = registry.resolve_safe_path("media", Path::new("sample.mp4\0.exe"));
+    assert!(attack_null.is_err(), "Null byte injection must fail");
 }
 
 #[test]
