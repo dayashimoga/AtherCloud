@@ -117,6 +117,48 @@ fn test_drive_discovery() {
     println!("Discovered system drives: {:?}", detailed);
 }
 
+#[test]
+fn test_virtual_mount_permissions_and_sqlite_schema() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path().to_path_buf();
+
+    let mut registry = MountRegistry::new();
+    registry.register_with_permission(
+        "media_ro",
+        root.clone(),
+        aetherstream_server::storage::mounts::MountPermission::Read,
+        Some("Read-Only Storage".into()),
+    );
+    registry.register_with_permission(
+        "media_rw",
+        root.clone(),
+        aetherstream_server::storage::mounts::MountPermission::Write,
+        Some("Read-Write Storage".into()),
+    );
+    registry.register_with_permission(
+        "media_stream",
+        root.clone(),
+        aetherstream_server::storage::mounts::MountPermission::StreamOnly,
+        Some("Stream-Only Media".into()),
+    );
+
+    // Verify write permissions
+    assert!(registry.check_write_permission("media_rw").is_ok(), "Write permitted on RW mount");
+    assert!(registry.check_write_permission("media_ro").is_err(), "Write denied on Read mount");
+    assert!(registry.check_write_permission("media_stream").is_err(), "Write denied on StreamOnly mount");
+
+    // Verify stream permissions
+    assert!(registry.check_stream_permission("media_stream").is_ok(), "Stream permitted on StreamOnly mount");
+    assert!(registry.check_stream_permission("media_ro").is_ok(), "Stream permitted on Read mount");
+    assert!(registry.check_stream_permission("media_rw").is_ok(), "Stream permitted on Write mount");
+
+    // Verify SQLite WAL Schema and SQL export
+    let sql_dump = registry.export_sqlite_ddl_and_inserts();
+    assert!(sql_dump.contains("PRAGMA journal_mode = WAL;"));
+    assert!(sql_dump.contains("CREATE TABLE IF NOT EXISTS virtual_mounts"));
+    assert!(sql_dump.contains("STREAM_ONLY"));
+}
+
 #[tokio::test]
 async fn test_resumable_upload_with_sha256() {
     let temp_dir = tempfile::tempdir().unwrap();

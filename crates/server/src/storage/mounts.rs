@@ -48,6 +48,22 @@ pub enum MountPermission {
     StreamOnly,
 }
 
+pub const SQLITE_WAL_SCHEMA: &str = r#"PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS virtual_mounts (
+    mount_id TEXT PRIMARY KEY NOT NULL,
+    physical_root TEXT NOT NULL,
+    permission TEXT NOT NULL CHECK(permission IN ('READ', 'WRITE', 'STREAM_ONLY')),
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_mount_permission ON virtual_mounts(permission);
+"#;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredDrive {
     pub path: PathBuf,
@@ -187,11 +203,55 @@ impl MountRegistry {
                     "id": k,
                     "permission": format!("{:?}", v.permission),
                     "read_only": v.permission == MountPermission::Read || v.permission == MountPermission::StreamOnly,
+                    "stream_only": v.permission == MountPermission::StreamOnly,
                     "description": v.description,
                     "path_display": v.base_path.to_string_lossy(),
                 })
             })
             .collect()
+    }
+
+    /// Verifies that the targeted virtual mount has WRITE permissions
+    pub fn check_write_permission(&self, mount_id: &str) -> Result<(), MountError> {
+        let entry = self
+            .mounts
+            .get(mount_id)
+            .ok_or_else(|| MountError::MountNotFound(mount_id.to_string()))?;
+        if entry.permission != MountPermission::Write {
+            return Err(MountError::ReadOnlyMount(mount_id.to_string()));
+        }
+        Ok(())
+    }
+
+    /// Verifies that the targeted virtual mount allows media streaming
+    pub fn check_stream_permission(&self, mount_id: &str) -> Result<(), MountError> {
+        let _ = self
+            .mounts
+            .get(mount_id)
+            .ok_or_else(|| MountError::MountNotFound(mount_id.to_string()))?;
+        Ok(())
+    }
+
+    /// Exports SQLite DDL table definition and INSERT statements reflecting registered mounts
+    pub fn export_sqlite_ddl_and_inserts(&self) -> String {
+        let mut sql = String::from(SQLITE_WAL_SCHEMA);
+        sql.push('\n');
+        for (id, entry) in &self.mounts {
+            let perm_str = match entry.permission {
+                MountPermission::Read => "READ",
+                MountPermission::Write => "WRITE",
+                MountPermission::StreamOnly => "STREAM_ONLY",
+            };
+            let desc = entry.description.as_deref().unwrap_or("");
+            sql.push_str(&format!(
+                "INSERT OR REPLACE INTO virtual_mounts (mount_id, physical_root, permission, description) VALUES ('{}', '{}', '{}', '{}');\n",
+                id.replace('\'', "''"),
+                entry.base_path.to_string_lossy().replace('\'', "''"),
+                perm_str,
+                desc.replace('\'', "''")
+            ));
+        }
+        sql
     }
 
     /// Resolves a relative path within a virtual mount and ensures no traversal escapes the mount root.

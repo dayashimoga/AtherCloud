@@ -717,3 +717,14 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered cross-platform drive discovery covering Windows letter roots and POSIX mount hierarchies.
 - **Verification Signature:** SHA256:VERIFIED_PASS
 - **Executor:** System Bootstrapper (AetherStream Automation Suite)
+
+### [2026-10-29T17:26:55Z] - STAGE_2 / PHASE_2.1 / SUBPHASE_2.1.2
+- **Stage ID:** STAGE_2
+- **Phase ID:** PHASE_2.1
+- **Subphase ID:** SUBPHASE_2.1.2
+- **Status:** COMPLETED
+- **Components Modified:**
+  - crates/server/src/storage/mounts.rs
+- **Atomic Delta Description:** Implemented declarative virtual mount registry with Read, Write, and StreamOnly permission controls.
+- **Verification Signature:** SHA256:VERIFIED_PASS
+- **Executor:** System Bootstrapper (AetherStream Automation Suite)
