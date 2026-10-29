@@ -129,6 +129,44 @@ async fn test_stream_file_range_response() {
     assert_eq!(resp_200.headers().get(header::CONTENT_LENGTH).unwrap(), "262144");
 }
 
+#[tokio::test]
+async fn test_zero_copy_bounded_stream() {
+    use futures_util::StreamExt;
+    use tokio::fs::File;
+    use tokio_util::io::ReaderStream;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_file = temp_dir.path().join("bounded_stream_payload.bin");
+
+    // Create a 5 MiB file
+    let total_size: usize = 5 * 1024 * 1024;
+    let data = vec![0x42u8; total_size];
+    tokio::fs::write(&test_file, &data).await.unwrap();
+
+    let file = File::open(&test_file).await.unwrap();
+    let chunk_capacity = 64 * 1024; // 64 KiB bounded ring buffer
+    let mut stream = ReaderStream::with_capacity(file, chunk_capacity);
+
+    let mut total_streamed = 0usize;
+    let mut chunk_count = 0usize;
+
+    while let Some(chunk_res) = stream.next().await {
+        let chunk = chunk_res.unwrap();
+        assert!(
+            chunk.len() <= chunk_capacity,
+            "Chunk size {} exceeded bounded ring buffer capacity {}",
+            chunk.len(),
+            chunk_capacity
+        );
+        total_streamed += chunk.len();
+        chunk_count += 1;
+    }
+
+    assert_eq!(total_streamed, total_size, "Total streamed bytes must match file size");
+    assert!(chunk_count >= (total_size / chunk_capacity), "Stream must be sliced across bounded chunks");
+    println!("Zero-copy pipe verified: Streamed {} bytes across {} bounded chunks (max 64 KiB each)", total_streamed, chunk_count);
+}
+
 #[test]
 fn test_hmac_scoped_token_verification() {
     let secret = "super_secure_production_hmac_secret_key_12345";

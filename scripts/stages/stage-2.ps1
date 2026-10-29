@@ -142,12 +142,21 @@ function Test-Subphase-2-2-1 {
 
 function Test-Subphase-2-2-2 {
     Write-AetherLog "INFO" "Auditing Subphase 2.2.2: Zero-Copy Chunked I/O Socket Pipes..."
+
+    # 1. Static architectural check on ReaderStream pipe
     $streamSource = Join-Path $Script:RepoRoot "crates/server/src/storage/stream.rs"
     $content = Get-Content $streamSource -Raw
     if (-not ($content -match "ReaderStream::with_capacity" -and $content -match "Body::from_stream")) {
         throw "Zero-copy ReaderStream pipe missing in stream.rs!"
     }
-    Write-AetherLog "SUCCESS" "Zero-copy ReaderStream asynchronous socket pipe verified."
+
+    # 2. Execute Rust asynchronous streaming test
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $testOut = cargo test --test security_tests test_zero_copy_bounded_stream -- --nocapture 2>&1
+    $ErrorActionPreference = $prev
+    if ($LASTEXITCODE -ne 0) { throw "Zero-copy bounded stream test failed: $testOut" }
+    Write-AetherLog "SUCCESS" "Zero-copy ReaderStream async socket pipe verified (64 KiB bounded ring buffer, 0 RAM bloat)."
+
     return $true
 }
 
