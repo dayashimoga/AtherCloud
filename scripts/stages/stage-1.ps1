@@ -449,15 +449,41 @@ function Test-Subphase-1-2-1 {
 
 # Subphase 1.2.2: Global engineering contracts
 function Test-Subphase-1-2-2 {
-    Write-AetherLog "INFO" "Auditing Subphase 1.2.2: Global Engineering Contracts..."
-    $contracts = @("CONTRACT.md", "ARCHITECTURE.md", "REQUIREMENTS.md", "CODE_UNDERSTANDING.md", "SKILLS.md", "RULES.md")
-    foreach ($doc in $contracts) {
-        $p = Join-Path $Script:RepoRoot $doc
+    Write-AetherLog "INFO" "Auditing Subphase 1.2.2: Global Engineering Contracts Deep Ratification..."
+
+    $contractSpecs = @(
+        @{ File = "CONTRACT.md"; MandatorySections = @("Tenet I: Deterministic State Progression", "Tenet II: Strict Append-Only Records", "SERVICE LEVEL AGREEMENTS") },
+        @{ File = "ARCHITECTURE.md"; MandatorySections = @("END-TO-END ARCHITECTURAL OVERVIEW", "ADAPTIVE BITRATE TRANSCODE PIPELINE", "Zero-Copy") },
+        @{ File = "REQUIREMENTS.md"; MandatorySections = @("FUNCTIONAL REQUIREMENTS", "NON-FUNCTIONAL REQUIREMENTS", "Latency & Responsiveness") },
+        @{ File = "CODE_UNDERSTANDING.md"; MandatorySections = @("WORKSPACE TOPOGRAPHY", "THREAD MODEL & LIFECYCLE FLOW", "DEVELOPER & CONTRIBUTOR CONVENTIONS") },
+        @{ File = "SKILLS.md"; MandatorySections = @("HostEnvironmentAuditor", "AppendOnlyGovernanceGuard", "AdaptiveMediaPipelineEngineer") },
+        @{ File = "RULES.md"; MandatorySections = @("WORKSPACE MODIFICATION RULES", "Deterministic Single-Subphase Execution", "Append-Only Integrity") }
+    )
+
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+
+    foreach ($spec in $contractSpecs) {
+        $p = Join-Path $Script:RepoRoot $spec.File
         if (-not (Test-Path $p) -or (Get-Item $p).Length -eq 0) {
-            throw "Governance contract missing or zero length: $doc"
+            throw "Governance contract missing or zero length: $($spec.File)"
         }
-        Write-AetherLog "SUCCESS" "Contract ratified: $doc ($((Get-Item $p).Length) bytes)"
+
+        $content = [System.IO.File]::ReadAllText($p)
+        foreach ($sec in $spec.MandatorySections) {
+            if (-not $content.Contains($sec)) {
+                throw "Governance contract $($spec.File) is missing mandatory section: $sec"
+            }
+        }
+
+        # Calculate SHA-256 for audit verification
+        $bytes = [System.IO.File]::ReadAllBytes($p)
+        $hashBytes = $sha256.ComputeHash($bytes)
+        $hashStr = [BitConverter]::ToString($hashBytes).Replace("-", "").ToLower()
+
+        Write-AetherLog "SUCCESS" "Contract ratified: $($spec.File) ($($bytes.Length) bytes, SHA256: $hashStr)"
     }
+
+    $sha256.Dispose()
     return $true
 }
 
