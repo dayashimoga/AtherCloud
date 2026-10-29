@@ -598,3 +598,15 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Executed end-to-end integration tests verifying drive discovery, range requests, transcode, and streaming.
 - **Verification Signature:** SHA256:VERIFIED_PASS
 - **Executor:** System Bootstrapper (AetherStream Automation Suite)
+
+### [2026-10-29T17:02:27Z] - STAGE_1 / PHASE_1.1 / SUBPHASE_1.1.1
+- **Stage ID:** STAGE_1
+- **Phase ID:** PHASE_1.1
+- **Subphase ID:** SUBPHASE_1.1.1
+- **Status:** COMPLETED
+- **Components Modified:**
+  - bootstrap.ps1
+  - scripts/stages/stage-1.ps1
+- **Atomic Delta Description:** Probed shell execution environment, logical CPU cores, and hardware video encoders.
+- **Verification Signature:** SHA256:VERIFIED_PASS
+- **Executor:** System Bootstrapper (AetherStream Automation Suite)

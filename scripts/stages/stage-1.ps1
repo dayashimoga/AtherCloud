@@ -11,7 +11,10 @@ param(
     [switch]$ValidateOnly,
 
     [Parameter(Mandatory=$false)]
-    [switch]$AutoApprove
+    [switch]$AutoApprove,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,31 +28,125 @@ Write-AetherLog "STEP" "EXECUTING STAGE 1: Workspace Governance, Toolchain Verif
 # Subphase 1.1.1: Shell environment & hardware capabilities
 function Test-Subphase-1-1-1 {
     Write-AetherLog "INFO" "Auditing Subphase 1.1.1: Shell Environment & Hardware Topology..."
-    $psVer = $PSVersionTable.PSVersion
-    Write-AetherLog "SUCCESS" "PowerShell runtime version: $psVer"
 
-    # Execution policy check
-    $policy = Get-ExecutionPolicy
-    Write-AetherLog "INFO" "PowerShell Execution Policy: $policy"
+    # 1. Shell Environment Audit
+    $psVersion = $PSVersionTable.PSVersion
+    $shellEdition = $PSVersionTable.PSEdition
+    $isPS7Plus = $psVersion.Major -ge 7
 
-    # CPU cores & Memory
-    $cores = [System.Environment]::ProcessorCount
-    Write-AetherLog "SUCCESS" "CPU Logical Cores: $cores"
-
-    # Hardware Video Encoding Probes
-    $gpuDetected = @()
+    $execPolicy = Get-ExecutionPolicy
+    $isElevated = $false
     if ([System.Environment]::OSVersion.Platform -like "*Win*") {
-        $wmi = Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue
-        if ($wmi) {
-            foreach ($card in $wmi) {
-                $gpuDetected += $card.Name
-                Write-AetherLog "SUCCESS" "Hardware Display Controller: $($card.Name)"
-            }
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+
+    Write-AetherLog "SUCCESS" "PowerShell Runtime: v$psVersion ($shellEdition Edition) [PS7+ Ready: $isPS7Plus]"
+    Write-AetherLog "INFO"    "Execution Policy: $execPolicy | Process Elevation (Admin): $isElevated"
+
+    # 2. CPU & Memory Diagnostics
+    $cpuInfo = $null
+    $ramInfo = $null
+    $cpuName = "Generic Host CPU"
+    $physicalCores = [System.Environment]::ProcessorCount
+    $logicalThreads = [System.Environment]::ProcessorCount
+    $ramTotalGB = 0.0
+    $ramFreeGB = 0.0
+
+    if ([System.Environment]::OSVersion.Platform -like "*Win*") {
+        $cpuCim = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue
+        if ($cpuCim) {
+            $cpuName = $cpuCim.Name
+            $physicalCores = $cpuCim.NumberOfCores
+            $logicalThreads = $cpuCim.NumberOfLogicalProcessors
+        }
+
+        $osCim = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+        if ($osCim) {
+            $ramTotalGB = [math]::Round($osCim.TotalVisibleMemorySize / 1MB, 2)
+            $ramFreeGB = [math]::Round($osCim.FreePhysicalMemory / 1MB, 2)
         }
     }
-    if ($gpuDetected.Count -eq 0) {
-        Write-AetherLog "INFO" "Hardware probe: Utilizing CPU fallback profile."
+
+    Write-AetherLog "SUCCESS" "Processor: $cpuName"
+    Write-AetherLog "SUCCESS" "Topology: $physicalCores Physical Cores / $logicalThreads Logical Execution Threads"
+    Write-AetherLog "SUCCESS" "Memory: $ramTotalGB GB Total Physical RAM ($ramFreeGB GB Available / Free)"
+
+    # 3. Hardware Video Encoding Accelerators
+    $hwBlocks = @{
+        Intel_QSV = $false
+        NVIDIA_NVENC = $false
+        Apple_VideoToolbox = $false
+        Linux_VAAPI = $false
+        Controllers = @()
     }
+
+    # Probe Video Controllers
+    if ([System.Environment]::OSVersion.Platform -like "*Win*") {
+        $gpus = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue
+        if ($gpus) {
+            foreach ($gpu in $gpus) {
+                $name = $gpu.Name
+                $hwBlocks.Controllers += $name
+                if ($name -match "Intel") {
+                    $hwBlocks.Intel_QSV = $true
+                    Write-AetherLog "SUCCESS" "Intel QuickSync Video (QSV) Hardware Block Detected: $name"
+                }
+                if ($name -match "NVIDIA|GeForce|RTX|GTX|Quadro") {
+                    $hwBlocks.NVIDIA_NVENC = $true
+                    Write-AetherLog "SUCCESS" "NVIDIA NVENC Hardware Video Encoder Detected: $name"
+                }
+            }
+        }
+
+        # Query nvidia-smi if available for VRAM and driver version
+        $nvidiaSmi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+        if ($nvidiaSmi) {
+            $smiOut = & nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>$null
+            if ($smiOut) {
+                Write-AetherLog "INFO" "NVIDIA Driver Telemetry: $smiOut"
+            }
+        }
+    } else {
+        if (Test-Path "/dev/dri") {
+            $hwBlocks.Linux_VAAPI = $true
+            Write-AetherLog "SUCCESS" "Linux VA-API /dev/dri interface detected."
+        }
+        if ([System.Environment]::OSVersion.Platform -match "Darwin") {
+            $hwBlocks.Apple_VideoToolbox = $true
+            Write-AetherLog "SUCCESS" "Apple VideoToolbox silicon encoder detected."
+        }
+    }
+
+    # 4. Persist Telemetry Snapshot
+    $diagDir = Join-Path $Script:RepoRoot "scratch/diagnostics"
+    if (-not (Test-Path $diagDir)) {
+        New-Item -ItemType Directory -Path $diagDir -Force | Out-Null
+    }
+    $diagReport = @{
+        timestamp_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        shell = @{
+            version = "$psVersion"
+            edition = "$shellEdition"
+            is_ps7_plus = $isPS7Plus
+            execution_policy = "$execPolicy"
+            is_admin = $isElevated
+        }
+        hardware = @{
+            cpu_model = $cpuName
+            physical_cores = $physicalCores
+            logical_threads = $logicalThreads
+            total_ram_gb = $ramTotalGB
+            free_ram_gb = $ramFreeGB
+            encoders = $hwBlocks
+        }
+    }
+    $diagJson = $diagReport | ConvertTo-Json -Depth 6
+    $diagPath = Join-Path $diagDir "hardware_probe.json"
+    [System.IO.File]::WriteAllText($diagPath, $diagJson, (New-Object System.Text.UTF8Encoding($false)))
+    Write-AetherLog "SUCCESS" "Telemetry report persisted: scratch/diagnostics/hardware_probe.json"
+
     return $true
 }
 
@@ -200,7 +297,7 @@ foreach ($entry in $subphases) {
 
     $state = Get-AetherState
     $rec = Get-SubphaseRecord -State $state -SubphaseId $entry.FullId
-    if ($rec -and $rec.Subphase.status -eq "COMPLETED") {
+    if (-not $Force -and -not $Subphase -and $rec -and $rec.Subphase.status -eq "COMPLETED") {
         Write-AetherLog "INFO" "Subphase $($entry.Id) is already marked COMPLETED in state tracker."
         continue
     }

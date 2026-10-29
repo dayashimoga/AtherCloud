@@ -1,0 +1,24 @@
+import { CapacitorConfig } from "@capacitor/cli";
+
+const config: CapacitorConfig = {
+  appId: "io.aetherstream.app",
+  appName: "AetherStream",
+  webDir: "dist",
+  server: {
+    androidScheme: "https",
+    cleartext: true,
+  },
+  plugins: {
+    SplashScreen: {
+      launchShowDuration: 1500,
+      backgroundColor: "#0a0c10",
+      showSpinner: false,
+    },
+    StatusBar: {
+      backgroundColor: "#0a0c10",
+      style: "DARK",
+    },
+  },
+};
+
+export default config;

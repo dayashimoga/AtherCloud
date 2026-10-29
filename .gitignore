@@ -24,10 +24,13 @@ pnpm-debug.log*
 # Transcode cache and scratch data
 /scratch/
 /temp/
-*.ts
 *.m3u8
 !client/public/*.m3u8
 !crates/**/tests/*.m3u8
+# Ignore MPEG-TS video stream segments, but preserve TypeScript files
+**/*.ts
+!client/**/*.ts
+!crates/**/*.ts
 
 # OS and IDE files
 .DS_Store
