@@ -1,0 +1,28 @@
+#!/bin/sh
+# AetherStream Pre-Commit Hook: Append-Only Audit & Integrity Guard
+
+echo "[HOOK] Running AetherStream pre-commit audit verifications..."
+
+# 1. Verify JSON syntax of state.tracker.json
+if [ -f "state.tracker.json" ]; then
+    if command -v node >/dev/null 2>&1; then
+        node -e "JSON.parse(require('fs').readFileSync('state.tracker.json', 'utf8').replace(/^\uFEFF/, ''))" || {
+            echo "[HOOK ERROR] state.tracker.json contains invalid JSON syntax!"
+            exit 1
+        }
+    fi
+fi
+
+# 2. Append-only check on CHANGELOG.md and TODO.md using git diff
+# If deletions were made to lines in CHANGELOG.md, fail immediately
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    DELETIONS_CHANGELOG=$(git diff --cached --numstat CHANGELOG.md 2>/dev/null | awk '{print $2}')
+    if [ -n "$DELETIONS_CHANGELOG" ] && [ "$DELETIONS_CHANGELOG" -gt 0 ]; then
+        echo "[HOOK ERROR] CRITICAL GOVERNANCE VIOLATION: Deletions detected in CHANGELOG.md ($DELETIONS_CHANGELOG lines deleted)!"
+        echo "[HOOK ERROR] CONTRACT.md forbids any deletion or overwrite in CHANGELOG.md."
+        exit 1
+    fi
+fi
+
+echo "[HOOK SUCCESS] All pre-commit governance checks passed."
+exit 0

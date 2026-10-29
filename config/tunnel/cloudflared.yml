@@ -1,0 +1,18 @@
+# Cloudflare Tunnel Configuration for AetherStream
+# Runs with: cloudflared tunnel --config config/tunnel/cloudflared.yml run <tunnel_id_or_name>
+tunnel: aetherstream-prod-tunnel
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  # Stream video and media API traffic
+  - hostname: media.yourdomain.com
+    service: http://127.0.0.1:8080
+    originRequest:
+      noTLSVerify: false
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+      http2Origin: true
+      keepAliveConnections: 100
+
+  # Default catch-all rule (returns 404 for unmatched hostnames)
+  - service: http_status:404

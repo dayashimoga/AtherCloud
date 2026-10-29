@@ -1,0 +1,14 @@
+# Rathole Ingress Server Configuration (Run on Public VPS)
+[server]
+bind_addr = "0.0.0.0:2333"
+default_token = "replace_with_secure_rathole_noise_token"
+
+[server.services.aetherstream_web]
+bind_addr = "0.0.0.0:8080"
+type = "tcp"
+nodelay = true
+
+[server.transport]
+type = "noise"
+[server.transport.noise]
+local_private_key = "generate_server_private_key_here"

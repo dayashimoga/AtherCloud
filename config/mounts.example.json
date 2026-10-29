@@ -1,0 +1,18 @@
+{
+  "host": "0.0.0.0",
+  "port": 8080,
+  "hmac_secret": "replace_with_strong_random_secret_in_production_environment",
+  "scratch_dir": "./scratch",
+  "mounts": {
+    "media": {
+      "path": "./media_storage",
+      "read_only": false,
+      "description": "Primary media library for video, music, and images"
+    },
+    "documents": {
+      "path": "./documents_storage",
+      "read_only": true,
+      "description": "Read-only archive for personal documents and books"
+    }
+  }
+}

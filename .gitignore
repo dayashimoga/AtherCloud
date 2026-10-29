@@ -1,0 +1,46 @@
+# Build artifacts
+/target/
+**/target/
+/client/dist/
+/client/node_modules/
+/client/.vite/
+/crates/*/target/
+
+# Package managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+
+# Transcode cache and scratch data
+/scratch/
+/temp/
+*.ts
+*.m3u8
+!client/public/*.m3u8
+!crates/**/tests/*.m3u8
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Native platforms build artifacts
+/client/android/.gradle/
+/client/android/build/
+/client/android/app/build/
+/client/ios/Pods/
+/client/ios/build/
+/client/src-tauri/target/

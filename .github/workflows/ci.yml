@@ -1,0 +1,50 @@
+name: AetherStream Quality & Governance CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  governance-and-audit-check:
+    name: Append-Only Governance & Contract Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code with Full History
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Pre-Commit Hook Executability
+        run: |
+          chmod +x .githooks/pre-commit
+          ./.githooks/pre-commit
+
+      - name: Validate Append-Only Invariants in CHANGELOG and TODO
+        run: |
+          if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            DELETED_CHANGELOG=$(git diff HEAD~1 HEAD --numstat CHANGELOG.md | awk '{print $2}')
+            if [ -n "$DELETED_CHANGELOG" ] && [ "$DELETED_CHANGELOG" -gt 0 ]; then
+              echo "FATAL: CHANGELOG.md has deleted historical lines!"
+              exit 1
+            fi
+          fi
+
+  rust-test-and-lint:
+    name: Rust Server Test Suite & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Verify Formatting
+        run: cargo fmt --all --check
+
+      - name: Execute Security & Unit Tests
+        run: cargo test --all --verbose

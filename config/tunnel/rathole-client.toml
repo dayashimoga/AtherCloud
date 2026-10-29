@@ -1,0 +1,14 @@
+# Rathole Local Agent Configuration (Run on Media Server Daemon Host)
+[client]
+remote_addr = "vps.yourdomain.com:2333"
+default_token = "replace_with_secure_rathole_noise_token"
+
+[client.services.aetherstream_web]
+local_addr = "127.0.0.1:8080"
+type = "tcp"
+nodelay = true
+
+[client.transport]
+type = "noise"
+[client.transport.noise]
+remote_public_key = "server_public_key_here"

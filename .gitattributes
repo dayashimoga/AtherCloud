@@ -1,0 +1,17 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Scripts and hooks require LF
+*.sh text eol=lf
+.githooks/* text eol=lf
+
+# PowerShell scripts can use CRLF or LF, normalize to LF for git
+*.ps1 text eol=lf
+*.psm1 text eol=lf
+
+# Markdown and JSON
+*.md text
+*.json text
+*.toml text
+*.yml text
+*.yaml text
