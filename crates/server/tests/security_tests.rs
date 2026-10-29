@@ -79,6 +79,54 @@ fn test_range_request_parsing() {
     // Invalid range header
     let invalid = RangeRequestEngine::parse_range("characters=0-10", total_size);
     assert_eq!(invalid, None);
+
+    // Multi-part range header (picks first range to neutralize range amplification attacks)
+    let multi = RangeRequestEngine::parse_range("bytes=0-499, 1000-1499", total_size);
+    assert_eq!(multi, Some((0, 499)));
+}
+
+#[tokio::test]
+async fn test_stream_file_range_response() {
+    use axum::body::to_bytes;
+    use axum::http::header;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("video_range_test.mp4");
+
+    // Write 256 KiB of deterministic data
+    let total_bytes: usize = 256 * 1024;
+    let mut data = Vec::with_capacity(total_bytes);
+    for i in 0..total_bytes {
+        data.push((i % 256) as u8);
+    }
+    std::fs::write(&file_path, &data).unwrap();
+
+    // 1. Test HTTP 206 Partial Content Range Request
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(header::RANGE, "bytes=100-299".parse().unwrap());
+
+    let resp = RangeRequestEngine::stream_file(&file_path, &headers).await;
+    assert_eq!(resp.status(), axum::http::StatusCode::PARTIAL_CONTENT);
+    assert_eq!(resp.headers().get(header::CONTENT_RANGE).unwrap(), "bytes 100-299/262144");
+    assert_eq!(resp.headers().get(header::CONTENT_LENGTH).unwrap(), "200");
+    assert_eq!(resp.headers().get(header::ACCEPT_RANGES).unwrap(), "bytes");
+
+    let body_bytes = to_bytes(resp.into_body(), total_bytes).await.unwrap();
+    assert_eq!(body_bytes.len(), 200);
+    assert_eq!(&body_bytes[..], &data[100..=299]);
+
+    // 2. Test 416 Range Not Satisfiable
+    let mut out_of_bounds = axum::http::HeaderMap::new();
+    out_of_bounds.insert(header::RANGE, "bytes=500000-600000".parse().unwrap());
+    let resp_416 = RangeRequestEngine::stream_file(&file_path, &out_of_bounds).await;
+    assert_eq!(resp_416.status(), axum::http::StatusCode::RANGE_NOT_SATISFIABLE);
+    assert_eq!(resp_416.headers().get(header::CONTENT_RANGE).unwrap(), "bytes */262144");
+
+    // 3. Test HTTP 200 Full Stream
+    let empty_headers = axum::http::HeaderMap::new();
+    let resp_200 = RangeRequestEngine::stream_file(&file_path, &empty_headers).await;
+    assert_eq!(resp_200.status(), axum::http::StatusCode::OK);
+    assert_eq!(resp_200.headers().get(header::CONTENT_LENGTH).unwrap(), "262144");
 }
 
 #[test]
