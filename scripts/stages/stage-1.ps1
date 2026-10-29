@@ -31,7 +31,7 @@ function Test-Subphase-1-1-1 {
 
     # 1. Shell Environment Audit
     $psVersion = $PSVersionTable.PSVersion
-    $shellEdition = $PSVersionTable.PSEdition
+    $psEdition = $PSVersionTable.PSEdition
     $isPS7Plus = $psVersion.Major -ge 7
 
     $execPolicy = Get-ExecutionPolicy
@@ -42,7 +42,7 @@ function Test-Subphase-1-1-1 {
         $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     }
 
-    Write-AetherLog "SUCCESS" "PowerShell Runtime: v$psVersion ($shellEdition Edition) [PS7+ Ready: $isPS7Plus]"
+    Write-AetherLog "SUCCESS" "PowerShell Runtime: v$psVersion ($psEdition Edition) [PS7+ Ready: $isPS7Plus]"
     Write-AetherLog "INFO"    "Execution Policy: $execPolicy | Process Elevation (Admin): $isElevated"
 
     # 2. CPU & Memory Diagnostics
@@ -128,7 +128,7 @@ function Test-Subphase-1-1-1 {
         timestamp_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         shell = @{
             version = "$psVersion"
-            edition = "$shellEdition"
+            edition = "$psEdition"
             is_ps7_plus = $isPS7Plus
             execution_policy = "$execPolicy"
             is_admin = $isElevated
@@ -153,15 +153,95 @@ function Test-Subphase-1-1-1 {
 # Subphase 1.1.2: CLI tooling & semver
 function Test-Subphase-1-1-2 {
     Write-AetherLog "INFO" "Auditing Subphase 1.1.2: CLI Tooling & Semver Compatibility..."
-    $req = @("git", "cargo", "rustc", "node", "npm")
-    foreach ($tool in $req) {
-        $c = Get-Command $tool -ErrorAction SilentlyContinue
-        if (-not $c) {
-            throw "Required CLI tool missing: $tool"
-        }
-        $ver = & $tool --version 2>&1
-        Write-AetherLog "SUCCESS" "Tool verified: $tool ($ver)"
+
+    $toolsReport = @{
+        timestamp_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        core_tools = @{}
+        auxiliary_tools = @{}
     }
+
+    # 1. Core Tooling Audit & Semver Verification
+    $coreToolSpecs = @(
+        @{ Name = "git"; MinMajor = 2; MinMinor = 20; VerCmd = "git --version"; Regex = "git version (\d+)\.(\d+)(?:\.(\d+))?" },
+        @{ Name = "cargo"; MinMajor = 1; MinMinor = 70; VerCmd = "cargo --version"; Regex = "cargo (\d+)\.(\d+)(?:\.(\d+))?" },
+        @{ Name = "rustc"; MinMajor = 1; MinMinor = 70; VerCmd = "rustc --version"; Regex = "rustc (\d+)\.(\d+)(?:\.(\d+))?" },
+        @{ Name = "node"; MinMajor = 18; MinMinor = 0; VerCmd = "node --version"; Regex = "v?(\d+)\.(\d+)(?:\.(\d+))?" },
+        @{ Name = "npm"; MinMajor = 8; MinMinor = 0; VerCmd = "npm --version"; Regex = "v?(\d+)\.(\d+)(?:\.(\d+))?" }
+    )
+
+    foreach ($spec in $coreToolSpecs) {
+        $cmdObj = Get-Command $spec.Name -ErrorAction SilentlyContinue
+        if (-not $cmdObj) {
+            throw "Mandatory core CLI tool is missing: $($spec.Name)"
+        }
+
+        $rawVer = & $spec.Name --version 2>&1 | Out-String
+        $rawVer = $rawVer.Trim()
+
+        $isCompatible = $false
+        $parsedMajor = 0
+        $parsedMinor = 0
+        $parsedPatch = 0
+
+        if ($rawVer -match $spec.Regex) {
+            $parsedMajor = [int]$Matches[1]
+            $parsedMinor = [int]$Matches[2]
+            if ($Matches.Count -gt 3 -and $Matches[3]) {
+                $parsedPatch = [int]$Matches[3]
+            }
+
+            if ($parsedMajor -gt $spec.MinMajor -or ($parsedMajor -eq $spec.MinMajor -and $parsedMinor -ge $spec.MinMinor)) {
+                $isCompatible = $true
+            }
+        }
+
+        if (-not $isCompatible) {
+            throw "Core tool $($spec.Name) version '$rawVer' fails minimum semver requirement >= $($spec.MinMajor).$($spec.MinMinor)"
+        }
+
+        Write-AetherLog "SUCCESS" "Tool verified: $($spec.Name) -> $rawVer (Compatible: >= $($spec.MinMajor).$($spec.MinMinor))"
+        $toolsReport.core_tools[$spec.Name] = @{
+            path = $cmdObj.Source
+            raw_version = $rawVer
+            parsed_version = "$parsedMajor.$parsedMinor.$parsedPatch"
+            min_required = "$($spec.MinMajor).$($spec.MinMinor).0"
+            status = "COMPATIBLE"
+        }
+    }
+
+    # 2. Auxiliary & Media Tooling Audit
+    $auxToolSpecs = @("gh", "ffmpeg", "ffprobe")
+    foreach ($aux in $auxToolSpecs) {
+        $cmdObj = Get-Command $aux -ErrorAction SilentlyContinue
+        if ($cmdObj) {
+            $rawVer = & $aux --version 2>&1 | Select-Object -First 1 | Out-String
+            $rawVer = $rawVer.Trim()
+            Write-AetherLog "SUCCESS" "Auxiliary tool present: $aux -> $rawVer"
+            $toolsReport.auxiliary_tools[$aux] = @{
+                path = $cmdObj.Source
+                raw_version = $rawVer
+                status = "INSTALLED"
+            }
+        } else {
+            Write-AetherLog "WARN" "Tool absent on PATH: $aux (Will be resolved in Subphase 1.1.3 mitigation recipes)"
+            $toolsReport.auxiliary_tools[$aux] = @{
+                path = $null
+                raw_version = $null
+                status = "ABSENT_MITIGATION_REQUIRED"
+            }
+        }
+    }
+
+    # 3. Persist Telemetry Report
+    $diagDir = Join-Path $Script:RepoRoot "scratch/diagnostics"
+    if (-not (Test-Path $diagDir)) {
+        New-Item -ItemType Directory -Path $diagDir -Force | Out-Null
+    }
+    $diagPath = Join-Path $diagDir "toolchain_probe.json"
+    $diagJson = $toolsReport | ConvertTo-Json -Depth 5
+    [System.IO.File]::WriteAllText($diagPath, $diagJson, (New-Object System.Text.UTF8Encoding($false)))
+    Write-AetherLog "SUCCESS" "Toolchain report persisted: scratch/diagnostics/toolchain_probe.json"
+
     return $true
 }
 
