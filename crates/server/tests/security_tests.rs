@@ -193,6 +193,17 @@ fn test_hmac_scoped_token_verification() {
     // Different mount check
     let mount_check = HmacTokenValidator::validate_token(secret, &token, "vault", path);
     assert!(mount_check.is_err(), "Different mount must be denied");
+
+    // Opaque hex-encoded token test
+    let hex_token = hex::encode(&token);
+    let hex_check = HmacTokenValidator::validate_token(secret, &hex_token, mount, path);
+    assert!(hex_check.is_ok(), "Opaque hex-encoded token must validate cleanly");
+
+    // Expired token test
+    let expired_token = HmacTokenValidator::create_token_string(secret, mount, "movies", 0, false);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let expired_check = HmacTokenValidator::validate_token(secret, &expired_token, mount, "movies/test.mp4");
+    assert!(expired_check.is_err(), "Expired token must be rejected");
 }
 
 #[test]

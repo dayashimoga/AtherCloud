@@ -80,7 +80,17 @@ impl HmacTokenValidator {
         requested_mount: &str,
         requested_path: &str,
     ) -> Result<ScopedTokenClaims, AuthError> {
-        let parts: Vec<&str> = token_str.split(':').collect();
+        // Transparently decode opaque hex-encoded tokens if present
+        let decoded_token_string = if !token_str.contains(':') {
+            hex::decode(token_str)
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .unwrap_or_else(|| token_str.to_string())
+        } else {
+            token_str.to_string()
+        };
+
+        let parts: Vec<&str> = decoded_token_string.split(':').collect();
         if parts.len() != 5 {
             return Err(AuthError::MalformedToken("Expected 5 colon-separated fields".into()));
         }
@@ -104,9 +114,12 @@ impl HmacTokenValidator {
             return Err(AuthError::ExpiredToken(expires_at));
         }
 
-        // 2. Validate cryptographic signature
+        // 2. Validate cryptographic signature with constant-time equality check
         let expected_sig = Self::sign(secret, &mount_id, &path_prefix, expires_at, allow_write);
-        if signature_hex != expected_sig {
+        let sig_bytes = hex::decode(&signature_hex).unwrap_or_default();
+        let exp_bytes = hex::decode(&expected_sig).unwrap_or_default();
+
+        if sig_bytes.is_empty() || !constant_time_eq(&sig_bytes, &exp_bytes) {
             warn!("HMAC signature verification failed!");
             return Err(AuthError::InvalidSignature);
         }
@@ -134,4 +147,16 @@ impl HmacTokenValidator {
             signature_hex,
         })
     }
+}
+
+/// Constant-time byte slice comparison to mitigate timing side-channel attacks
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
