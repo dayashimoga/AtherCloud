@@ -248,27 +248,142 @@ function Test-Subphase-1-1-2 {
 # Subphase 1.1.3: Wrapper binaries & mitigation recipes
 function Test-Subphase-1-1-3 {
     Write-AetherLog "INFO" "Auditing Subphase 1.1.3: Provisioning & Mitigation Recipes..."
-    # If ffmpeg is absent, write mitigation recipe script
-    $ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
+
+    $missingTools = @()
+    $candidateTools = @("ffmpeg", "ffprobe", "gh")
+
+    foreach ($tool in $candidateTools) {
+        $c = Get-Command $tool -ErrorAction SilentlyContinue
+        if (-not $c) {
+            $missingTools += $tool
+        }
+    }
+
+    $isWin = [System.Environment]::OSVersion.Platform -like "*Win*"
+    $hasWinget = $null -ne (Get-Command winget -ErrorAction SilentlyContinue)
+    $hasChoco = $null -ne (Get-Command choco -ErrorAction SilentlyContinue)
+
+    if ($missingTools.Count -gt 0) {
+        Write-AetherLog "WARN" "The following optional / auxiliary tools are missing on host PATH: $($missingTools -join ', ')"
+        Write-AetherLog "INFO" "Evaluating host package managers for automated mitigation..."
+        if ($isWin) {
+            Write-AetherLog "SUCCESS" "Host package managers detected: winget: $hasWinget, choco: $hasChoco"
+            Write-AetherLog "STEP" "RECOMMENDED TERMINAL MITIGATION COMMANDS:"
+            if ($missingTools -contains "ffmpeg" -or $missingTools -contains "ffprobe") {
+                if ($hasWinget) {
+                    Write-AetherLog "INFO" "  [FFmpeg via Winget]: winget install Gyan.FFmpeg"
+                } elseif ($hasChoco) {
+                    Write-AetherLog "INFO" "  [FFmpeg via Choco]:  choco install ffmpeg -y"
+                }
+            }
+            if ($missingTools -contains "gh") {
+                if ($hasWinget) {
+                    Write-AetherLog "INFO" "  [GitHub CLI via Winget]: winget install GitHub.cli"
+                } elseif ($hasChoco) {
+                    Write-AetherLog "INFO" "  [GitHub CLI via Choco]:  choco install gh -y"
+                }
+            }
+        }
+    } else {
+        Write-AetherLog "SUCCESS" "All optional and auxiliary toolchains are natively available on host PATH."
+    }
+
+    # Generate comprehensive mitigation recipe documentation
     $recipePath = Join-Path $Script:RepoRoot "scripts/mitigation-recipes.md"
-    $recipeContent = @(
-        "# AETHERSTREAM TOOLCHAIN MITIGATION RECIPES",
-        "If any required binary is absent, execute the corresponding recipe:",
-        "",
-        "### 1. FFmpeg & FFprobe",
-        "- **Windows (Winget):** winget install Gyan.FFmpeg",
-        "- **Windows (Chocolatey):** choco install ffmpeg",
-        "- **macOS (Homebrew):** brew install ffmpeg",
-        "- **Ubuntu/Debian (APT):** sudo apt-get update && sudo apt-get install -y ffmpeg",
-        "",
-        "### 2. GitHub CLI (gh)",
-        "- **Windows:** winget install GitHub.cli",
-        "- **macOS:** brew install gh",
-        "- **Linux:** sudo apt install gh",
-        "- **Authentication:** gh auth login"
-    ) -join "`n"
-    Set-Content -Path $recipePath -Value $recipeContent -Encoding UTF8
-    Write-AetherLog "SUCCESS" "Mitigation recipes generated and verified at scripts/mitigation-recipes.md"
+    $recipeLines = @(
+        '# AETHERSTREAM TOOLCHAIN MITIGATION RECIPES',
+        '',
+        'This guide provides mitigation recipes for optional and auxiliary binaries required for hardware video transcoding and remote repository automation.',
+        '',
+        '---',
+        '',
+        '## 1. FFmpeg & FFprobe (Adaptive Bitrate Video Pipeline)',
+        '',
+        'FFmpeg is used by Stage 3 for HLS segmentation, keyframe extraction, and hardware-accelerated transcoding (NVENC/QSV).',
+        '',
+        '### Windows Installation',
+        '- **Via Winget (Recommended):**',
+        '  ```powershell',
+        '  winget install Gyan.FFmpeg',
+        '  ```',
+        '- **Via Chocolatey:**',
+        '  ```powershell',
+        '  choco install ffmpeg -y',
+        '  ```',
+        '- **Via Scoop:**',
+        '  ```powershell',
+        '  scoop install ffmpeg',
+        '  ```',
+        '',
+        '### macOS Installation',
+        '- **Via Homebrew:**',
+        '  ```bash',
+        '  brew install ffmpeg',
+        '  ```',
+        '',
+        '### Linux Installation',
+        '- **Debian / Ubuntu:**',
+        '  ```bash',
+        '  sudo apt-get update && sudo apt-get install -y ffmpeg',
+        '  ```',
+        '- **Arch Linux:**',
+        '  ```bash',
+        '  sudo pacman -S ffmpeg',
+        '  ```',
+        '- **Fedora / RHEL:**',
+        '  ```bash',
+        '  sudo dnf install ffmpeg',
+        '  ```',
+        '',
+        '### Verification',
+        '  ```bash',
+        '  ffmpeg -version',
+        '  ffprobe -version',
+        '  ```',
+        '',
+        '---',
+        '',
+        '## 2. GitHub CLI (gh)',
+        '',
+        'Used for Stage 1 automated remote repository provisioning and branch policy enforcement.',
+        '',
+        '### Windows Installation',
+        '- **Via Winget:**',
+        '  ```powershell',
+        '  winget install GitHub.cli',
+        '  ```',
+        '- **Via Chocolatey:**',
+        '  ```powershell',
+        '  choco install gh -y',
+        '  ```',
+        '',
+        '### macOS Installation',
+        '  ```bash',
+        '  brew install gh',
+        '  ```',
+        '',
+        '### Linux Installation',
+        '  ```bash',
+        '  sudo apt-get install gh',
+        '  ```',
+        '',
+        '### Authentication',
+        '  ```bash',
+        '  gh auth login',
+        '  ```',
+        '',
+        '---',
+        '',
+        '## 3. Server Fallback Architecture (Zero-Dependency Mode)',
+        '',
+        'When FFmpeg is absent on the host:',
+        '1. The AetherStream daemon seamlessly activates **Direct RFC 7233 Range-Request Streaming** (206 Partial Content), serving pristine native video containers directly without transcoding.',
+        '2. The HLS engine logs an informational advisory and falls back to browser-native container playback via the universal web client.',
+        '3. Zero panics occur during development, integration testing, or file streaming workflows.'
+    )
+    $recipeContent = $recipeLines -join "`n"
+    [System.IO.File]::WriteAllText($recipePath, $recipeContent, (New-Object System.Text.UTF8Encoding($false)))
+    Write-AetherLog "SUCCESS" "Mitigation recipes generated and persisted: scripts/mitigation-recipes.md"
     return $true
 }
 
