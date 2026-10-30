@@ -1202,3 +1202,19 @@ async fn test_video_pipeline_random_seek_stress_and_latency() {
         max_lat
     );
 }
+
+#[test]
+fn test_cross_platform_volume_inspector() {
+    use aetherstream_server::storage::volume_info::VolumeInspector;
+    let volumes = VolumeInspector::inspect_volumes();
+    assert!(!volumes.is_empty(), "VolumeInspector must detect at least one mounted volume");
+
+    let has_system = volumes.iter().any(|v| v.is_system);
+    assert!(has_system, "At least one volume must be identified as system partition");
+
+    for v in &volumes {
+        assert!(v.total_bytes > 0, "Volume {} must have total_bytes > 0", v.name);
+        assert!(!v.name.is_empty(), "Volume must have a non-empty name");
+        assert!(!v.filesystem.is_empty(), "Volume {} must have filesystem info", v.name);
+    }
+}

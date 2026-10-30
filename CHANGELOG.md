@@ -1014,3 +1014,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Configured Tauri desktop application bundle with CSP boundaries and multi-window defaults.
 - **Verification Signature:** SHA256:VERIFIED_PASS
 - **Executor:** System Bootstrapper (AetherStream Automation Suite)
+
+### [2026-10-30T05:04:18Z] - STAGE_7 / PHASE_7.1 / SUBPHASE_7.1.1
+- **Stage ID:** STAGE_7 (Core Daemon Refactor, OS Storage Bus & Dynamic Mount Engine)
+- **Phase ID:** PHASE_7.1 (Asynchronous Host Storage Discovery Engine)
+- **Subphase ID:** SUBPHASE_7.1.1 (Implement Cross-Platform Disk Inspection Using Sysinfo & OS Native APIs)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/Cargo.toml`
+  - `crates/server/src/storage/volume_info.rs` [CREATED]
+  - `crates/server/src/storage/mod.rs`
+  - `crates/server/src/storage/mounts.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Integrated `sysinfo v0.40` and native Win32/Unix storage inspection APIs (`GetDriveTypeW`, `GetVolumeInformationW`, `GetDiskFreeSpaceExW`, `GetLogicalDrives`) in `VolumeInspector`. Rewired `MountRegistry::discover_detailed_drives()` to dynamically probe physical volumes, serial numbers, disk geometry, and media types instead of static drive letter heuristics. Validated via `test_cross_platform_volume_inspector`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_VOLUME_INSPECTOR_001
+- **Executor:** Principal Systems & Rust Distributed Storage Engineer

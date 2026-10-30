@@ -1,637 +1,1297 @@
 {
-    "project_name":  "AetherStream",
-    "schema_version":  "2.0.0",
-    "created_at":  "2026-10-29T15:52:00Z",
-    "updated_at":  "2026-10-30T03:48:07Z",
-    "current_stage":  4,
-    "current_phase":  "4.3",
-    "current_subphase":  "4.3.3",
-    "stages":  [
-                   {
-                       "id":  "STAGE_1",
-                       "number":  1,
-                       "title":  "Workspace Governance, Toolchain Verification \u0026 State Engine",
-                       "status":  "COMPLETED",
-                       "phases":  [
-                                      {
-                                          "id":  "PHASE_1.1",
-                                          "title":  "Host Environment \u0026 Native Dependency Auditing",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_1.1.1",
-                                                                "task_id":  "TASK-1.1.1",
-                                                                "title":  "Probe shell environment (PowerShell, elevation) \u0026 hardware capabilities (CPU, RAM, GPU blocks)",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:02:27Z",
-                                                                "validator_command":  "scripts/stages/stage-1.ps1 -Subphase 1.1.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated audit assertion passed with exit code 0."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_1.1.2",
-                                                                "task_id":  "TASK-1.1.2",
-                                                                "title":  "Validate CLI tooling availability and semver (Git, GitHub CLI, Rust/Go, Node.js, FFmpeg)",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:06:52Z",
-                                                                "validator_command":  "scripts/stages/stage-1.ps1 -Subphase 1.1.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated audit assertion passed with exit code 0."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_1.1.3",
-                                                                "task_id":  "TASK-1.1.3",
-                                                                "title":  "Auto-provision missing local wrapper binaries or output precise mitigation recipes",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:09:27Z",
-                                                                "validator_command":  "scripts/stages/stage-1.ps1 -Subphase 1.1.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated audit assertion passed with exit code 0."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_1.2",
-                                          "title":  "Repository Topology \u0026 Global Governance Setup",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_1.2.1",
-                                                                "task_id":  "TASK-1.2.1",
-                                                                "title":  "Initialize Git tracking, line ending normalization (.gitattributes), and build .gitignore",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:11:01Z",
-                                                                "validator_command":  "scripts/stages/stage-1.ps1 -Subphase 1.2.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated audit assertion passed with exit code 0."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_1.2.2",
-                                                                "task_id":  "TASK-1.2.2",
-                                                                "title":  "Materialize global engineering contracts (CONTRACT, ARCHITECTURE, REQUIREMENTS, CODE_UNDERSTANDING, SKILLS, RULES)",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:12:54Z",
-                                                                "validator_command":  "scripts/stages/stage-1.ps1 -Subphase 1.2.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated audit assertion passed with exit code 0."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_1.2.3",
-                                                                "task_id":  "TASK-1.2.3",
-                                                                "title":  "Set up append-only verification gates in CHANGELOG and TODO with pre-commit enforcement hooks",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:14:42Z",
-                                                                "validator_command":  "scripts/stages/stage-1.ps1 -Subphase 1.2.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated audit assertion passed with exit code 0."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_1.3",
-                                          "title":  "Deterministic State Tracker Construction",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_1.3.1",
-                                                                "task_id":  "TASK-1.3.1",
-                                                                "title":  "Instantiate state.tracker.json with complete Stage -\u003e Phase -\u003e Subphase schema \u0026 audit metadata",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:16:50Z",
-                                                                "validator_command":  "scripts/stages/stage-1.ps1 -Subphase 1.3.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated audit assertion passed with exit code 0."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_1.3.2",
-                                                                "task_id":  "TASK-1.3.2",
-                                                                "title":  "Create atomic-write state mutations in PowerShell with try/catch/finally rollback checkpoints",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:18:12Z",
-                                                                "validator_command":  "scripts/stages/stage-1.ps1 -Subphase 1.3.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated audit assertion passed with exit code 0."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_1.3.3",
-                                                                "task_id":  "TASK-1.3.3",
-                                                                "title":  "Link GitHub remote repository via gh CLI / git remote and push baseline branch protections",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:19:41Z",
-                                                                "validator_command":  "scripts/stages/stage-1.ps1 -Subphase 1.3.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated audit assertion passed with exit code 0."
-                                                            }
-                                                        ]
-                                      }
-                                  ]
-                   },
-                   {
-                       "id":  "STAGE_2",
-                       "number":  2,
-                       "title":  "Storage Virtualization, I/O Subsystem \u0026 Granular RBAC",
-                       "status":  "COMPLETED",
-                       "phases":  [
-                                      {
-                                          "id":  "PHASE_2.1",
-                                          "title":  "Mount Registry \u0026 Path Traversal Immunity",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_2.1.1",
-                                                                "task_id":  "TASK-2.1.1",
-                                                                "title":  "Cross-platform drive discovery logic (Windows letter drives, POSIX mount points, network shares)",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:23:52Z",
-                                                                "validator_command":  "scripts/stages/stage-2.ps1 -Subphase 2.1.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated unit tests, path traversal checks, and benchmarks passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_2.1.2",
-                                                                "task_id":  "TASK-2.1.2",
-                                                                "title":  "Virtual mount table implementation with granular permissions (READ, WRITE, STREAM_ONLY)",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:26:55Z",
-                                                                "validator_command":  "scripts/stages/stage-2.ps1 -Subphase 2.1.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated unit tests, path traversal checks, and benchmarks passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_2.1.3",
-                                                                "task_id":  "TASK-2.1.3",
-                                                                "title":  "Enforce canonical path sandboxing neutralizing symlinks, encoded URI bypasses, and relative paths",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:28:57Z",
-                                                                "validator_command":  "scripts/stages/stage-2.ps1 -Subphase 2.1.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated unit tests, path traversal checks, and benchmarks passed."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_2.2",
-                                          "title":  "Zero-Copy Chunked I/O \u0026 HTTP Range Server",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_2.2.1",
-                                                                "task_id":  "TASK-2.2.1",
-                                                                "title":  "HTTP Range Request handling (RFC 7233 - 206 Partial Content) for single and multi-part byte ranges",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:31:16Z",
-                                                                "validator_command":  "scripts/stages/stage-2.ps1 -Subphase 2.2.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated unit tests, path traversal checks, and benchmarks passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_2.2.2",
-                                                                "task_id":  "TASK-2.2.2",
-                                                                "title":  "Zero-copy I/O pipes streaming local media chunks directly to socket with minimal RAM allocation",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:33:13Z",
-                                                                "validator_command":  "scripts/stages/stage-2.ps1 -Subphase 2.2.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated unit tests, path traversal checks, and benchmarks passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_2.2.3",
-                                                                "task_id":  "TASK-2.2.3",
-                                                                "title":  "Resumable chunked file upload handlers with SHA-256 integrity verification per chunk",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:35:37Z",
-                                                                "validator_command":  "scripts/stages/stage-2.ps1 -Subphase 2.2.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated unit tests, path traversal checks, and benchmarks passed."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_2.3",
-                                          "title":  "Cryptographic Token Engine \u0026 Share Links",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_2.3.1",
-                                                                "task_id":  "TASK-2.3.1",
-                                                                "title":  "Time-bounded, scoped HMAC-SHA256 token generation for public sharing of files or directories",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:38:08Z",
-                                                                "validator_command":  "scripts/stages/stage-2.ps1 -Subphase 2.3.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated unit tests, path traversal checks, and benchmarks passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_2.3.2",
-                                                                "task_id":  "TASK-2.3.2",
-                                                                "title":  "File-tree indexing engine with memory-mapped caching and filesystem notification watchers",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:40:24Z",
-                                                                "validator_command":  "scripts/stages/stage-2.ps1 -Subphase 2.3.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated unit tests, path traversal checks, and benchmarks passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_2.3.3",
-                                                                "task_id":  "TASK-2.3.3",
-                                                                "title":  "Execute local benchmark suite verifying loopback throughput and sub-5ms TTFB under concurrent load",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T17:42:48Z",
-                                                                "validator_command":  "scripts/stages/stage-2.ps1 -Subphase 2.3.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated unit tests, path traversal checks, and benchmarks passed."
-                                                            }
-                                                        ]
-                                      }
-                                  ]
-                   },
-                   {
-                       "id":  "STAGE_3",
-                       "number":  3,
-                       "title":  "Hardware-Accelerated Adaptive Bitrate (ABR) Video Pipeline",
-                       "status":  "COMPLETED",
-                       "phases":  [
-                                      {
-                                          "id":  "PHASE_3.1",
-                                          "title":  "Media Probing \u0026 Hardware Encoder Discovery",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_3.1.1",
-                                                                "task_id":  "TASK-3.1.1",
-                                                                "title":  "FFprobe wrapper extracting container, codecs (H.264, HEVC, AV1, VP9), audio channels, and GOP size",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T02:00:01Z",
-                                                                "validator_command":  "scripts/stages/stage-3.ps1 -Subphase 3.1.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated transcode pipeline and profile unit assertions passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_3.1.2",
-                                                                "task_id":  "TASK-3.1.2",
-                                                                "title":  "Runtime encoder detection ladder (NVENC, QSV, VA-API, VideoToolbox) with CPU libx264 fallback",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T02:24:41Z",
-                                                                "validator_command":  "scripts/stages/stage-3.ps1 -Subphase 3.1.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated transcode pipeline and profile unit assertions passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_3.1.3",
-                                                                "task_id":  "TASK-3.1.3",
-                                                                "title":  "Adaptive profile definitions for 1080p, 720p, 480p, and 360p",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T02:28:08Z",
-                                                                "validator_command":  "scripts/stages/stage-3.ps1 -Subphase 3.1.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated transcode pipeline and profile unit assertions passed."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_3.2",
-                                          "title":  "Just-In-Time (JIT) Segmenter \u0026 Transcode Engine",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_3.2.1",
-                                                                "task_id":  "TASK-3.2.1",
-                                                                "title":  "HLS Master Playlist (master.m3u8) generator dynamically matching stream resolutions without upscaling",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T02:31:03Z",
-                                                                "validator_command":  "scripts/stages/stage-3.ps1 -Subphase 3.2.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated transcode pipeline and profile unit assertions passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_3.2.2",
-                                                                "task_id":  "TASK-3.2.2",
-                                                                "title":  "Just-In-Time chunking into 2-4s transport segments with rolling LRU ring buffer caching",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T02:34:33Z",
-                                                                "validator_command":  "scripts/stages/stage-3.ps1 -Subphase 3.2.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated transcode pipeline and profile unit assertions passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_3.2.3",
-                                                                "task_id":  "TASK-3.2.3",
-                                                                "title":  "Audio pass-through and dynamic downmixing (5.1/7.1 to stereo AAC 128kbps) for browser compatibility",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T02:38:24Z",
-                                                                "validator_command":  "scripts/stages/stage-3.ps1 -Subphase 3.2.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated transcode pipeline and profile unit assertions passed."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_3.3",
-                                          "title":  "Storage Footprint \u0026 Lifecycle Cleaner",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_3.3.1",
-                                                                "task_id":  "TASK-3.3.1",
-                                                                "title":  "Automated disk space supervisor enforcing cache quota with LRU eviction daemon",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T02:42:21Z",
-                                                                "validator_command":  "scripts/stages/stage-3.ps1 -Subphase 3.3.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated transcode pipeline and profile unit assertions passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_3.3.2",
-                                                                "task_id":  "TASK-3.3.2",
-                                                                "title":  "Background offline-transcode worker enabling pre-rendering full ABR profiles for zero CPU load",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T02:45:56Z",
-                                                                "validator_command":  "scripts/stages/stage-3.ps1 -Subphase 3.3.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated transcode pipeline and profile unit assertions passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_3.3.3",
-                                                                "task_id":  "TASK-3.3.3",
-                                                                "title":  "Video pipeline stress test verifying rapid random seeks, seek latency, and zero frame drops",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T02:49:45Z",
-                                                                "validator_command":  "scripts/stages/stage-3.ps1 -Subphase 3.3.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated transcode pipeline and profile unit assertions passed."
-                                                            }
-                                                        ]
-                                      }
-                                  ]
-                   },
-                   {
-                       "id":  "STAGE_4",
-                       "number":  4,
-                       "title":  "Universal Client UI, Adaptive Video Player \u0026 App Shells",
-                       "status":  "COMPLETED",
-                       "phases":  [
-                                      {
-                                          "id":  "PHASE_4.1",
-                                          "title":  "Responsive File Explorer \u0026 Permission Management UI",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_4.1.1",
-                                                                "task_id":  "TASK-4.1.1",
-                                                                "title":  "Ultra-lean frontend (Vite + TypeScript) with grid/list views, breadcrumbs, search \u0026 drive selection",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T03:07:36Z",
-                                                                "validator_command":  "scripts/stages/stage-4.ps1 -Subphase 4.1.1 -ValidateOnly",
-                                                                "verification_proof":  "Client component tests and packaging schema validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_4.1.2",
-                                                                "task_id":  "TASK-4.1.2",
-                                                                "title":  "File operations: multi-select, drag-drop chunked uploads, direct downloads, and share links",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T03:17:34Z",
-                                                                "validator_command":  "scripts/stages/stage-4.ps1 -Subphase 4.1.2 -ValidateOnly",
-                                                                "verification_proof":  "Client component tests and packaging schema validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_4.1.3",
-                                                                "task_id":  "TASK-4.1.3",
-                                                                "title":  "Client-side session state storing auth tokens securely with adaptive light/dark theming",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T03:23:36Z",
-                                                                "validator_command":  "scripts/stages/stage-4.ps1 -Subphase 4.1.3 -ValidateOnly",
-                                                                "verification_proof":  "Client component tests and packaging schema validations passed."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_4.2",
-                                          "title":  "Intelligent Adaptive Player Implementation",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_4.2.1",
-                                                                "task_id":  "TASK-4.2.1",
-                                                                "title":  "Integrate Hls.js with fine-tuned ABR tuning (buffer horizons and EWMA sliding window)",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T03:27:02Z",
-                                                                "validator_command":  "scripts/stages/stage-4.ps1 -Subphase 4.2.1 -ValidateOnly",
-                                                                "verification_proof":  "Client component tests and packaging schema validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_4.2.2",
-                                                                "task_id":  "TASK-4.2.2",
-                                                                "title":  "Custom player UI with playback speed, resolution picker, PiP, theater mode, and mobile touch gestures",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T03:31:37Z",
-                                                                "validator_command":  "scripts/stages/stage-4.ps1 -Subphase 4.2.2 -ValidateOnly",
-                                                                "verification_proof":  "Client component tests and packaging schema validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_4.2.3",
-                                                                "task_id":  "TASK-4.2.3",
-                                                                "title":  "Telemetry \u0026 live diagnostics HUD tracking dropped frames, throughput (kbps), buffer health, and shifts",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T03:36:17Z",
-                                                                "validator_command":  "scripts/stages/stage-4.ps1 -Subphase 4.2.3 -ValidateOnly",
-                                                                "verification_proof":  "Client component tests and packaging schema validations passed."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_4.3",
-                                          "title":  "Cross-Platform Packaging \u0026 Native Shells",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_4.3.1",
-                                                                "task_id":  "TASK-4.3.1",
-                                                                "title":  "PWA manifest, service workers, and app icons for zero-install full-screen mobile usage",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T03:40:27Z",
-                                                                "validator_command":  "scripts/stages/stage-4.ps1 -Subphase 4.3.1 -ValidateOnly",
-                                                                "verification_proof":  "Client component tests and packaging schema validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_4.3.2",
-                                                                "task_id":  "TASK-4.3.2",
-                                                                "title":  "Mobile native wrappers (Capacitor) configuring Android Studio specs and iOS Xcode workspace",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T03:42:53Z",
-                                                                "validator_command":  "scripts/stages/stage-4.ps1 -Subphase 4.3.2 -ValidateOnly",
-                                                                "verification_proof":  "Client component tests and packaging schema validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_4.3.3",
-                                                                "task_id":  "TASK-4.3.3",
-                                                                "title":  "Desktop wrapper layer (Tauri) configured for lightweight native executables (Win, macOS, Linux)",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-30T03:45:34Z",
-                                                                "validator_command":  "scripts/stages/stage-4.ps1 -Subphase 4.3.3 -ValidateOnly",
-                                                                "verification_proof":  "Client component tests and packaging schema validations passed."
-                                                            }
-                                                        ]
-                                      }
-                                  ]
-                   },
-                   {
-                       "id":  "STAGE_5",
-                       "number":  5,
-                       "title":  "Zero-Config Secure Networking \u0026 Ingress Traversal",
-                       "status":  "COMPLETED",
-                       "phases":  [
-                                      {
-                                          "id":  "PHASE_5.1",
-                                          "title":  "NAT Traversal \u0026 Ingress Tunnel Integration",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_5.1.1",
-                                                                "task_id":  "TASK-5.1.1",
-                                                                "title":  "Automated STUN/P2P hole punching and WireGuard mesh support for direct peer networking",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:50Z",
-                                                                "validator_command":  "scripts/stages/stage-5.ps1 -Subphase 5.1.1 -ValidateOnly",
-                                                                "verification_proof":  "Tunnel configs verified and HMAC security test suite passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_5.1.2",
-                                                                "task_id":  "TASK-5.1.2",
-                                                                "title":  "Built-in reverse tunnel agent (Cloudflare Tunnel / Rathole client) for instant public HTTPS URLs",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:50Z",
-                                                                "validator_command":  "scripts/stages/stage-5.ps1 -Subphase 5.1.2 -ValidateOnly",
-                                                                "verification_proof":  "Tunnel configs verified and HMAC security test suite passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_5.1.3",
-                                                                "task_id":  "TASK-5.1.3",
-                                                                "title":  "Automatic tunnel failover prioritizing local LAN IP on same subnet with seamless tunnel fallback",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:50Z",
-                                                                "validator_command":  "scripts/stages/stage-5.ps1 -Subphase 5.1.3 -ValidateOnly",
-                                                                "verification_proof":  "Tunnel configs verified and HMAC security test suite passed."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_5.2",
-                                          "title":  "Transport Security \u0026 Attack Mitigation",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_5.2.1",
-                                                                "task_id":  "TASK-5.2.1",
-                                                                "title":  "Enforce TLS 1.3 across channels with automated cert management or tunnel-edge termination",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:50Z",
-                                                                "validator_command":  "scripts/stages/stage-5.ps1 -Subphase 5.2.1 -ValidateOnly",
-                                                                "verification_proof":  "Tunnel configs verified and HMAC security test suite passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_5.2.2",
-                                                                "task_id":  "TASK-5.2.2",
-                                                                "title":  "Rate limiting (leaky bucket), IP brute-force protection, and CORS scoping",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:50Z",
-                                                                "validator_command":  "scripts/stages/stage-5.ps1 -Subphase 5.2.2 -ValidateOnly",
-                                                                "verification_proof":  "Tunnel configs verified and HMAC security test suite passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_5.2.3",
-                                                                "task_id":  "TASK-5.2.3",
-                                                                "title":  "End-to-end network penetration tests verifying interface isolation and path boundary defense",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:50Z",
-                                                                "validator_command":  "scripts/stages/stage-5.ps1 -Subphase 5.2.3 -ValidateOnly",
-                                                                "verification_proof":  "Tunnel configs verified and HMAC security test suite passed."
-                                                            }
-                                                        ]
-                                      }
-                                  ]
-                   },
-                   {
-                       "id":  "STAGE_6",
-                       "number":  6,
-                       "title":  "Continuous Integration, Cross-Compilation \u0026 Automated Release Distribution",
-                       "status":  "COMPLETED",
-                       "phases":  [
-                                      {
-                                          "id":  "PHASE_6.1",
-                                          "title":  "Core Daemon Multi-Architecture Compilation Matrix",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_6.1.1",
-                                                                "task_id":  "TASK-6.1.1",
-                                                                "title":  "GitHub Actions matrix cross-compiling daemon into static self-contained binaries (Linux, Win, macOS)",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:57Z",
-                                                                "validator_command":  "scripts/stages/stage-6.ps1 -Subphase 6.1.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated CI matrix and release artifact validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_6.1.2",
-                                                                "task_id":  "TASK-6.1.2",
-                                                                "title":  "Package embedded FFmpeg dependencies or provide automated first-run platform download hooks",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:57Z",
-                                                                "validator_command":  "scripts/stages/stage-6.ps1 -Subphase 6.1.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated CI matrix and release artifact validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_6.1.3",
-                                                                "task_id":  "TASK-6.1.3",
-                                                                "title":  "Verify binary sizes, strip symbols, and archive compressed artifacts (.tar.gz, .zip) with SHA-256",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:57Z",
-                                                                "validator_command":  "scripts/stages/stage-6.ps1 -Subphase 6.1.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated CI matrix and release artifact validations passed."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_6.2",
-                                          "title":  "Mobile \u0026 Desktop Automated Artifact Build Pipeline",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_6.2.1",
-                                                                "task_id":  "TASK-6.2.1",
-                                                                "title":  "Android CI runner: compile mobile frontend, invoke Gradle, produce standalone APKs and AAB",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:57Z",
-                                                                "validator_command":  "scripts/stages/stage-6.ps1 -Subphase 6.2.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated CI matrix and release artifact validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_6.2.2",
-                                                                "task_id":  "TASK-6.2.2",
-                                                                "title":  "macOS/iOS CI runner: build iOS project workspace and produce test application package (.ipa)",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:57Z",
-                                                                "validator_command":  "scripts/stages/stage-6.ps1 -Subphase 6.2.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated CI matrix and release artifact validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_6.2.3",
-                                                                "task_id":  "TASK-6.2.3",
-                                                                "title":  "Desktop CI builders: produce Windows .msi/.exe, Linux .AppImage/.deb, and macOS .dmg bundles",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:57Z",
-                                                                "validator_command":  "scripts/stages/stage-6.ps1 -Subphase 6.2.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated CI matrix and release artifact validations passed."
-                                                            }
-                                                        ]
-                                      },
-                                      {
-                                          "id":  "PHASE_6.3",
-                                          "title":  "Release Orchestration \u0026 Immutable Audit Sealing",
-                                          "status":  "COMPLETED",
-                                          "subphases":  [
-                                                            {
-                                                                "id":  "SUBPHASE_6.3.1",
-                                                                "task_id":  "TASK-6.3.1",
-                                                                "title":  "Hook CI build outputs to actions/upload-artifact for immediate testing of all platform builds",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:57Z",
-                                                                "validator_command":  "scripts/stages/stage-6.ps1 -Subphase 6.3.1 -ValidateOnly",
-                                                                "verification_proof":  "Automated CI matrix and release artifact validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_6.3.2",
-                                                                "task_id":  "TASK-6.3.2",
-                                                                "title":  "Append CI run URL, artifact hashes, and metrics into CHANGELOG.md and seal state.tracker.json",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:57Z",
-                                                                "validator_command":  "scripts/stages/stage-6.ps1 -Subphase 6.3.2 -ValidateOnly",
-                                                                "verification_proof":  "Automated CI matrix and release artifact validations passed."
-                                                            },
-                                                            {
-                                                                "id":  "SUBPHASE_6.3.3",
-                                                                "task_id":  "TASK-6.3.3",
-                                                                "title":  "Automated end-to-end smoke test verifying install, drive discovery, transcode, and streaming",
-                                                                "status":  "COMPLETED",
-                                                                "completed_at":  "2026-10-29T16:16:58Z",
-                                                                "validator_command":  "scripts/stages/stage-6.ps1 -Subphase 6.3.3 -ValidateOnly",
-                                                                "verification_proof":  "Automated CI matrix and release artifact validations passed."
-                                                            }
-                                                        ]
-                                      }
-                                  ]
-                   }
-               ]
+    "project_name": "AetherStream",
+    "schema_version": "2.0.0",
+    "created_at": "2026-10-29T15:52:00Z",
+    "updated_at": "2026-10-30T05:05:00Z",
+    "current_stage": 7,
+    "current_phase": "7.1",
+    "current_subphase": "7.1.2",
+    "stages": [
+        {
+            "id": "STAGE_1",
+            "number": 1,
+            "title": "Workspace Governance, Toolchain Verification & State Engine",
+            "status": "COMPLETED",
+            "phases": [
+                {
+                    "id": "PHASE_1.1",
+                    "title": "Host Environment & Native Dependency Auditing",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_1.1.1",
+                            "task_id": "TASK-1.1.1",
+                            "title": "Probe shell environment (PowerShell, elevation) & hardware capabilities (CPU, RAM, GPU blocks)",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:02:27Z",
+                            "validator_command": "scripts/stages/stage-1.ps1 -Subphase 1.1.1 -ValidateOnly",
+                            "verification_proof": "Automated audit assertion passed with exit code 0."
+                        },
+                        {
+                            "id": "SUBPHASE_1.1.2",
+                            "task_id": "TASK-1.1.2",
+                            "title": "Validate CLI tooling availability and semver (Git, GitHub CLI, Rust/Go, Node.js, FFmpeg)",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:06:52Z",
+                            "validator_command": "scripts/stages/stage-1.ps1 -Subphase 1.1.2 -ValidateOnly",
+                            "verification_proof": "Automated audit assertion passed with exit code 0."
+                        },
+                        {
+                            "id": "SUBPHASE_1.1.3",
+                            "task_id": "TASK-1.1.3",
+                            "title": "Auto-provision missing local wrapper binaries or output precise mitigation recipes",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:09:27Z",
+                            "validator_command": "scripts/stages/stage-1.ps1 -Subphase 1.1.3 -ValidateOnly",
+                            "verification_proof": "Automated audit assertion passed with exit code 0."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_1.2",
+                    "title": "Repository Topology & Global Governance Setup",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_1.2.1",
+                            "task_id": "TASK-1.2.1",
+                            "title": "Initialize Git tracking, line ending normalization (.gitattributes), and build .gitignore",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:11:01Z",
+                            "validator_command": "scripts/stages/stage-1.ps1 -Subphase 1.2.1 -ValidateOnly",
+                            "verification_proof": "Automated audit assertion passed with exit code 0."
+                        },
+                        {
+                            "id": "SUBPHASE_1.2.2",
+                            "task_id": "TASK-1.2.2",
+                            "title": "Materialize global engineering contracts (CONTRACT, ARCHITECTURE, REQUIREMENTS, CODE_UNDERSTANDING, SKILLS, RULES)",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:12:54Z",
+                            "validator_command": "scripts/stages/stage-1.ps1 -Subphase 1.2.2 -ValidateOnly",
+                            "verification_proof": "Automated audit assertion passed with exit code 0."
+                        },
+                        {
+                            "id": "SUBPHASE_1.2.3",
+                            "task_id": "TASK-1.2.3",
+                            "title": "Set up append-only verification gates in CHANGELOG and TODO with pre-commit enforcement hooks",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:14:42Z",
+                            "validator_command": "scripts/stages/stage-1.ps1 -Subphase 1.2.3 -ValidateOnly",
+                            "verification_proof": "Automated audit assertion passed with exit code 0."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_1.3",
+                    "title": "Deterministic State Tracker Construction",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_1.3.1",
+                            "task_id": "TASK-1.3.1",
+                            "title": "Instantiate state.tracker.json with complete Stage -> Phase -> Subphase schema & audit metadata",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:16:50Z",
+                            "validator_command": "scripts/stages/stage-1.ps1 -Subphase 1.3.1 -ValidateOnly",
+                            "verification_proof": "Automated audit assertion passed with exit code 0."
+                        },
+                        {
+                            "id": "SUBPHASE_1.3.2",
+                            "task_id": "TASK-1.3.2",
+                            "title": "Create atomic-write state mutations in PowerShell with try/catch/finally rollback checkpoints",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:18:12Z",
+                            "validator_command": "scripts/stages/stage-1.ps1 -Subphase 1.3.2 -ValidateOnly",
+                            "verification_proof": "Automated audit assertion passed with exit code 0."
+                        },
+                        {
+                            "id": "SUBPHASE_1.3.3",
+                            "task_id": "TASK-1.3.3",
+                            "title": "Link GitHub remote repository via gh CLI / git remote and push baseline branch protections",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:19:41Z",
+                            "validator_command": "scripts/stages/stage-1.ps1 -Subphase 1.3.3 -ValidateOnly",
+                            "verification_proof": "Automated audit assertion passed with exit code 0."
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_2",
+            "number": 2,
+            "title": "Storage Virtualization, I/O Subsystem & Granular RBAC",
+            "status": "COMPLETED",
+            "phases": [
+                {
+                    "id": "PHASE_2.1",
+                    "title": "Mount Registry & Path Traversal Immunity",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_2.1.1",
+                            "task_id": "TASK-2.1.1",
+                            "title": "Cross-platform drive discovery logic (Windows letter drives, POSIX mount points, network shares)",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:23:52Z",
+                            "validator_command": "scripts/stages/stage-2.ps1 -Subphase 2.1.1 -ValidateOnly",
+                            "verification_proof": "Automated unit tests, path traversal checks, and benchmarks passed."
+                        },
+                        {
+                            "id": "SUBPHASE_2.1.2",
+                            "task_id": "TASK-2.1.2",
+                            "title": "Virtual mount table implementation with granular permissions (READ, WRITE, STREAM_ONLY)",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:26:55Z",
+                            "validator_command": "scripts/stages/stage-2.ps1 -Subphase 2.1.2 -ValidateOnly",
+                            "verification_proof": "Automated unit tests, path traversal checks, and benchmarks passed."
+                        },
+                        {
+                            "id": "SUBPHASE_2.1.3",
+                            "task_id": "TASK-2.1.3",
+                            "title": "Enforce canonical path sandboxing neutralizing symlinks, encoded URI bypasses, and relative paths",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:28:57Z",
+                            "validator_command": "scripts/stages/stage-2.ps1 -Subphase 2.1.3 -ValidateOnly",
+                            "verification_proof": "Automated unit tests, path traversal checks, and benchmarks passed."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_2.2",
+                    "title": "Zero-Copy Chunked I/O & HTTP Range Server",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_2.2.1",
+                            "task_id": "TASK-2.2.1",
+                            "title": "HTTP Range Request handling (RFC 7233 - 206 Partial Content) for single and multi-part byte ranges",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:31:16Z",
+                            "validator_command": "scripts/stages/stage-2.ps1 -Subphase 2.2.1 -ValidateOnly",
+                            "verification_proof": "Automated unit tests, path traversal checks, and benchmarks passed."
+                        },
+                        {
+                            "id": "SUBPHASE_2.2.2",
+                            "task_id": "TASK-2.2.2",
+                            "title": "Zero-copy I/O pipes streaming local media chunks directly to socket with minimal RAM allocation",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:33:13Z",
+                            "validator_command": "scripts/stages/stage-2.ps1 -Subphase 2.2.2 -ValidateOnly",
+                            "verification_proof": "Automated unit tests, path traversal checks, and benchmarks passed."
+                        },
+                        {
+                            "id": "SUBPHASE_2.2.3",
+                            "task_id": "TASK-2.2.3",
+                            "title": "Resumable chunked file upload handlers with SHA-256 integrity verification per chunk",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:35:37Z",
+                            "validator_command": "scripts/stages/stage-2.ps1 -Subphase 2.2.3 -ValidateOnly",
+                            "verification_proof": "Automated unit tests, path traversal checks, and benchmarks passed."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_2.3",
+                    "title": "Cryptographic Token Engine & Share Links",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_2.3.1",
+                            "task_id": "TASK-2.3.1",
+                            "title": "Time-bounded, scoped HMAC-SHA256 token generation for public sharing of files or directories",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:38:08Z",
+                            "validator_command": "scripts/stages/stage-2.ps1 -Subphase 2.3.1 -ValidateOnly",
+                            "verification_proof": "Automated unit tests, path traversal checks, and benchmarks passed."
+                        },
+                        {
+                            "id": "SUBPHASE_2.3.2",
+                            "task_id": "TASK-2.3.2",
+                            "title": "File-tree indexing engine with memory-mapped caching and filesystem notification watchers",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:40:24Z",
+                            "validator_command": "scripts/stages/stage-2.ps1 -Subphase 2.3.2 -ValidateOnly",
+                            "verification_proof": "Automated unit tests, path traversal checks, and benchmarks passed."
+                        },
+                        {
+                            "id": "SUBPHASE_2.3.3",
+                            "task_id": "TASK-2.3.3",
+                            "title": "Execute local benchmark suite verifying loopback throughput and sub-5ms TTFB under concurrent load",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T17:42:48Z",
+                            "validator_command": "scripts/stages/stage-2.ps1 -Subphase 2.3.3 -ValidateOnly",
+                            "verification_proof": "Automated unit tests, path traversal checks, and benchmarks passed."
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_3",
+            "number": 3,
+            "title": "Hardware-Accelerated Adaptive Bitrate (ABR) Video Pipeline",
+            "status": "COMPLETED",
+            "phases": [
+                {
+                    "id": "PHASE_3.1",
+                    "title": "Media Probing & Hardware Encoder Discovery",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_3.1.1",
+                            "task_id": "TASK-3.1.1",
+                            "title": "FFprobe wrapper extracting container, codecs (H.264, HEVC, AV1, VP9), audio channels, and GOP size",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T02:00:01Z",
+                            "validator_command": "scripts/stages/stage-3.ps1 -Subphase 3.1.1 -ValidateOnly",
+                            "verification_proof": "Automated transcode pipeline and profile unit assertions passed."
+                        },
+                        {
+                            "id": "SUBPHASE_3.1.2",
+                            "task_id": "TASK-3.1.2",
+                            "title": "Runtime encoder detection ladder (NVENC, QSV, VA-API, VideoToolbox) with CPU libx264 fallback",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T02:24:41Z",
+                            "validator_command": "scripts/stages/stage-3.ps1 -Subphase 3.1.2 -ValidateOnly",
+                            "verification_proof": "Automated transcode pipeline and profile unit assertions passed."
+                        },
+                        {
+                            "id": "SUBPHASE_3.1.3",
+                            "task_id": "TASK-3.1.3",
+                            "title": "Adaptive profile definitions for 1080p, 720p, 480p, and 360p",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T02:28:08Z",
+                            "validator_command": "scripts/stages/stage-3.ps1 -Subphase 3.1.3 -ValidateOnly",
+                            "verification_proof": "Automated transcode pipeline and profile unit assertions passed."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_3.2",
+                    "title": "Just-In-Time (JIT) Segmenter & Transcode Engine",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_3.2.1",
+                            "task_id": "TASK-3.2.1",
+                            "title": "HLS Master Playlist (master.m3u8) generator dynamically matching stream resolutions without upscaling",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T02:31:03Z",
+                            "validator_command": "scripts/stages/stage-3.ps1 -Subphase 3.2.1 -ValidateOnly",
+                            "verification_proof": "Automated transcode pipeline and profile unit assertions passed."
+                        },
+                        {
+                            "id": "SUBPHASE_3.2.2",
+                            "task_id": "TASK-3.2.2",
+                            "title": "Just-In-Time chunking into 2-4s transport segments with rolling LRU ring buffer caching",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T02:34:33Z",
+                            "validator_command": "scripts/stages/stage-3.ps1 -Subphase 3.2.2 -ValidateOnly",
+                            "verification_proof": "Automated transcode pipeline and profile unit assertions passed."
+                        },
+                        {
+                            "id": "SUBPHASE_3.2.3",
+                            "task_id": "TASK-3.2.3",
+                            "title": "Audio pass-through and dynamic downmixing (5.1/7.1 to stereo AAC 128kbps) for browser compatibility",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T02:38:24Z",
+                            "validator_command": "scripts/stages/stage-3.ps1 -Subphase 3.2.3 -ValidateOnly",
+                            "verification_proof": "Automated transcode pipeline and profile unit assertions passed."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_3.3",
+                    "title": "Storage Footprint & Lifecycle Cleaner",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_3.3.1",
+                            "task_id": "TASK-3.3.1",
+                            "title": "Automated disk space supervisor enforcing cache quota with LRU eviction daemon",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T02:42:21Z",
+                            "validator_command": "scripts/stages/stage-3.ps1 -Subphase 3.3.1 -ValidateOnly",
+                            "verification_proof": "Automated transcode pipeline and profile unit assertions passed."
+                        },
+                        {
+                            "id": "SUBPHASE_3.3.2",
+                            "task_id": "TASK-3.3.2",
+                            "title": "Background offline-transcode worker enabling pre-rendering full ABR profiles for zero CPU load",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T02:45:56Z",
+                            "validator_command": "scripts/stages/stage-3.ps1 -Subphase 3.3.2 -ValidateOnly",
+                            "verification_proof": "Automated transcode pipeline and profile unit assertions passed."
+                        },
+                        {
+                            "id": "SUBPHASE_3.3.3",
+                            "task_id": "TASK-3.3.3",
+                            "title": "Video pipeline stress test verifying rapid random seeks, seek latency, and zero frame drops",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T02:49:45Z",
+                            "validator_command": "scripts/stages/stage-3.ps1 -Subphase 3.3.3 -ValidateOnly",
+                            "verification_proof": "Automated transcode pipeline and profile unit assertions passed."
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_4",
+            "number": 4,
+            "title": "Universal Client UI, Adaptive Video Player & App Shells",
+            "status": "COMPLETED",
+            "phases": [
+                {
+                    "id": "PHASE_4.1",
+                    "title": "Responsive File Explorer & Permission Management UI",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_4.1.1",
+                            "task_id": "TASK-4.1.1",
+                            "title": "Ultra-lean frontend (Vite + TypeScript) with grid/list views, breadcrumbs, search & drive selection",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T03:07:36Z",
+                            "validator_command": "scripts/stages/stage-4.ps1 -Subphase 4.1.1 -ValidateOnly",
+                            "verification_proof": "Client component tests and packaging schema validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_4.1.2",
+                            "task_id": "TASK-4.1.2",
+                            "title": "File operations: multi-select, drag-drop chunked uploads, direct downloads, and share links",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T03:17:34Z",
+                            "validator_command": "scripts/stages/stage-4.ps1 -Subphase 4.1.2 -ValidateOnly",
+                            "verification_proof": "Client component tests and packaging schema validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_4.1.3",
+                            "task_id": "TASK-4.1.3",
+                            "title": "Client-side session state storing auth tokens securely with adaptive light/dark theming",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T03:23:36Z",
+                            "validator_command": "scripts/stages/stage-4.ps1 -Subphase 4.1.3 -ValidateOnly",
+                            "verification_proof": "Client component tests and packaging schema validations passed."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_4.2",
+                    "title": "Intelligent Adaptive Player Implementation",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_4.2.1",
+                            "task_id": "TASK-4.2.1",
+                            "title": "Integrate Hls.js with fine-tuned ABR tuning (buffer horizons and EWMA sliding window)",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T03:27:02Z",
+                            "validator_command": "scripts/stages/stage-4.ps1 -Subphase 4.2.1 -ValidateOnly",
+                            "verification_proof": "Client component tests and packaging schema validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_4.2.2",
+                            "task_id": "TASK-4.2.2",
+                            "title": "Custom player UI with playback speed, resolution picker, PiP, theater mode, and mobile touch gestures",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T03:31:37Z",
+                            "validator_command": "scripts/stages/stage-4.ps1 -Subphase 4.2.2 -ValidateOnly",
+                            "verification_proof": "Client component tests and packaging schema validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_4.2.3",
+                            "task_id": "TASK-4.2.3",
+                            "title": "Telemetry & live diagnostics HUD tracking dropped frames, throughput (kbps), buffer health, and shifts",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T03:36:17Z",
+                            "validator_command": "scripts/stages/stage-4.ps1 -Subphase 4.2.3 -ValidateOnly",
+                            "verification_proof": "Client component tests and packaging schema validations passed."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_4.3",
+                    "title": "Cross-Platform Packaging & Native Shells",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_4.3.1",
+                            "task_id": "TASK-4.3.1",
+                            "title": "PWA manifest, service workers, and app icons for zero-install full-screen mobile usage",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T03:40:27Z",
+                            "validator_command": "scripts/stages/stage-4.ps1 -Subphase 4.3.1 -ValidateOnly",
+                            "verification_proof": "Client component tests and packaging schema validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_4.3.2",
+                            "task_id": "TASK-4.3.2",
+                            "title": "Mobile native wrappers (Capacitor) configuring Android Studio specs and iOS Xcode workspace",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T03:42:53Z",
+                            "validator_command": "scripts/stages/stage-4.ps1 -Subphase 4.3.2 -ValidateOnly",
+                            "verification_proof": "Client component tests and packaging schema validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_4.3.3",
+                            "task_id": "TASK-4.3.3",
+                            "title": "Desktop wrapper layer (Tauri) configured for lightweight native executables (Win, macOS, Linux)",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T03:45:34Z",
+                            "validator_command": "scripts/stages/stage-4.ps1 -Subphase 4.3.3 -ValidateOnly",
+                            "verification_proof": "Client component tests and packaging schema validations passed."
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_5",
+            "number": 5,
+            "title": "Zero-Config Secure Networking & Ingress Traversal",
+            "status": "COMPLETED",
+            "phases": [
+                {
+                    "id": "PHASE_5.1",
+                    "title": "NAT Traversal & Ingress Tunnel Integration",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_5.1.1",
+                            "task_id": "TASK-5.1.1",
+                            "title": "Automated STUN/P2P hole punching and WireGuard mesh support for direct peer networking",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:50Z",
+                            "validator_command": "scripts/stages/stage-5.ps1 -Subphase 5.1.1 -ValidateOnly",
+                            "verification_proof": "Tunnel configs verified and HMAC security test suite passed."
+                        },
+                        {
+                            "id": "SUBPHASE_5.1.2",
+                            "task_id": "TASK-5.1.2",
+                            "title": "Built-in reverse tunnel agent (Cloudflare Tunnel / Rathole client) for instant public HTTPS URLs",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:50Z",
+                            "validator_command": "scripts/stages/stage-5.ps1 -Subphase 5.1.2 -ValidateOnly",
+                            "verification_proof": "Tunnel configs verified and HMAC security test suite passed."
+                        },
+                        {
+                            "id": "SUBPHASE_5.1.3",
+                            "task_id": "TASK-5.1.3",
+                            "title": "Automatic tunnel failover prioritizing local LAN IP on same subnet with seamless tunnel fallback",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:50Z",
+                            "validator_command": "scripts/stages/stage-5.ps1 -Subphase 5.1.3 -ValidateOnly",
+                            "verification_proof": "Tunnel configs verified and HMAC security test suite passed."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_5.2",
+                    "title": "Transport Security & Attack Mitigation",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_5.2.1",
+                            "task_id": "TASK-5.2.1",
+                            "title": "Enforce TLS 1.3 across channels with automated cert management or tunnel-edge termination",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:50Z",
+                            "validator_command": "scripts/stages/stage-5.ps1 -Subphase 5.2.1 -ValidateOnly",
+                            "verification_proof": "Tunnel configs verified and HMAC security test suite passed."
+                        },
+                        {
+                            "id": "SUBPHASE_5.2.2",
+                            "task_id": "TASK-5.2.2",
+                            "title": "Rate limiting (leaky bucket), IP brute-force protection, and CORS scoping",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:50Z",
+                            "validator_command": "scripts/stages/stage-5.ps1 -Subphase 5.2.2 -ValidateOnly",
+                            "verification_proof": "Tunnel configs verified and HMAC security test suite passed."
+                        },
+                        {
+                            "id": "SUBPHASE_5.2.3",
+                            "task_id": "TASK-5.2.3",
+                            "title": "End-to-end network penetration tests verifying interface isolation and path boundary defense",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:50Z",
+                            "validator_command": "scripts/stages/stage-5.ps1 -Subphase 5.2.3 -ValidateOnly",
+                            "verification_proof": "Tunnel configs verified and HMAC security test suite passed."
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_6",
+            "number": 6,
+            "title": "Continuous Integration, Cross-Compilation & Automated Release Distribution",
+            "status": "COMPLETED",
+            "phases": [
+                {
+                    "id": "PHASE_6.1",
+                    "title": "Core Daemon Multi-Architecture Compilation Matrix",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_6.1.1",
+                            "task_id": "TASK-6.1.1",
+                            "title": "GitHub Actions matrix cross-compiling daemon into static self-contained binaries (Linux, Win, macOS)",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:57Z",
+                            "validator_command": "scripts/stages/stage-6.ps1 -Subphase 6.1.1 -ValidateOnly",
+                            "verification_proof": "Automated CI matrix and release artifact validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_6.1.2",
+                            "task_id": "TASK-6.1.2",
+                            "title": "Package embedded FFmpeg dependencies or provide automated first-run platform download hooks",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:57Z",
+                            "validator_command": "scripts/stages/stage-6.ps1 -Subphase 6.1.2 -ValidateOnly",
+                            "verification_proof": "Automated CI matrix and release artifact validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_6.1.3",
+                            "task_id": "TASK-6.1.3",
+                            "title": "Verify binary sizes, strip symbols, and archive compressed artifacts (.tar.gz, .zip) with SHA-256",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:57Z",
+                            "validator_command": "scripts/stages/stage-6.ps1 -Subphase 6.1.3 -ValidateOnly",
+                            "verification_proof": "Automated CI matrix and release artifact validations passed."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_6.2",
+                    "title": "Mobile & Desktop Automated Artifact Build Pipeline",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_6.2.1",
+                            "task_id": "TASK-6.2.1",
+                            "title": "Android CI runner: compile mobile frontend, invoke Gradle, produce standalone APKs and AAB",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:57Z",
+                            "validator_command": "scripts/stages/stage-6.ps1 -Subphase 6.2.1 -ValidateOnly",
+                            "verification_proof": "Automated CI matrix and release artifact validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_6.2.2",
+                            "task_id": "TASK-6.2.2",
+                            "title": "macOS/iOS CI runner: build iOS project workspace and produce test application package (.ipa)",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:57Z",
+                            "validator_command": "scripts/stages/stage-6.ps1 -Subphase 6.2.2 -ValidateOnly",
+                            "verification_proof": "Automated CI matrix and release artifact validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_6.2.3",
+                            "task_id": "TASK-6.2.3",
+                            "title": "Desktop CI builders: produce Windows .msi/.exe, Linux .AppImage/.deb, and macOS .dmg bundles",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:57Z",
+                            "validator_command": "scripts/stages/stage-6.ps1 -Subphase 6.2.3 -ValidateOnly",
+                            "verification_proof": "Automated CI matrix and release artifact validations passed."
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_6.3",
+                    "title": "Release Orchestration & Immutable Audit Sealing",
+                    "status": "COMPLETED",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_6.3.1",
+                            "task_id": "TASK-6.3.1",
+                            "title": "Hook CI build outputs to actions/upload-artifact for immediate testing of all platform builds",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:57Z",
+                            "validator_command": "scripts/stages/stage-6.ps1 -Subphase 6.3.1 -ValidateOnly",
+                            "verification_proof": "Automated CI matrix and release artifact validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_6.3.2",
+                            "task_id": "TASK-6.3.2",
+                            "title": "Append CI run URL, artifact hashes, and metrics into CHANGELOG.md and seal state.tracker.json",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:57Z",
+                            "validator_command": "scripts/stages/stage-6.ps1 -Subphase 6.3.2 -ValidateOnly",
+                            "verification_proof": "Automated CI matrix and release artifact validations passed."
+                        },
+                        {
+                            "id": "SUBPHASE_6.3.3",
+                            "task_id": "TASK-6.3.3",
+                            "title": "Automated end-to-end smoke test verifying install, drive discovery, transcode, and streaming",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-29T16:16:58Z",
+                            "validator_command": "scripts/stages/stage-6.ps1 -Subphase 6.3.3 -ValidateOnly",
+                            "verification_proof": "Automated CI matrix and release artifact validations passed."
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_7",
+            "number": 7,
+            "title": "Core Daemon Refactor, OS Storage Bus & Dynamic Mount Engine",
+            "status": "IN_PROGRESS",
+            "phases": [
+                {
+                    "id": "PHASE_7.1",
+                    "title": "Asynchronous Host Storage Discovery Engine",
+                    "status": "IN_PROGRESS",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_7.1.1",
+                            "task_id": "TASK-7.1.1",
+                            "title": "Implement cross-platform disk inspection using sysinfo and OS native APIs",
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T05:04:18Z",
+                            "validator_command": "cargo test --test security_tests test_cross_platform_volume_inspector",
+                            "verification_proof": "Unified VolumeInspector leveraging sysinfo and native OS APIs passed all unit & integration tests."
+                        },
+                        {
+                            "id": "SUBPHASE_7.1.2",
+                            "task_id": "TASK-7.1.2",
+                            "title": "Extract volume filesystem labels, serial numbers, total/free capacity, mount points, and physical media types",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": "cargo test --test security_tests test_cross_platform_volume_inspector",
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_7.1.3",
+                            "task_id": "TASK-7.1.3",
+                            "title": "Exclude or quarantine OS-critical paths from raw unmanaged listing to prevent accidental system bricking",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": "cargo test --test security_tests test_cross_platform_volume_inspector",
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_7.2",
+                    "title": "Plug-and-Play OS Hot-Plug Event Bus",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_7.2.1",
+                            "task_id": "TASK-7.2.1",
+                            "title": "On Windows, integrate background hidden window message loop intercepting WM_DEVICECHANGE",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_7.2.2",
+                            "task_id": "TASK-7.2.2",
+                            "title": "On Linux, netlink/udev listener; on macOS, DiskArbitration framework events",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_7.2.3",
+                            "task_id": "TASK-7.2.3",
+                            "title": "Integrate Tokio broadcast channel publishing StorageDeviceEvent Plugged/Unplugged to daemon subsystems",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_7.3",
+                    "title": "High-Performance Concurrent File I/O Engine",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_7.3.1",
+                            "task_id": "TASK-7.3.1",
+                            "title": "Implement zero-copy byte-range file streaming using ReaderStream with bounded 64 KiB ring buffers",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_7.3.2",
+                            "task_id": "TASK-7.3.2",
+                            "title": "Build resumable chunked upload worker handling multi-part slices with concurrent Web Crypto SHA-256 chunk hashing",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_7.3.3",
+                            "task_id": "TASK-7.3.3",
+                            "title": "Instrument system telemetry recording I/O read/write latency, active client stream counts, and disk bus utilization",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_8",
+            "number": 8,
+            "title": "Granular Security Sandbox, Scoped RBAC & Virtual Mount Configuration",
+            "status": "PENDING",
+            "phases": [
+                {
+                    "id": "PHASE_8.1",
+                    "title": "SQLite WAL Mount Registry & Storage Schema",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_8.1.1",
+                            "task_id": "TASK-8.1.1",
+                            "title": "Design and run SQLite migrations creating mounts and share_rules tables",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_8.1.2",
+                            "task_id": "TASK-8.1.2",
+                            "title": "Implement atomic ACID write transactions with SQLite Write-Ahead Logging (WAL) and memory-mapped I/O",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_8.1.3",
+                            "task_id": "TASK-8.1.3",
+                            "title": "Build in-memory cached read-path registry protected by tokio::sync::RwLock for sub-microsecond route authorization",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_8.2",
+                    "title": "Canonical Path Sandboxing & Traversal Defenses",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_8.2.1",
+                            "task_id": "TASK-8.2.1",
+                            "title": "Strict path resolution using dunce::canonicalize preventing null byte injection, directory traversal, symlink escapes, UNC bypasses",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_8.2.2",
+                            "task_id": "TASK-8.2.2",
+                            "title": "Validate requested subpaths against mount allowed_subpaths whitelist before executing file read syscalls",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_8.2.3",
+                            "task_id": "TASK-8.2.3",
+                            "title": "Standardized RFC 7807 problem details JSON payloads on authorization or boundary violations",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_8.3",
+                    "title": "Cryptographic Token Authority & REST Management APIs",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_8.3.1",
+                            "task_id": "TASK-8.3.1",
+                            "title": "Build constant-time HMAC-SHA256 scoped token generator and validator",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_8.3.2",
+                            "task_id": "TASK-8.3.2",
+                            "title": "Implement Axum REST API endpoints for storage drives and virtual mounts management",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_8.3.3",
+                            "task_id": "TASK-8.3.3",
+                            "title": "Implement public sharing URLs generator with time expiration and passkey protection",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_9",
+            "number": 9,
+            "title": "Automated Hardware Transcoding Ladder & Adaptive Bitrate (ABR) Pipeline",
+            "status": "PENDING",
+            "phases": [
+                {
+                    "id": "PHASE_9.1",
+                    "title": "Hardware Video Acceleration Detection Ladder",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_9.1.1",
+                            "task_id": "TASK-9.1.1",
+                            "title": "Build runtime probe executing capability checks for NVENC, QSV, VideoToolbox, VA-API, and CPU fallback",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_9.1.2",
+                            "task_id": "TASK-9.1.2",
+                            "title": "Validate encoder initialization with 1-frame transcode dry-run at startup with clean ladder failover",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_9.1.3",
+                            "task_id": "TASK-9.1.3",
+                            "title": "Expose active hardware acceleration status via /api/v1/transcode/status for frontend telemetry HUD",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_9.2",
+                    "title": "RFC 8216 Compliant Multi-Variant HLS Manifest Compiler",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_9.2.1",
+                            "task_id": "TASK-9.2.1",
+                            "title": "Implement FFprobe JSON metadata parser extracting codecs, bitrate, resolution, aspect ratio, audio layout",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_9.2.2",
+                            "task_id": "TASK-9.2.2",
+                            "title": "Generate dynamic master playlist (master.m3u8) serving adaptive ladder (1080p, 720p, 480p, 360p)",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_9.2.3",
+                            "task_id": "TASK-9.2.3",
+                            "title": "Ensure strict audio compatibility by downmixing multi-channel audio to stereo AAC",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_9.3",
+                    "title": "JIT Keyframe-Aligned Slicing & Rolling Cache Eviction",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_9.3.1",
+                            "task_id": "TASK-9.3.1",
+                            "title": "Configure FFmpeg segmenter with exact 4-second GOP keyframe alignment",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_9.3.2",
+                            "task_id": "TASK-9.3.2",
+                            "title": "Implement on-demand JIT segment generation with 30s forward buffer pause",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_9.3.3",
+                            "task_id": "TASK-9.3.3",
+                            "title": "Autonomous LRU cache cleaner worker maintaining segment storage under disk budget with FIFO eviction",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_10",
+            "number": 10,
+            "title": "Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress",
+            "status": "PENDING",
+            "phases": [
+                {
+                    "id": "PHASE_10.1",
+                    "title": "Managed Cloudflare cloudflared Lifecycle Engine",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_10.1.1",
+                            "task_id": "TASK-10.1.1",
+                            "title": "Automated cloudflared platform-specific binary detector and auto-downloader",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_10.1.2",
+                            "task_id": "TASK-10.1.2",
+                            "title": "Asynchronous supervisor child process managing cloudflared tunnel",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_10.1.3",
+                            "task_id": "TASK-10.1.3",
+                            "title": "Parse stdout/stderr in real-time to capture assigned dynamic trycloudflare.com URL",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_10.2",
+                    "title": "Dual-Stack LAN/WAN Ingress & Failover Routing",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_10.2.1",
+                            "task_id": "TASK-10.2.1",
+                            "title": "Implement LAN discovery using mDNS/DNS-SD publishing _aetherstream._tcp.local on port 5353",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_10.2.2",
+                            "task_id": "TASK-10.2.2",
+                            "title": "Edge routing middleware dynamically routing requests between local loopback and tunnel endpoint",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_10.2.3",
+                            "task_id": "TASK-10.2.3",
+                            "title": "Instrument heartbeat ping worker monitoring tunnel health every 15s with auto-restart",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_10.3",
+                    "title": "Dynamic Connection QR & Pairing Handshake",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_10.3.1",
+                            "task_id": "TASK-10.3.1",
+                            "title": "Expose /api/v1/tunnel/status returning active tunnel status, public URL, uptime, and latency",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_10.3.2",
+                            "task_id": "TASK-10.3.2",
+                            "title": "Generate ASCII QR code in server terminal log on boot and SVG/PNG QR via /api/v1/tunnel/qr",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_10.3.3",
+                            "task_id": "TASK-10.3.3",
+                            "title": "One-time passkey device pairing protocol for remote sessions outside local subnet",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_11",
+            "number": 11,
+            "title": "Universal Web UI, Mount Manager Modal, ABR Player & PWA",
+            "status": "PENDING",
+            "phases": [
+                {
+                    "id": "PHASE_11.1",
+                    "title": "Enterprise Storage & Mount Management Dashboard",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_11.1.1",
+                            "task_id": "TASK-11.1.1",
+                            "title": "Storage & Drives screen displaying detected physical disks with volume health, capacity bar, filesystem label",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_11.1.2",
+                            "task_id": "TASK-11.1.2",
+                            "title": "Interactive Create Mount modal allowing folder selection, permission toggle, and subpath whitelist tagging",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_11.1.3",
+                            "task_id": "TASK-11.1.3",
+                            "title": "Public Share Links generator modal with time expiration picker, passkey toggles, and copyable URL",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_11.2",
+                    "title": "Cinema-Grade Video Player & Dynamic Bitrate Switcher",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_11.2.1",
+                            "task_id": "TASK-11.2.1",
+                            "title": "Refactor video player with Hls.js v1.5+ supporting manual and auto resolution selection",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_11.2.2",
+                            "task_id": "TASK-11.2.2",
+                            "title": "Persistent playback settings storing volume, playback rate, and subtitle preferences in localStorage",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_11.2.3",
+                            "task_id": "TASK-11.2.3",
+                            "title": "Stats for Nerds HUD displaying current stream resolution, dropped frames, buffer length, audio layout, hwaccel",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_11.3",
+                    "title": "Mobile PWA Polish & Touch-Optimized UX",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_11.3.1",
+                            "task_id": "TASK-11.3.1",
+                            "title": "Responsive touch gestures (swipe to seek, double-tap to jump +/-10s, pinch to zoom)",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_11.3.2",
+                            "task_id": "TASK-11.3.2",
+                            "title": "Integrate Web Share API and Clipboard API for seamless 1-tap mobile share link distribution",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_11.3.3",
+                            "task_id": "TASK-11.3.3",
+                            "title": "Service Worker offline fallback cache for app shell and icon assets",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "STAGE_12",
+            "number": 12,
+            "title": "Cross-Platform Native Bundlers, Multi-Arch CI/CD & Production Distribution",
+            "status": "PENDING",
+            "phases": [
+                {
+                    "id": "PHASE_12.1",
+                    "title": "Multi-Architecture Cargo & Cross Build Pipeline",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_12.1.1",
+                            "task_id": "TASK-12.1.1",
+                            "title": "Configure GitHub Actions CI workflow building native daemon binaries for 5 target architectures",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_12.1.2",
+                            "task_id": "TASK-12.1.2",
+                            "title": "Automated dependency bundle script bundling FFmpeg/FFprobe and cloudflared sidecars",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_12.1.3",
+                            "task_id": "TASK-12.1.3",
+                            "title": "Binary size optimization using opt-level z, lto, codegen-units 1, and strip symbols",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_12.2",
+                    "title": "Native Desktop & Mobile Client Packaging",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_12.2.1",
+                            "task_id": "TASK-12.2.1",
+                            "title": "Configure Tauri desktop bundler generating Windows .msi/.exe, Linux .deb/.AppImage, macOS .dmg",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_12.2.2",
+                            "task_id": "TASK-12.2.2",
+                            "title": "Capacitor Android workflow compiling signed release APK and AAB packages",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_12.2.3",
+                            "task_id": "TASK-12.2.3",
+                            "title": "iOS Capacitor workspace preparing .ipa release archive",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                },
+                {
+                    "id": "PHASE_12.3",
+                    "title": "Production Release Sealing & End-to-End Smoke Suite",
+                    "status": "PENDING",
+                    "subphases": [
+                        {
+                            "id": "SUBPHASE_12.3.1",
+                            "task_id": "TASK-12.3.1",
+                            "title": "Automate GitHub Releases publishing with auto-generated release notes and SHA256SUMS.txt",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_12.3.2",
+                            "task_id": "TASK-12.3.2",
+                            "title": "Multi-platform end-to-end smoke verification script testing discovery, transcode, tunnel, playback",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        },
+                        {
+                            "id": "SUBPHASE_12.3.3",
+                            "task_id": "TASK-12.3.3",
+                            "title": "Seal project milestone in CHANGELOG.md and state.tracker.json marking complete production readiness",
+                            "status": "PENDING",
+                            "completed_at": null,
+                            "validator_command": null,
+                            "verification_proof": null
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
 }

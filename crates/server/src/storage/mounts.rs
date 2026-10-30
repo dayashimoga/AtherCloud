@@ -94,6 +94,20 @@ impl MountRegistry {
 
     /// Discovers system drive roots across Windows and POSIX systems with detailed metadata
     pub fn discover_detailed_drives() -> Vec<DiscoveredDrive> {
+        let inspected = super::VolumeInspector::inspect_volumes();
+        if !inspected.is_empty() {
+            return inspected
+                .into_iter()
+                .map(|v| DiscoveredDrive {
+                    path: v.mount_point,
+                    name: v.name,
+                    drive_type: format!("{:?}", v.media_type).to_lowercase(),
+                    is_system: v.is_system,
+                    is_removable: v.is_removable,
+                })
+                .collect();
+        }
+
         let mut list = Vec::new();
 
         #[cfg(windows)]
