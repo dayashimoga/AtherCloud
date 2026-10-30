@@ -1105,3 +1105,100 @@ async fn test_offline_transcode_worker_and_lifecycle() {
         Some(TranscodeJobStatus::Cancelled)
     );
 }
+
+#[tokio::test]
+async fn test_video_pipeline_random_seek_stress_and_latency() {
+    use aetherstream_server::storage::stream::RangeRequestEngine;
+    use axum::body::to_bytes;
+    use axum::http::{header, HeaderMap, HeaderValue};
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let video_file = temp_dir.path().join("stress_media_16mb.mp4");
+
+    // Create 16 MiB simulated media container with deterministic pattern
+    let total_size: usize = 16 * 1024 * 1024;
+    let mut data = vec![0u8; total_size];
+    for (i, byte) in data.iter_mut().enumerate() {
+        *byte = (i % 251) as u8;
+    }
+    tokio::fs::write(&video_file, &data).await.unwrap();
+
+    let shared_path = Arc::new(video_file);
+    let concurrency = 8;
+    let seeks_per_worker = 25;
+    let total_seeks = concurrency * seeks_per_worker;
+
+    let mut handles = Vec::new();
+    let stress_start = Instant::now();
+
+    for worker_idx in 0..concurrency {
+        let path = Arc::clone(&shared_path);
+        handles.push(tokio::spawn(async move {
+            let mut latencies = Vec::with_capacity(seeks_per_worker);
+
+            for seek_idx in 0..seeks_per_worker {
+                let seed = (worker_idx * 1000 + seek_idx * 37) as u64;
+                let start_offset = (seed * 65537) % (total_size as u64 - 131072);
+                let chunk_len = 65536; // 64 KiB typical HLS/MP4 seek chunk
+                let end_offset = start_offset + chunk_len - 1;
+
+                let range_header = format!("bytes={}-{}", start_offset, end_offset);
+                let mut headers = HeaderMap::new();
+                headers.insert(header::RANGE, HeaderValue::from_str(&range_header).unwrap());
+
+                let seek_start = Instant::now();
+                let resp = RangeRequestEngine::stream_file(&*path, &headers).await;
+
+                assert_eq!(resp.status(), axum::http::StatusCode::PARTIAL_CONTENT);
+                let body_bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+                let elapsed = seek_start.elapsed();
+
+                assert_eq!(body_bytes.len(), chunk_len as usize);
+                assert_eq!(body_bytes[0], (start_offset % 251) as u8);
+
+                latencies.push(elapsed);
+            }
+
+            latencies
+        }));
+    }
+
+    let mut all_latencies = Vec::with_capacity(total_seeks);
+    for h in handles {
+        let worker_latencies = h.await.unwrap();
+        all_latencies.extend(worker_latencies);
+    }
+
+    all_latencies.sort();
+    let total_elapsed = stress_start.elapsed();
+    let p50 = all_latencies[all_latencies.len() * 50 / 100];
+    let p95 = all_latencies[all_latencies.len() * 95 / 100];
+    let p99 = all_latencies[all_latencies.len() * 99 / 100];
+    let max_lat = *all_latencies.last().unwrap();
+    let avg_ms = all_latencies.iter().map(|l| l.as_secs_f64() * 1000.0).sum::<f64>()
+        / (all_latencies.len() as f64);
+
+    println!(
+        "[SEEK STRESS] Total Seeks: {} | Elapsed: {:.3}s | Avg: {:.2}ms | p50: {:.2?} | p95: {:.2?} | p99: {:.2?} | Max: {:.2?}",
+        total_seeks,
+        total_elapsed.as_secs_f64(),
+        avg_ms,
+        p50,
+        p95,
+        p99,
+        max_lat
+    );
+
+    assert!(
+        p95.as_millis() < 50,
+        "p95 seek latency must be under 50ms on local SSD (measured {:?})",
+        p95
+    );
+    assert!(
+        max_lat.as_millis() < 200,
+        "Max seek latency must be under 200ms per NFR-103 SLA (measured {:?})",
+        max_lat
+    );
+}
