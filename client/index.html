@@ -161,6 +161,9 @@
               <span>+10s &#9197;</span>
             </div>
 
+            <!-- Quality Change Toast Notification -->
+            <div id="player-quality-toast" class="player-quality-toast hidden">Auto ABR</div>
+
             <!-- Custom Player Controls Overlay Bar -->
             <div id="player-controls" class="player-controls">
               <!-- Timeline Scrubber -->
@@ -198,11 +201,12 @@
                   </div>
 
                   <!-- Resolution / Rendition Picker -->
-                  <div class="ctrl-select-group" title="Resolution Ladder">
+                  <div class="ctrl-select-group resolution-group" title="Resolution Ladder">
                     <span class="ctrl-icon">&#9881;</span>
                     <select id="player-resolution-select" class="ctrl-select">
                       <option value="-1" selected>Auto ABR</option>
                     </select>
+                    <span id="player-quality-badge" class="quality-badge auto">AUTO</span>
                   </div>
 
                   <!-- Diagnostics HUD Toggle Button -->

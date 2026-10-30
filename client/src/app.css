@@ -625,6 +625,62 @@ video {
   color: var(--text-main);
 }
 
+.ctrl-select-group.resolution-group {
+  position: relative;
+  gap: 6px;
+}
+
+.quality-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.quality-badge.auto {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.quality-badge.manual {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.player-quality-toast {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(10, 12, 16, 0.88);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 20px;
+  pointer-events: none;
+  z-index: 30;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+  opacity: 1;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.player-quality-toast.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-10px);
+  pointer-events: none;
+}
+
 .volume-container {
   display: flex;
   align-items: center;

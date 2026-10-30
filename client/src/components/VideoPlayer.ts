@@ -3,8 +3,14 @@ import Hls from "hls.js";
 export interface RenditionInfo {
   index: number;
   height: number;
+  width?: number;
   bitrate: number;
+  frameRate?: number;
+  codecs?: string;
   name: string;
+  shortName: string;
+  label: string;
+  isAuto?: boolean;
 }
 
 export class VideoPlayerComponent {
@@ -36,6 +42,9 @@ export class VideoPlayerComponent {
   private durationEl: HTMLElement | null = null;
   private speedSelect: HTMLSelectElement | null = null;
   private resolutionSelect: HTMLSelectElement | null = null;
+  private qualityBadgeEl: HTMLElement | null = null;
+  private qualityToastEl: HTMLElement | null = null;
+  private toastTimer: number | null = null;
   private statsBtn: HTMLButtonElement | null = null;
   private pipBtn: HTMLButtonElement | null = null;
   private theaterBtn: HTMLButtonElement | null = null;
@@ -47,6 +56,11 @@ export class VideoPlayerComponent {
   private lastTapTime = 0;
   private controlsHideTimer: number | null = null;
   private isSeeking = false;
+
+  // Resolution and rendition state
+  private isManualResolution = false;
+  private currentActiveLevel: RenditionInfo | null = null;
+  private availableLevels: RenditionInfo[] = [];
 
   public onLevelsLoaded: ((levels: RenditionInfo[]) => void) | null = null;
   public onLevelSwitched: ((level: RenditionInfo | null) => void) | null = null;
@@ -75,6 +89,8 @@ export class VideoPlayerComponent {
     this.durationEl = document.getElementById("player-duration");
     this.speedSelect = document.getElementById("player-speed-select") as HTMLSelectElement | null;
     this.resolutionSelect = document.getElementById("player-resolution-select") as HTMLSelectElement | null;
+    this.qualityBadgeEl = document.getElementById("player-quality-badge");
+    this.qualityToastEl = document.getElementById("player-quality-toast");
     this.statsBtn = document.getElementById("player-stats-btn") as HTMLButtonElement | null;
     this.pipBtn = document.getElementById("player-pip-btn") as HTMLButtonElement | null;
     this.theaterBtn = document.getElementById("player-theater-btn") as HTMLButtonElement | null;
@@ -277,7 +293,7 @@ export class VideoPlayerComponent {
     }
   }
 
-  private togglePlay() {
+  public togglePlay() {
     if (this.videoElement.paused) {
       this.videoElement.play();
     } else {
@@ -285,7 +301,7 @@ export class VideoPlayerComponent {
     }
   }
 
-  private seekRelative(seconds: number) {
+  public seekRelative(seconds: number) {
     this.videoElement.currentTime = Math.max(
       0,
       Math.min(this.videoElement.currentTime + seconds, this.videoElement.duration || 0)
@@ -391,9 +407,14 @@ export class VideoPlayerComponent {
 
     // Reset controls UI state
     this.abrShiftCount = 0;
+    this.isManualResolution = false;
+    this.currentActiveLevel = null;
+    this.availableLevels = [];
+    this.updateQualityBadge("AUTO", "auto");
+
     if (this.hudShifts) this.hudShifts.textContent = "0";
     if (this.hudCodec) {
-      this.hudCodec.textContent = isHls ? "AVC1 / HLS ABR" : "Direct Zero-Copy";
+      this.hudCodec.textContent = isHls ? "H.264 / HLS ABR (v1.5+)" : "Direct Zero-Copy";
     }
 
     if (this.seekRange) this.seekRange.value = "0";
@@ -403,16 +424,16 @@ export class VideoPlayerComponent {
     this.videoElement.playbackRate = 1.0;
 
     if (this.resolutionSelect) {
-      this.resolutionSelect.innerHTML = "<option value='-1' selected>Auto ABR</option>";
+      this.resolutionSelect.innerHTML = "<option value='-1' selected id='opt-resolution-auto'>Auto ABR (Adaptive)</option>";
     }
 
     if (isHls && Hls.isSupported()) {
-      // Fine-tuned ABR tuning (EWMA sliding window, conservative margins & buffer horizons)
+      // Cinema-Grade Hls.js v1.5+ configuration
       this.hls = new Hls({
-        capLevelToPlayerSize: true,
+        capLevelToPlayerSize: true, // Dynamically cap to viewport only in Auto mode
         maxBufferLength: 30, // 30s forward buffer horizon
         maxMaxBufferLength: 60, // 60s max buffer cap
-        maxBufferSize: 60 * 1024 * 1024, // 60 MB buffer size ceiling
+        maxBufferSize: 60 * 1024 * 1024, // 60 MB buffer ceiling
         maxBufferHole: 0.5,
         backBufferLength: 30, // 30s backward buffer preservation for instant seek back
         lowLatencyMode: true,
@@ -422,9 +443,9 @@ export class VideoPlayerComponent {
         abrEwmaSlowLive: 9.0,
         abrEwmaFastVoD: 3.0,
         abrEwmaSlowVoD: 9.0,
-        abrEwmaDefaultEstimate: 5000000, // Initial 5 Mbps baseline to prevent starting at lowest rendition
+        abrEwmaDefaultEstimate: 5000000, // 5 Mbps baseline to prevent starting at lowest rendition
         abrBandWidthFactor: 0.85, // 15% safety headroom
-        abrBandWidthUpFactor: 0.70, // Requires 30% headroom before ascending ladder
+        abrBandWidthUpFactor: 0.70, // 30% headroom required to step up ladder
         abrMaxWithRealBitrate: true,
 
         fragLoadingTimeOut: 20000,
@@ -436,28 +457,13 @@ export class VideoPlayerComponent {
       this.hls.attachMedia(this.videoElement);
 
       this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        const levels = this.getLevels();
-        this.populateResolutionPicker(levels);
-        this.onLevelsLoaded?.(levels);
+        this.availableLevels = this.parseLevels();
+        this.populateResolutionPicker(this.availableLevels);
+        this.onLevelsLoaded?.(this.availableLevels);
       });
 
       this.hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
-        this.abrShiftCount++;
-        if (this.hudShifts) {
-          this.hudShifts.textContent = this.abrShiftCount.toString();
-        }
-
-        const level = this.hls?.levels[data.level];
-        if (level) {
-          const info: RenditionInfo = {
-            index: data.level,
-            height: level.height,
-            bitrate: level.bitrate,
-            name: `${level.height}p (${Math.round(level.bitrate / 1000)}k)`,
-          };
-          this.hudRendition.textContent = info.name;
-          this.onLevelSwitched?.(info);
-        }
+        this.handleLevelSwitched(data.level);
       });
 
       this.hls.on(Hls.Events.FRAG_LOADED, (_, data) => {
@@ -490,10 +496,12 @@ export class VideoPlayerComponent {
       // Native Apple HLS Fallback (Safari macOS / iOS WebKit)
       this.videoElement.src = url;
       this.hudRendition.textContent = "Native Apple HLS";
+      this.updateQualityBadge("NATIVE", "auto");
     } else {
       // Zero-Copy Direct Stream Fallback
       this.videoElement.src = url;
       this.hudRendition.textContent = "Direct (Zero-Copy)";
+      this.updateQualityBadge("DIRECT", "manual");
     }
 
     this.videoElement.play().catch(() => {
@@ -503,54 +511,189 @@ export class VideoPlayerComponent {
     this.startTelemetryLoop();
   }
 
+  private parseLevels(): RenditionInfo[] {
+    if (!this.hls || !this.hls.levels) return [];
+    return this.hls.levels.map((lvl, idx) => {
+      const height = lvl.height || 0;
+      const width = lvl.width || 0;
+      const bitrate = lvl.bitrate || 0;
+      const frameRate = lvl.frameRate;
+      const codecs = lvl.videoCodec || (lvl.attrs as any)?.CODECS;
+
+      let label = `${height}p`;
+      if (height >= 2160) label = "4K 2160p";
+      else if (height >= 1440) label = "2K 1440p";
+      else if (height >= 1080) label = "1080p FHD";
+      else if (height >= 720) label = "720p HD";
+      else if (height >= 480) label = "480p SD";
+      else if (height >= 360) label = "360p Mobile";
+
+      const bitrateMbps = (bitrate / 1_000_000).toFixed(1);
+      const bitrateKbps = Math.round(bitrate / 1000);
+      const bitrateStr = bitrate >= 1_000_000 ? `${bitrateMbps} Mbps` : `${bitrateKbps} kbps`;
+      const fpsStr = frameRate && frameRate > 30 ? ` ${Math.round(frameRate)}fps` : "";
+      const name = `${label}${fpsStr} (${bitrateStr})`;
+
+      return {
+        index: idx,
+        height,
+        width,
+        bitrate,
+        frameRate,
+        codecs,
+        name,
+        shortName: `${height}p`,
+        label,
+        isAuto: false,
+      };
+    });
+  }
+
   private populateResolutionPicker(levels: RenditionInfo[]) {
     if (!this.resolutionSelect) return;
-    this.resolutionSelect.innerHTML = "<option value='-1' selected>Auto ABR</option>";
+    this.resolutionSelect.innerHTML = "";
+
+    // 1. Auto ABR Option
+    const autoOpt = document.createElement("option");
+    autoOpt.value = "-1";
+    autoOpt.id = "opt-resolution-auto";
+    autoOpt.textContent = "Auto ABR (Adaptive)";
+    autoOpt.selected = !this.isManualResolution;
+    this.resolutionSelect.appendChild(autoOpt);
+
+    // 2. Manual Rendition Levels
     levels.forEach((lvl) => {
       const opt = document.createElement("option");
       opt.value = lvl.index.toString();
       opt.textContent = lvl.name;
+      if (this.isManualResolution && this.hls?.currentLevel === lvl.index) {
+        opt.selected = true;
+      }
       this.resolutionSelect!.appendChild(opt);
     });
   }
 
-  public getLevels(): RenditionInfo[] {
-    if (!this.hls) return [];
-    return this.hls.levels.map((lvl, idx) => ({
-      index: idx,
-      height: lvl.height,
-      bitrate: lvl.bitrate,
-      name: `${lvl.height}p (${Math.round(lvl.bitrate / 1000)}k)`,
-    }));
+  private handleLevelSwitched(levelIndex: number) {
+    this.abrShiftCount++;
+    if (this.hudShifts) {
+      this.hudShifts.textContent = this.abrShiftCount.toString();
+    }
+
+    const level = this.hls?.levels[levelIndex];
+    if (level) {
+      const info: RenditionInfo = this.availableLevels.find((l) => l.index === levelIndex) || {
+        index: levelIndex,
+        height: level.height,
+        width: level.width,
+        bitrate: level.bitrate,
+        name: `${level.height}p (${Math.round(level.bitrate / 1000)}k)`,
+        shortName: `${level.height}p`,
+        label: `${level.height}p`,
+      };
+      this.currentActiveLevel = info;
+
+      if (!this.isManualResolution) {
+        // Auto ABR active
+        const autoOpt = document.getElementById("opt-resolution-auto");
+        if (autoOpt) {
+          autoOpt.textContent = `Auto (${info.shortName})`;
+        }
+        this.updateQualityBadge(`AUTO · ${info.shortName}`, "auto");
+        this.hudRendition.textContent = `${info.name} [Auto]`;
+        this.onLevelSwitched?.(info);
+      } else {
+        // Manual override locked
+        this.updateQualityBadge(`${info.shortName}`, "manual");
+        this.hudRendition.textContent = `${info.name} [Manual]`;
+        this.onLevelSwitched?.(info);
+      }
+    }
+  }
+
+  public setLevel(levelIndex: number) {
+    if (!this.hls) return;
+
+    if (levelIndex === -1) {
+      // Re-enable Auto ABR
+      this.isManualResolution = false;
+      this.hls.currentLevel = -1; // -1 instructs Hls.js to use automatic ABR ladder
+      this.hls.capLevelToPlayerSize = true;
+      if (this.resolutionSelect) {
+        this.resolutionSelect.value = "-1";
+      }
+      this.updateQualityBadge("AUTO", "auto");
+      this.showQualityToast("Auto ABR (Adaptive)");
+      this.hudRendition.textContent = "Auto ABR";
+      this.onLevelSwitched?.(null);
+    } else {
+      // Manual Quality Selection
+      const level = this.hls.levels[levelIndex];
+      if (level) {
+        this.isManualResolution = true;
+        this.hls.currentLevel = levelIndex; // Lock to specific rendition level
+        this.hls.loadLevel = levelIndex;
+        this.hls.capLevelToPlayerSize = false; // Never downscale user's explicit quality choice
+        if (this.resolutionSelect) {
+          this.resolutionSelect.value = levelIndex.toString();
+        }
+        const info = this.availableLevels.find((l) => l.index === levelIndex) || {
+          index: levelIndex,
+          height: level.height,
+          bitrate: level.bitrate,
+          name: `${level.height}p (${Math.round(level.bitrate / 1000)}k)`,
+          shortName: `${level.height}p`,
+          label: `${level.height}p`,
+        };
+        this.currentActiveLevel = info;
+        this.updateQualityBadge(`${info.shortName}`, "manual");
+        this.showQualityToast(`Resolution: ${info.name}`);
+        this.hudRendition.textContent = `${info.name} [Manual]`;
+        this.onLevelSwitched?.(info);
+      }
+    }
+  }
+
+  public setAutoLevel() {
+    this.setLevel(-1);
+  }
+
+  public isAuto(): boolean {
+    return !this.isManualResolution;
   }
 
   public getCurrentLevel(): number {
     return this.hls ? this.hls.currentLevel : -1;
   }
 
-  public setLevel(levelIndex: number) {
-    if (this.hls) {
-      this.hls.currentLevel = levelIndex;
-      if (this.resolutionSelect) {
-        this.resolutionSelect.value = levelIndex.toString();
-      }
-      if (levelIndex === -1) {
-        this.hudRendition.textContent = "Auto ABR";
-        this.onLevelSwitched?.(null);
-      } else {
-        const lvl = this.hls.levels[levelIndex];
-        if (lvl) {
-          const info: RenditionInfo = {
-            index: levelIndex,
-            height: lvl.height,
-            bitrate: lvl.bitrate,
-            name: `${lvl.height}p (${Math.round(lvl.bitrate / 1000)}k)`,
-          };
-          this.hudRendition.textContent = info.name;
-          this.onLevelSwitched?.(info);
-        }
-      }
+  public getLevels(): RenditionInfo[] {
+    return this.availableLevels;
+  }
+
+  public getCurrentRendition(): RenditionInfo | null {
+    return this.currentActiveLevel;
+  }
+
+  public getHls(): Hls | null {
+    return this.hls;
+  }
+
+  public showQualityToast(message: string) {
+    if (!this.qualityToastEl) return;
+    if (this.toastTimer !== null) {
+      clearTimeout(this.toastTimer);
     }
+    this.qualityToastEl.textContent = message;
+    this.qualityToastEl.classList.remove("hidden");
+    this.toastTimer = window.setTimeout(() => {
+      this.qualityToastEl?.classList.add("hidden");
+      this.toastTimer = null;
+    }, 1600);
+  }
+
+  private updateQualityBadge(text: string, mode: "auto" | "manual") {
+    if (!this.qualityBadgeEl) return;
+    this.qualityBadgeEl.textContent = text;
+    this.qualityBadgeEl.className = `quality-badge ${mode}`;
   }
 
   public getVideoElement(): HTMLVideoElement {
@@ -588,10 +731,10 @@ export class VideoPlayerComponent {
           this.hudBuffer.className = "hud-val-danger";
         }
 
-        // Emergency buffer starvation prevention (<6s)
-        if (forwardBuffer < 6.0 && this.hls && this.hls.currentLevel > 0) {
+        // Emergency buffer starvation prevention (<6s) in Auto ABR mode
+        if (!this.isManualResolution && forwardBuffer < 6.0 && this.hls && this.hls.currentLevel > 0) {
           console.warn("[TELEMETRY] Buffer starvation alert (<6s). Downgrading rendition ladder.");
-          this.hls.nextLevel = 0; // Drop to lowest safe rendition
+          this.hls.nextLevel = 0; // Drop to lowest safe rendition to prevent playback stall
         }
       }
 
@@ -607,7 +750,7 @@ export class VideoPlayerComponent {
         if (dropPct > 5.0) {
           this.hudDropped.className = "hud-val-danger";
           // If frame drop rate exceeds 5% on active playback, step down level to relieve hardware decoder
-          if (this.hls && this.hls.currentLevel > 0) {
+          if (!this.isManualResolution && this.hls && this.hls.currentLevel > 0) {
             console.warn(`[TELEMETRY] Excessive frame drop rate (${dropPct.toFixed(1)}%). Downscaling rendition.`);
             this.hls.nextLevel = Math.max(0, this.hls.currentLevel - 1);
           }
@@ -639,6 +782,10 @@ export class VideoPlayerComponent {
       clearTimeout(this.controlsHideTimer);
       this.controlsHideTimer = null;
     }
+    if (this.toastTimer !== null) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
     if (this.hls) {
       this.hls.destroy();
       this.hls = null;
@@ -647,5 +794,8 @@ export class VideoPlayerComponent {
     this.videoElement.removeAttribute("src");
     this.videoElement.load();
     this.videoContainerEl?.classList.remove("theater-mode");
+    this.isManualResolution = false;
+    this.currentActiveLevel = null;
+    this.availableLevels = [];
   }
 }

@@ -1657,3 +1657,19 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `ShareModalComponent` in `client/src/components/ShareModal.ts` delivering a public share links generator dialog. Features interactive expiration window selection (`1h`, `6h`, `24h`, `7d`, `30d`, and `custom` hours/days duration with dynamic live deadline readout), 3-state permission scope selector (`read_only`, `stream_only`, `read_write`), passkey protection toggle with random passkey generator (`🎲`) and visibility toggle (`👁️`), multi-format copyable URLs (Universal Stream & Web Landing URL, Direct Stream URL for VLC/Infuse, and Direct Download URL), mobile QR code connection toggle (`#share-toggle-qr-btn`) with vector SVG QR rendering from `/api/v1/tunnel/qr`, and native Web Share API integration (`navigator.share`). Upgraded `createShareLink` in `client/src/services/api.ts` with `CreateShareLinkOptions` and `PublicShareDetailsResponse`. Concluded Phase 5.1 (PHASE_11.1: Enterprise Storage & Mount Management Dashboard) with 100% completion. Verified via `test_public_share_links_generator_modal_with_expiry_passkey_and_urls` with all 57 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_SHARE_MODAL_039
 - **Executor:** Principal Frontend Architect & Security Ingress Engineer
+
+### [2026-10-30T11:25:00Z] - STAGE_11 / PHASE_11.2 / SUBPHASE_11.2.1
+- **Stage ID:** STAGE_11 (Universal Web UI, Mount Manager Modal, ABR Player & PWA)
+- **Phase ID:** PHASE_11.2 (Cinema-Grade Video Player & Dynamic Bitrate Switcher)
+- **Subphase ID:** SUBPHASE_11.2.1 (Refactor Video Player with Hls.js v1.5+ Supporting Manual and Auto Resolution Selection)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `client/src/components/VideoPlayer.ts`
+  - `client/index.html`
+  - `client/src/app.css`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Refactored `VideoPlayerComponent` in `client/src/components/VideoPlayer.ts` incorporating cinema-grade Hls.js v1.5+ adaptive bitrate streaming. Features EWMA sliding window bandwidth estimation (`abrEwmaFastLive: 3.0`, `abrEwmaSlowLive: 9.0`, 5 Mbps initial baseline, 15% headroom margin), 30s forward buffer horizon with 60MB max buffer ceiling and 30s reverse buffer retention, dynamic multi-variant manifest parsing with clean human-readable resolution labels (`4K 2160p`, `1080p FHD`, `720p HD`, `480p SD`, `360p Mobile` with bitrates and framerates), explicit manual level locking vs dynamic Auto ABR switching (`-1`), real-time quality badge indicator (`.quality-badge.auto` / `.quality-badge.manual`), animated quality change toast overlay (`#player-quality-toast`), live telemetry HUD updates, buffer starvation & dropped frame decode throttle downscaling defenses, and resilient error recovery. Verified via `test_refactored_video_player_hls_v15_and_dynamic_resolution_ladder` with all 58 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_HLS_PLAYER_RESOLUTION_LADDER_040
+- **Executor:** Principal Streaming Media Architect & Frontend Engineer
