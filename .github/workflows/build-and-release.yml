@@ -2,10 +2,10 @@ name: AetherStream Production Build & Release Matrix
 
 on:
   push:
-    branches: [ "main", "release/*" ]
+    branches: [ "main", "master", "release/*" ]
     tags: [ "v*.*.*" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   # =========================================================================
-  # 1. CORE ENGINE MATRIX BUILDS (LINUX x64/ARM64, WINDOWS x64, MACOS ARM64)
+  # 1. CORE ENGINE MATRIX BUILDS (5 TARGET ARCHITECTURES: LINUX x64/ARM64, WINDOWS x64, MACOS x64/ARM64)
   # =========================================================================
   build-server-binaries:
     name: Build Server (${{ matrix.target }})
@@ -23,28 +23,35 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
+          # 1. Linux x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary_name: aetherstream-server
             artifact_name: aetherstream-server-linux-x86_64
             use_cross: false
 
-          # Linux aarch64 (ARM64)
+          # 2. Linux aarch64 (ARM64)
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             binary_name: aetherstream-server
             artifact_name: aetherstream-server-linux-aarch64
             use_cross: true
 
-          # Windows x64
+          # 3. Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             binary_name: aetherstream-server.exe
             artifact_name: aetherstream-server-windows-x64.exe
             use_cross: false
 
-          # macOS Apple Silicon (M1/M2/M3)
+          # 4. macOS Intel x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            binary_name: aetherstream-server
+            artifact_name: aetherstream-server-macos-x86_64
+            use_cross: false
+
+          # 5. macOS Apple Silicon ARM64
           - os: macos-latest
             target: aarch64-apple-darwin
             binary_name: aetherstream-server
@@ -59,6 +66,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Install Cross Compiler (Linux ARM64 only)
         if: matrix.use_cross

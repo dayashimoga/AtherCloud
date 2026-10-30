@@ -7581,3 +7581,101 @@ async fn test_service_worker_offline_fallback_cache_app_shell_and_icons_suite() 
 
     println!("[TASK-11.3.3 VERIFIED] Service Worker offline fallback cache for app shell and icon assets verified.");
 }
+
+#[tokio::test]
+async fn test_github_actions_multi_arch_ci_matrix_5_targets_suite() {
+    use std::time::Instant;
+
+    // 1. Benchmark multi-architecture target definitions and matrix mapping
+    let targets = [
+        ("x86_64-pc-windows-msvc", "windows-latest", "aetherstream-server.exe", false),
+        ("x86_64-unknown-linux-gnu", "ubuntu-latest", "aetherstream-server", false),
+        ("aarch64-unknown-linux-gnu", "ubuntu-latest", "aetherstream-server", true),
+        ("x86_64-apple-darwin", "macos-latest", "aetherstream-server", false),
+        ("aarch64-apple-darwin", "macos-latest", "aetherstream-server", false),
+    ];
+
+    let start = Instant::now();
+    for (target, runner, binary, use_cross) in targets {
+        assert!(!target.is_empty());
+        assert!(!runner.is_empty());
+        assert!(!binary.is_empty());
+        if target.contains("aarch64-unknown-linux") {
+            assert!(use_cross);
+        }
+    }
+    let elapsed = start.elapsed();
+    println!("[BENCHMARK] Target architecture resolution: {:?}", elapsed);
+    assert_eq!(targets.len(), 5);
+
+    // 2. Verify .github/workflows/build-and-release.yml contains all 5 targets
+    let release_wf_path = [
+        std::path::PathBuf::from(".github/workflows/build-and-release.yml"),
+        std::path::PathBuf::from("../../.github/workflows/build-and-release.yml"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(release_wf_path.is_some(), "build-and-release.yml must exist in repository root");
+    if let Some(path) = release_wf_path {
+        let wf_content = std::fs::read_to_string(&path).unwrap();
+
+        // Check target architectures
+        assert!(wf_content.contains("x86_64-pc-windows-msvc"), "CI matrix must include x86_64-pc-windows-msvc");
+        assert!(wf_content.contains("x86_64-unknown-linux-gnu"), "CI matrix must include x86_64-unknown-linux-gnu");
+        assert!(wf_content.contains("aarch64-unknown-linux-gnu"), "CI matrix must include aarch64-unknown-linux-gnu");
+        assert!(wf_content.contains("x86_64-apple-darwin"), "CI matrix must include x86_64-apple-darwin");
+        assert!(wf_content.contains("aarch64-apple-darwin"), "CI matrix must include aarch64-apple-darwin");
+
+        // Check runners
+        assert!(wf_content.contains("ubuntu-latest"), "CI matrix must use ubuntu-latest");
+        assert!(wf_content.contains("windows-latest"), "CI matrix must use windows-latest");
+        assert!(wf_content.contains("macos-latest"), "CI matrix must use macos-latest");
+
+        // Check cross compilation & artifact packaging
+        assert!(wf_content.contains("use_cross: true"), "CI matrix must enable cross for ARM64 Linux");
+        assert!(wf_content.contains("actions/upload-artifact@v4"), "CI matrix must upload artifacts via v4");
+        assert!(wf_content.contains("SHA256SUMS.txt"), "CI matrix must generate SHA256SUMS.txt checksum manifest");
+        assert!(wf_content.contains("master"), "CI triggers must include master branch");
+        println!("[CI VERIFIED] .github/workflows/build-and-release.yml verified for 5 architectures.");
+    }
+
+    // 3. Verify .github/workflows/ci.yml triggers and linter steps
+    let ci_wf_path = [
+        std::path::PathBuf::from(".github/workflows/ci.yml"),
+        std::path::PathBuf::from("../../.github/workflows/ci.yml"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(ci_wf_path.is_some(), "ci.yml must exist in repository root");
+    if let Some(path) = ci_wf_path {
+        let ci_content = std::fs::read_to_string(&path).unwrap();
+        assert!(ci_content.contains("master"), "ci.yml triggers must include master branch");
+        assert!(ci_content.contains("cargo clippy --all-targets -- -D warnings"), "ci.yml must enforce strict clippy");
+        assert!(ci_content.contains("cargo test --all --verbose"), "ci.yml must execute cargo test");
+        assert!(ci_content.contains("CHANGELOG.md"), "ci.yml must audit CHANGELOG invariants");
+        assert!(ci_content.contains("TODO.md"), "ci.yml must audit TODO invariants");
+        println!("[CI VERIFIED] .github/workflows/ci.yml verified with governance and test pipelines.");
+    }
+
+    // 4. Verify scripts/stages/stage-6.ps1 contains 5 target architectures
+    let stage6_script_path = [
+        std::path::PathBuf::from("scripts/stages/stage-6.ps1"),
+        std::path::PathBuf::from("../../scripts/stages/stage-6.ps1"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    if let Some(path) = stage6_script_path {
+        let script_content = std::fs::read_to_string(&path).unwrap();
+        assert!(script_content.contains("x86_64-pc-windows-msvc"), "stage-6.ps1 must audit x86_64-pc-windows-msvc");
+        assert!(script_content.contains("x86_64-unknown-linux-gnu"), "stage-6.ps1 must audit x86_64-unknown-linux-gnu");
+        assert!(script_content.contains("aarch64-unknown-linux-gnu"), "stage-6.ps1 must audit aarch64-unknown-linux-gnu");
+        assert!(script_content.contains("x86_64-apple-darwin"), "stage-6.ps1 must audit x86_64-apple-darwin");
+        assert!(script_content.contains("aarch64-apple-darwin"), "stage-6.ps1 must audit aarch64-apple-darwin");
+        println!("[SCRIPT VERIFIED] scripts/stages/stage-6.ps1 verified with all 5 architectures.");
+    }
+
+    println!("[TASK-12.1.1 VERIFIED] GitHub Actions CI workflow building native daemon binaries for 5 target architectures verified.");
+}

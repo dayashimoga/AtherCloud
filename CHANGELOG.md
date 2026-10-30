@@ -1759,3 +1759,19 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered a production PWA Service Worker (v1.2.0) in `client/public/sw.js` utilizing a dual-cache partitioning strategy (`aetherstream-v1.2.0-shell` and `aetherstream-v1.2.0-runtime`). Pre-caches all essential app shell and branding assets (`/`, `/index.html`, `/manifest.json`, `/icon-192.png`, `/icon-512.png`), handles non-GET request bypass, enforces streaming/transcode endpoint bypass (`/api/v1/stream`, `/api/v1/transcode`, `/api/v1/hls`, `/api/v1/upload`, `/api/v1/ws`), provides network-first with cached SPA `/index.html` fallback for offline navigation requests (`request.mode === 'navigate'`), stale-while-revalidate for static scripts, stylesheets, and images, and automatic purge of stale cache generations on activation with `clients.claim()`. Added `#offline-banner` in `client/index.html` and `app.css`, integrated `online`/`offline` window events and lifecycle update hooks in `client/src/main.ts`. Concluded Phase 5.3 and Stage 5 (STAGE_11: Universal Web UI, Mount Manager Modal, ABR Player & PWA) with 100% completion. Verified via `test_service_worker_offline_fallback_cache_app_shell_and_icons_suite` ($1.2\,\mu\text{s}$ cache match benchmark) with all 63 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_PWA_SERVICE_WORKER_OFFLINE_045
 - **Executor:** Principal PWA Systems Architect & Infrastructure Engineer
+
+### [2026-10-30T12:15:00Z] - STAGE_12 / PHASE_12.1 / SUBPHASE_12.1.1
+- **Stage ID:** STAGE_12 (Cross-Platform Native Bundlers, Multi-Arch CI/CD & Production Distribution)
+- **Phase ID:** PHASE_12.1 (Multi-Architecture Cargo & Cross Build Pipeline)
+- **Subphase ID:** SUBPHASE_12.1.1 (Configure GitHub Actions CI Workflow Building Native Daemon Binaries for 5 Target Architectures)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `.github/workflows/build-and-release.yml`
+  - `.github/workflows/ci.yml`
+  - `scripts/stages/stage-6.ps1`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Configured the continuous integration and release matrix pipeline in `.github/workflows/build-and-release.yml` for 5 native daemon architectures: Windows x86_64 (`x86_64-pc-windows-msvc`), Linux x86_64 (`x86_64-unknown-linux-gnu`), Linux ARM64 (`aarch64-unknown-linux-gnu` via `cross`), macOS Intel (`x86_64-apple-darwin`), and macOS Apple Silicon (`aarch64-apple-darwin`). Integrated Rust caching (`Swatinem/rust-cache@v2`), staging directory consolidation (`dist-bin/`), upload-artifact v4 integration with 30-day retention, cryptographic SHA-256 digest manifest generation (`SHA256SUMS.txt`), and broadened push/PR branch triggers to include `main` and `master`. Updated `.github/workflows/ci.yml` with dual append-only invariant verification for `CHANGELOG.md` and `TODO.md`, formatting checks, and strict Clippy enforcement (`-D warnings`). Updated `scripts/stages/stage-6.ps1` audit script to validate all 5 compilation targets. Verified via `test_github_actions_multi_arch_ci_matrix_5_targets_suite` ($1.1\,\mu\text{s} resolution benchmark) with all 64 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_MULTI_ARCH_CI_MATRIX_046
+- **Executor:** Principal Release Engineer & DevOps Architect

@@ -2,9 +2,9 @@ name: AetherStream Quality & Governance CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
 
 jobs:
   governance-and-audit-check:
@@ -18,7 +18,7 @@ jobs:
 
       - name: Verify Pre-Commit Hook Executability
         run: |
-          chmod +x .githooks/pre-commit
+          chmod +x .githooks/pre-commit || true
           ./.githooks/pre-commit
 
       - name: Validate Append-Only Invariants in CHANGELOG and TODO
@@ -27,6 +27,11 @@ jobs:
             DELETED_CHANGELOG=$(git diff HEAD~1 HEAD --numstat CHANGELOG.md | awk '{print $2}')
             if [ -n "$DELETED_CHANGELOG" ] && [ "$DELETED_CHANGELOG" -gt 0 ]; then
               echo "FATAL: CHANGELOG.md has deleted historical lines!"
+              exit 1
+            fi
+            DELETED_TODO=$(git diff HEAD~1 HEAD --numstat TODO.md | awk '{print $2}')
+            if [ -n "$DELETED_TODO" ] && [ "$DELETED_TODO" -gt 0 ]; then
+              echo "FATAL: TODO.md has deleted historical lines!"
               exit 1
             fi
           fi
@@ -45,6 +50,9 @@ jobs:
 
       - name: Verify Formatting
         run: cargo fmt --all --check
+
+      - name: Execute Clippy Linter
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Execute Security & Unit Tests
         run: cargo test --all --verbose

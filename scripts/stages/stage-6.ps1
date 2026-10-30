@@ -26,7 +26,7 @@ function Test-Subphase-6-1-1 {
     Write-AetherLog "INFO" "Auditing Subphase 6.1.1: Multi-Architecture Matrix Build Pipeline..."
     $wfPath = Join-Path $Script:RepoRoot ".github/workflows/build-and-release.yml"
     $content = Get-Content $wfPath -Raw
-    $targets = @("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin")
+    $targets = @("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "x86_64-apple-darwin", "aarch64-apple-darwin")
     foreach ($t in $targets) {
         if (-not ($content -match $t)) { throw "Target $t missing from CI matrix workflow!" }
     }
