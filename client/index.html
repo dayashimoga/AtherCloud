@@ -44,8 +44,11 @@
         <aside class="sidebar">
           <div class="sidebar-section">
             <div class="sidebar-header">
-              <h3>Virtual Mounts</h3>
-              <span id="mount-count" class="section-count">0</span>
+              <div class="sidebar-header-title">
+                <h3>Virtual Mounts</h3>
+                <span id="mount-count" class="section-count">0</span>
+              </div>
+              <button id="sidebar-add-mount-btn" class="btn btn-icon btn-xs" title="Create New Virtual Mount">+</button>
             </div>
             <ul id="mount-list" class="mount-list">
               <li class="loading">Discovering storage mounts...</li>
@@ -217,6 +220,141 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Create Virtual Mount Modal -->
+      <div id="create-mount-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content mount-modal-card">
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <span class="modal-icon">&#128190;</span>
+              <div>
+                <h4>Create Virtual Storage Mount</h4>
+                <p class="modal-subtitle">Register physical host directories into scoped virtual streaming vaults</p>
+              </div>
+            </div>
+            <button id="close-create-mount-btn" class="btn btn-close" type="button">&times;</button>
+          </div>
+
+          <div id="create-mount-error" class="alert-banner danger hidden"></div>
+
+          <form id="create-mount-form" class="mount-form">
+            <!-- Mount Name -->
+            <div class="form-group">
+              <label for="create-mount-name">Virtual Mount Name / Identifier <span class="required">*</span></label>
+              <input type="text" id="create-mount-name" placeholder="e.g. movies, 4k-hdr, backups" required autocomplete="off" />
+              <span class="form-hint">Unique alphanumeric identifier (e.g. <code>/api/v1/browse/&lt;name&gt;</code>)</span>
+            </div>
+
+            <!-- Host Physical Path -->
+            <div class="form-group">
+              <div class="label-with-actions">
+                <label for="create-mount-path">Host Physical Path <span class="required">*</span></label>
+                <div class="folder-presets">
+                  <span class="preset-label">Quick Append:</span>
+                  <button type="button" class="folder-preset-btn" data-folder="Media">Media</button>
+                  <button type="button" class="folder-preset-btn" data-folder="Movies">Movies</button>
+                  <button type="button" class="folder-preset-btn" data-folder="Videos">Videos</button>
+                  <button type="button" class="folder-preset-btn" data-folder="Downloads">Downloads</button>
+                </div>
+              </div>
+              <input type="text" id="create-mount-path" placeholder="e.g. D:\Media\Movies or /mnt/storage" required autocomplete="off" />
+              <div class="quick-drives-row">
+                <span class="quick-drives-label">Detected Volumes:</span>
+                <div id="mount-quick-drives" class="quick-drives-pills"></div>
+              </div>
+              <div id="mount-quarantine-warning" class="quarantine-warning hidden">
+                &#9888; Warning: This path targets an OS-critical system path and will be rejected by kernel sandboxing.
+              </div>
+            </div>
+
+            <!-- Description -->
+            <div class="form-group">
+              <label for="create-mount-desc">Description (Optional)</label>
+              <input type="text" id="create-mount-desc" placeholder="e.g. Primary 4K HDR Blu-Ray Library" autocomplete="off" />
+            </div>
+
+            <!-- Permission Mode Toggle -->
+            <div class="form-group">
+              <label>Permission Security Scope</label>
+              <div class="perm-toggle-group">
+                <button type="button" class="perm-toggle-btn active" data-perm="read_only">
+                  <span class="perm-icon">&#128270;</span>
+                  <div class="perm-info">
+                    <strong>Read-Only (Default)</strong>
+                    <span>Browse, stream & download files safely</span>
+                  </div>
+                </button>
+                <button type="button" class="perm-toggle-btn" data-perm="read_write">
+                  <span class="perm-icon">&#9997;</span>
+                  <div class="perm-info">
+                    <strong>Read & Write</strong>
+                    <span>Full upload & modification permissions</span>
+                  </div>
+                </button>
+                <button type="button" class="perm-toggle-btn" data-perm="stream_only">
+                  <span class="perm-icon">&#9654;</span>
+                  <div class="perm-info">
+                    <strong>Stream-Only</strong>
+                    <span>Live HLS playback only, downloads disabled</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <!-- Subpath Whitelist Tagging -->
+            <div class="form-group">
+              <div class="label-with-actions">
+                <label>Subpath Whitelist Security Tags</label>
+                <div class="tag-presets">
+                  <span class="preset-label">Suggested:</span>
+                  <button type="button" class="tag-preset-btn" data-tag="movies">+ movies</button>
+                  <button type="button" class="tag-preset-btn" data-tag="series">+ series</button>
+                  <button type="button" class="tag-preset-btn" data-tag="4k">+ 4k</button>
+                  <button type="button" class="tag-preset-btn" data-tag="anime">+ anime</button>
+                </div>
+              </div>
+              <div class="tag-input-row">
+                <input type="text" id="subpath-tag-input" placeholder="Type subfolder name and press Enter..." autocomplete="off" />
+                <button type="button" id="add-subpath-tag-btn" class="btn btn-secondary btn-sm">+ Add Tag</button>
+              </div>
+              <div id="subpath-tags-list" class="subpath-tags-container">
+                <span class="empty-tags-hint">No whitelist tags specified (Entire root directory accessible)</span>
+              </div>
+              <span class="form-hint">Restricts client traversal strictly to the listed subdirectories via syscall sandboxing.</span>
+            </div>
+
+            <!-- Advanced Security Settings (Collapsible) -->
+            <details class="advanced-settings-accordion">
+              <summary class="accordion-header">&#9881; Advanced Security & Expiration Parameters</summary>
+              <div class="accordion-body">
+                <div class="form-group">
+                  <label for="create-mount-password">Passkey / Access Secret (Optional)</label>
+                  <input type="password" id="create-mount-password" placeholder="Require passphrase for client authorization" autocomplete="new-password" />
+                </div>
+                <div class="form-group">
+                  <label for="create-mount-expiry">Mount Expiration Window</label>
+                  <select id="create-mount-expiry">
+                    <option value="0" selected>Permanent (No Expiration)</option>
+                    <option value="86400">24 Hours (Temporary)</option>
+                    <option value="604800">7 Days</option>
+                    <option value="2592000">30 Days</option>
+                    <option value="7776000">90 Days</option>
+                  </select>
+                </div>
+              </div>
+            </details>
+
+            <!-- Form Actions -->
+            <div class="form-actions modal-footer">
+              <button type="button" id="cancel-create-mount-btn" class="btn btn-secondary">Cancel</button>
+              <button type="submit" id="submit-create-mount-btn" class="btn btn-primary">
+                <span>+</span> Create Virtual Mount
+              </button>
+            </div>
+          </form>
         </div>
       </div>
 

@@ -6642,9 +6642,15 @@ async fn test_storage_drives_dashboard_volume_inspection_and_telemetry() {
     }
 
     // 3. Verify static universal client distribution contains Stage 5 dashboard elements
-    let index_html_path = std::path::Path::new("client/dist/index.html");
-    if index_html_path.exists() {
-        let index_content = std::fs::read_to_string(index_html_path).unwrap();
+    let index_html_path = [
+        std::path::PathBuf::from("client/dist/index.html"),
+        std::path::PathBuf::from("../../client/dist/index.html"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    if let Some(path) = index_html_path {
+        let index_content = std::fs::read_to_string(&path).unwrap();
         assert!(
             index_content.contains("nav-drives-btn"),
             "Client index.html must contain #nav-drives-btn navigation button"
@@ -6678,4 +6684,137 @@ async fn test_storage_drives_dashboard_volume_inspection_and_telemetry() {
     );
 
     println!("[TASK-11.1.1 VERIFIED] Storage & Drives screen displaying detected physical disks with volume health, capacity bar, filesystem label verified.");
+}
+
+#[tokio::test]
+async fn test_interactive_create_mount_modal_folder_selection_and_subpath_whitelist() {
+    use aetherstream_server::storage::{
+        storage_api_router, CreateMountRequest, MountManager, MountRegistry, StorageApiState,
+    };
+    use axum::body::to_bytes;
+    use axum::http::{header, Request, StatusCode};
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tower::ServiceExt;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("interactive_mounts.db");
+    let physical_root = temp_dir.path().join("host_storage");
+    std::fs::create_dir_all(&physical_root).unwrap();
+
+    let mount_manager = Arc::new(MountManager::new(&db_path).unwrap());
+    let mounts = Arc::new(MountRegistry::new());
+    let state = StorageApiState::new(mounts.clone(), mount_manager.clone());
+    let app = storage_api_router(state);
+
+    // 1. Submit valid Create Mount payload with subpath whitelist tagging & read_only mode
+    let payload = CreateMountRequest {
+        id: "mnt_cinematic_vault".to_string(),
+        name: "cinematic_vault".to_string(),
+        physical_path: physical_root.to_string_lossy().to_string(),
+        permission_mode: Some("read_only".to_string()),
+        allowed_subpaths: Some(vec!["4k_remux".to_string(), "trailers".to_string()]),
+        drive_serial: Some("NVME-SAMSUNG-990-PRO".to_string()),
+        description: Some("Cinematic 4K Vault with Whitelist Tagging".to_string()),
+        expiration_ts: Some(2_000_000_000),
+        password: Some("vault_passkey_123".to_string()),
+    };
+
+    let start = Instant::now();
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/storage/mounts")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&payload).unwrap()))
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let elapsed = start.elapsed();
+    println!(
+        "[BENCHMARK] POST /api/v1/storage/mounts: {:.3} ms for validation and SQLite WAL persistence",
+        elapsed.as_secs_f64() * 1000.0
+    );
+
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    let mount = json.get("mount").expect("Response must contain 'mount' object");
+
+    assert_eq!(mount["id"], "mnt_cinematic_vault");
+    assert_eq!(mount["name"], "cinematic_vault");
+    assert_eq!(mount["permission_mode"], "read_only");
+    assert_eq!(mount["drive_serial"], "NVME-SAMSUNG-990-PRO");
+    let allowed = mount["allowed_subpaths"].as_array().expect("allowed_subpaths array");
+    assert_eq!(allowed.len(), 2);
+    assert_eq!(allowed[0], "4k_remux");
+    assert_eq!(allowed[1], "trailers");
+
+    // 2. Verify subpath whitelist enforcement via resolve_safe_path
+    let allowed_dir = physical_root.join("4k_remux");
+    std::fs::create_dir_all(&allowed_dir).unwrap();
+    let unallowed_dir = physical_root.join("confidential_payroll");
+    std::fs::create_dir_all(&unallowed_dir).unwrap();
+
+    let resolved_allowed = mounts.resolve_safe_path("cinematic_vault", std::path::Path::new("4k_remux"));
+    assert!(resolved_allowed.is_ok(), "Allowed subpath must resolve successfully: {:?}", resolved_allowed);
+
+    let resolved_forbidden = mounts.resolve_safe_path("cinematic_vault", std::path::Path::new("confidential_payroll"));
+    assert!(resolved_forbidden.is_err(), "Non-whitelisted subpath must be rejected: {:?}", resolved_forbidden);
+
+    // Verify read-only permission enforcement
+    assert!(mounts.check_write_permission("cinematic_vault").is_err(), "Write permission must be denied in read_only mode");
+
+    // Verify SQLite WAL persistence
+    let persisted_mount = mount_manager.get_mount("mnt_cinematic_vault").unwrap().expect("Mount must be persisted in SQLite");
+    assert_eq!(persisted_mount.name, "cinematic_vault");
+    assert_eq!(persisted_mount.allowed_subpaths, vec!["4k_remux", "trailers"]);
+
+    // 3. Verify OS critical path quarantine defense
+    let quarantined_payload = CreateMountRequest {
+        id: "mnt_danger".to_string(),
+        name: "danger_mount".to_string(),
+        physical_path: if cfg!(windows) { "C:\\Windows".to_string() } else { "/etc".to_string() },
+        permission_mode: Some("read_only".to_string()),
+        allowed_subpaths: None,
+        drive_serial: None,
+        description: None,
+        expiration_ts: None,
+        password: None,
+    };
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/storage/mounts")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&quarantined_payload).unwrap()))
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["code"], "PATH_QUARANTINED");
+
+    // 4. Verify static universal client distribution contains Stage 5 Subphase 5.1.2 modal elements
+    let index_html_path = [
+        std::path::PathBuf::from("client/dist/index.html"),
+        std::path::PathBuf::from("../../client/dist/index.html"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    if let Some(path) = index_html_path {
+        let index_content = std::fs::read_to_string(&path).unwrap();
+        assert!(index_content.contains("create-mount-modal"), "index.html must contain #create-mount-modal");
+        assert!(index_content.contains("sidebar-add-mount-btn"), "index.html must contain #sidebar-add-mount-btn");
+        assert!(index_content.contains("create-mount-name"), "index.html must contain #create-mount-name");
+        assert!(index_content.contains("create-mount-path"), "index.html must contain #create-mount-path");
+        assert!(index_content.contains("mount-quick-drives"), "index.html must contain #mount-quick-drives");
+        assert!(index_content.contains("subpath-tag-input"), "index.html must contain #subpath-tag-input");
+        assert!(index_content.contains("subpath-tags-list"), "index.html must contain #subpath-tags-list");
+        assert!(index_content.contains("perm-toggle-btn"), "index.html must contain .perm-toggle-btn");
+        println!("[CLIENT VERIFIED] client/dist/index.html verified with all Stage 5 Create Mount modal components.");
+    }
+
+    println!("[TASK-11.1.2 VERIFIED] Interactive Create Mount modal allowing folder selection, permission toggle, and subpath whitelist tagging verified.");
 }

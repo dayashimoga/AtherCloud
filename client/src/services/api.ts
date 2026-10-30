@@ -35,6 +35,18 @@ export interface VolumeInfoItem {
 
 export type DiscoveredDriveItem = VolumeInfoItem;
 
+export interface CreateMountPayload {
+  id?: string;
+  name: string;
+  physical_path: string;
+  permission_mode?: "read_only" | "read_write" | "stream_only";
+  allowed_subpaths?: string[];
+  drive_serial?: string;
+  description?: string;
+  expiration_ts?: number;
+  password?: string;
+}
+
 export interface FileItem {
   name: string;
   is_dir: boolean;
@@ -76,6 +88,23 @@ export class AetherApi {
     if (!res.ok) throw new Error("Failed to load mounts");
     const data = await res.json();
     return data.mounts;
+  }
+
+  static async createMount(payload: CreateMountPayload): Promise<any> {
+    const id = payload.id || `mnt_${payload.name.toLowerCase().replace(/[^a-z0-9_]/g, "_")}_${Date.now().toString(36)}`;
+    const res = await fetch(`${this.baseUrl}/api/v1/storage/mounts`, {
+      method: "POST",
+      headers: this.getHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        ...payload,
+        id,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ title: "Failed to create mount", detail: res.statusText }));
+      throw new Error(err.detail || err.title || "Failed to create mount");
+    }
+    return res.json();
   }
 
   static async getStorageDrives(): Promise<VolumeInfoItem[]> {

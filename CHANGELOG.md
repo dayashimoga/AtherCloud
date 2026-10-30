@@ -1620,3 +1620,22 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `DrivesDashboardComponent` in `client/src/components/DrivesDashboard.ts` providing an enterprise-grade storage volume telemetry dashboard. Displays real-time physical disk telemetry widgets, global storage capacity KPIs (Total Storage, Used Space, Available Space, Disk Health counters), dynamic search and category filtering (All Disks, System Boot, SSD/NVMe, Removable USB, Read-Only), capacity utilization progress bars with color warning thresholds (<75% green, 75-89% amber, >=90% red), volume health indicators (Healthy, Low Space, Critical, Read-Only), filesystem labels (`NTFS`, `APFS`, `ext4`), and quick virtual mount actions. Enhanced sidebar drive cards with mini capacity tracks, and integrated top view switcher in `client/index.html`, `app.css`, and `main.ts` allowing fluid navigation between file explorer and storage dashboard views. Verified via `test_storage_drives_dashboard_volume_inspection_and_telemetry` with all 55 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_STORAGE_DRIVES_DASHBOARD_037
 - **Executor:** Principal Frontend Architect & Systems Telemetry Engineer
+
+### [2026-10-30T11:05:00Z] - STAGE_11 / PHASE_11.1 / SUBPHASE_11.1.2
+- **Stage ID:** STAGE_11 (Universal Web UI, Mount Manager Modal, ABR Player & PWA)
+- **Phase ID:** PHASE_11.1 (Enterprise Storage & Mount Management Dashboard)
+- **Subphase ID:** SUBPHASE_11.1.2 (Interactive Create Mount Modal Allowing Folder Selection, Permission Toggle, and Subpath Whitelist Tagging)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `client/src/services/api.ts`
+  - `client/src/components/CreateMountModal.ts`
+  - `client/src/components/DrivesDashboard.ts`
+  - `client/src/main.ts`
+  - `client/index.html`
+  - `client/src/app.css`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `CreateMountModalComponent` in `client/src/components/CreateMountModal.ts` delivering an interactive virtual mount management dialog. Features single-click physical host path pre-population from detected volumes (`mount-quick-drives`), folder append shortcut presets (Media, Movies, Videos, Downloads), 3-state permission scope selector (`read_only`, `read_write`, `stream_only`), dynamic subpath whitelist tagging input with preset suggestions (`+movies`, `+series`, `+4k`, `+anime`), live OS-critical system path quarantine detection and warning, and collapsible advanced security parameters (optional passkey secret, expiration duration picker). Wired modal invocation to sidebar '+ Add Mount' trigger and DrivesDashboard '+ Create Virtual Mount' action with automatic view transition and list refresh. Added `createMount` to `AetherApi` in `client/src/services/api.ts`. Verified via `test_interactive_create_mount_modal_folder_selection_and_subpath_whitelist` ($2.407\,\text{ms}$ dispatch & WAL persistence) with all 56 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_CREATE_MOUNT_MODAL_038
+- **Executor:** Principal Frontend Architect & Security Storage Engineer

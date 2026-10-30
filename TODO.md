@@ -992,3 +992,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Frontend Architect & Systems Telemetry Engineer
 - **Execution Trace:** cargo test --test security_tests test_storage_drives_dashboard_volume_inspection_and_telemetry
 - **Validation Proof:** Engineered DrivesDashboardComponent in client/src/components/DrivesDashboard.ts with real-time physical disk telemetry widgets, global storage capacity KPIs, search & category filter toolbar, capacity utilization progress bars with color warning thresholds (<75% green, 75-89% amber, >=90% red), volume health indicators (Healthy, Low Space, Critical, Read-Only), filesystem labels, and quick virtual mount actions. Enhanced sidebar drive cards with mini capacity tracks and integrated top view switcher in client/index.html, app.css, and main.ts. Verified via test_storage_drives_dashboard_volume_inspection_and_telemetry with all 55 integration tests passing.
+
+### [2026-10-30T11:05:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-11.1.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Frontend Architect & Security Storage Engineer
+- **Execution Trace:** cargo test --test security_tests test_interactive_create_mount_modal_folder_selection_and_subpath_whitelist
+- **Validation Proof:** Engineered CreateMountModalComponent in client/src/components/CreateMountModal.ts featuring interactive folder selection from detected host drives, quick directory append presets (Media, Movies, Videos, Downloads), 3-state permission scope toggle (read_only, read_write, stream_only), dynamic subpath whitelist tagging chips with suggestions (+movies, +series, +4k, +anime), real-time OS-critical path quarantine warning, and collapsible advanced security parameters (passkey secret, expiration window). Integrated modal with sidebar '+ Add Mount' trigger and DrivesDashboard '+ Create Virtual Mount' action. Added createMount API in client/src/services/api.ts. Verified via test_interactive_create_mount_modal_folder_selection_and_subpath_whitelist with all 56 integration tests passing.

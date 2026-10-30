@@ -5,12 +5,14 @@ import { FileExplorerComponent } from "./components/FileExplorer";
 import { VideoPlayerComponent } from "./components/VideoPlayer";
 import { ShareModalComponent } from "./components/ShareModal";
 import { DrivesDashboardComponent } from "./components/DrivesDashboard";
+import { CreateMountModalComponent } from "./components/CreateMountModal";
 
 class AetherApp {
   private fileExplorer: FileExplorerComponent;
   private videoPlayer: VideoPlayerComponent;
   private shareModal: ShareModalComponent;
   private drivesDashboard: DrivesDashboardComponent;
+  private createMountModal: CreateMountModalComponent;
   private session: SessionManager;
 
   private playerModalEl: HTMLElement;
@@ -19,11 +21,12 @@ class AetherApp {
   private refreshBtn: HTMLButtonElement;
   private hwAccelBadge: HTMLElement;
 
-  // View Navigation
+  // View Navigation & Modals
   private navExplorerBtn: HTMLButtonElement;
   private navDrivesBtn: HTMLButtonElement;
   private drivesNavBadge: HTMLElement | null;
   private drivesSidebarHeader: HTMLElement | null;
+  private sidebarAddMountBtn: HTMLButtonElement | null;
   private explorerViewEl: HTMLElement;
   private drivesViewEl: HTMLElement;
 
@@ -44,6 +47,7 @@ class AetherApp {
     this.videoPlayer = new VideoPlayerComponent();
     this.shareModal = new ShareModalComponent();
     this.drivesDashboard = new DrivesDashboardComponent("drives-view");
+    this.createMountModal = new CreateMountModalComponent();
 
     this.playerModalEl = document.getElementById("player-modal")!;
     this.videoTitleEl = document.getElementById("video-title")!;
@@ -56,6 +60,7 @@ class AetherApp {
     this.navDrivesBtn = document.getElementById("nav-drives-btn") as HTMLButtonElement;
     this.drivesNavBadge = document.getElementById("drives-nav-badge");
     this.drivesSidebarHeader = document.getElementById("drives-sidebar-header");
+    this.sidebarAddMountBtn = document.getElementById("sidebar-add-mount-btn") as HTMLButtonElement | null;
     this.explorerViewEl = document.getElementById("explorer-view")!;
     this.drivesViewEl = document.getElementById("drives-view")!;
 
@@ -108,8 +113,28 @@ class AetherApp {
     };
 
     this.drivesDashboard.onCreateMount = (drive) => {
-      console.log("[MountManager] Quick mount initiated for drive:", drive);
-      // Prepared for interactive Create Mount modal in Subphase 11.1.2
+      this.createMountModal.show({
+        physical_path: drive.mount_point,
+        name: (drive.filesystem_label || drive.name || drive.mount_point)
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]/g, "_")
+          .replace(/_+/g, "_")
+          .replace(/^_+|_+$/g, ""),
+        description: drive.filesystem_label ? `${drive.filesystem_label} (${drive.filesystem})` : undefined,
+      });
+    };
+
+    // Sidebar Add Mount Button
+    if (this.sidebarAddMountBtn) {
+      this.sidebarAddMountBtn.onclick = () => {
+        this.createMountModal.show();
+      };
+    }
+
+    // Create Mount Modal Completion
+    this.createMountModal.onMountCreated = async () => {
+      await this.loadMounts();
+      this.switchView("explorer");
     };
 
     // Theme Toggle
@@ -221,6 +246,7 @@ class AetherApp {
       const drives = await AetherApi.getStorageDrives();
       this.fileExplorer.renderDrives(drives);
       this.drivesDashboard.setDrives(drives);
+      this.createMountModal.setAvailableDrives(drives);
       if (this.drivesNavBadge) {
         this.drivesNavBadge.textContent = drives.length.toString();
       }
