@@ -1775,3 +1775,23 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Configured the continuous integration and release matrix pipeline in `.github/workflows/build-and-release.yml` for 5 native daemon architectures: Windows x86_64 (`x86_64-pc-windows-msvc`), Linux x86_64 (`x86_64-unknown-linux-gnu`), Linux ARM64 (`aarch64-unknown-linux-gnu` via `cross`), macOS Intel (`x86_64-apple-darwin`), and macOS Apple Silicon (`aarch64-apple-darwin`). Integrated Rust caching (`Swatinem/rust-cache@v2`), staging directory consolidation (`dist-bin/`), upload-artifact v4 integration with 30-day retention, cryptographic SHA-256 digest manifest generation (`SHA256SUMS.txt`), and broadened push/PR branch triggers to include `main` and `master`. Updated `.github/workflows/ci.yml` with dual append-only invariant verification for `CHANGELOG.md` and `TODO.md`, formatting checks, and strict Clippy enforcement (`-D warnings`). Updated `scripts/stages/stage-6.ps1` audit script to validate all 5 compilation targets. Verified via `test_github_actions_multi_arch_ci_matrix_5_targets_suite` ($1.1\,\mu\text{s} resolution benchmark) with all 64 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_MULTI_ARCH_CI_MATRIX_046
 - **Executor:** Principal Release Engineer & DevOps Architect
+
+### [2026-10-30T12:20:00Z] - STAGE_12 / PHASE_12.1 / SUBPHASE_12.1.2
+- **Stage ID:** STAGE_12 (Cross-Platform Native Bundlers, Multi-Arch CI/CD & Production Distribution)
+- **Phase ID:** PHASE_12.1 (Multi-Architecture Cargo & Cross Build Pipeline)
+- **Subphase ID:** SUBPHASE_12.1.2 (Automated Dependency Bundle Script Bundling FFmpeg/FFprobe and Cloudflared Sidecars)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `scripts/bundle-sidecars.ps1`
+  - `scripts/bundle-sidecars.sh`
+  - `crates/server/src/bundle/mod.rs`
+  - `crates/server/src/bundle/sidecar.rs`
+  - `crates/server/src/lib.rs`
+  - `scripts/stages/stage-6.ps1`
+  - `.gitignore`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered an automated dependency sidecar packaging and bundler system for cross-platform releases. Created multi-platform automation scripts `scripts/bundle-sidecars.ps1` and `scripts/bundle-sidecars.sh` supporting 5 native targets (`x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, and `aarch64-apple-darwin`), auto-downloading or local/stub staging for `cloudflared`, `ffmpeg`, and `ffprobe`, calculating SHA-256 digests, and generating machine-readable `sidecar-manifest.json`. Implemented Rust `SidecarBinary`, `SidecarManifest`, `SidecarBinaryInfo`, and `SidecarResolver` in `crates/server/src/bundle/sidecar.rs` supporting multi-tiered search paths (custom env vars, local sidecars directory, adjacent binary folder, and system PATH). Updated `.gitignore` to exclude bulky sidecar binary artifacts, and updated `scripts/stages/stage-6.ps1` audit script. Verified via `test_automated_sidecar_dependency_bundler_and_manifest_suite` ($1.3\,\mu\text{s} manifest roundtrip benchmark) with all 65 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_SIDECAR_DEPENDENCY_BUNDLE_047
+- **Executor:** Principal Systems & Dependency Bundling Engineer

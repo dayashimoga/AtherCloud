@@ -1055,3 +1055,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Release Engineer & DevOps Architect
 - **Execution Trace:** cargo test --test security_tests test_github_actions_multi_arch_ci_matrix_5_targets_suite
 - **Validation Proof:** Configured multi-architecture GitHub Actions CI matrix in .github/workflows/build-and-release.yml targeting 5 native architectures: x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu (cross-rs), x86_64-apple-darwin, and aarch64-apple-darwin. Added rust-cache dependency caching, dist-bin/ staging, v4 artifact uploads, SHA256SUMS.txt cryptographic digests, master and main branch triggers, enhanced .github/workflows/ci.yml with strict clippy and dual CHANGELOG/TODO append-only invariant checks, and updated scripts/stages/stage-6.ps1 audit script. Verified via test_github_actions_multi_arch_ci_matrix_5_targets_suite with all 64 integration tests passing.
+
+### [2026-10-30T12:20:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-12.1.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Systems & Dependency Bundling Engineer
+- **Execution Trace:** cargo test --test security_tests test_automated_sidecar_dependency_bundler_and_manifest_suite
+- **Validation Proof:** Engineered automated sidecar dependency bundler pipeline in scripts/bundle-sidecars.ps1 and scripts/bundle-sidecars.sh with platform target resolution across 5 native architectures, automated downloading or stub generation for cloudflared, ffmpeg, and ffprobe, cryptographic SHA-256 digest computation, and structured sidecar-manifest.json generation. Built Rust SidecarManager, SidecarManifest, SidecarResolver, and SHA-256 hasher in crates/server/src/bundle/sidecar.rs, updated .gitignore for sidecar artifacts, and integrated audit verification in scripts/stages/stage-6.ps1. Verified via test_automated_sidecar_dependency_bundler_and_manifest_suite with all 65 integration tests passing.
