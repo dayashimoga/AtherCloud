@@ -2,7 +2,7 @@
 
 use axum::{
     extract::{Path as AxPath, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -26,6 +26,7 @@ use config::ServerConfig;
 use security::hmac_auth::HmacTokenValidator;
 use storage::mounts::MountRegistry;
 use storage::stream::RangeRequestEngine;
+use storage::upload::ResumableUploadManager;
 use transcode::pipeline::{HardwareAccel, TranscodePipeline};
 
 #[derive(Parser, Debug)]
@@ -46,6 +47,7 @@ pub struct AppState {
     pub config: ServerConfig,
     pub mounts: Arc<MountRegistry>,
     pub hw_accel: HardwareAccel,
+    pub upload_manager: Arc<ResumableUploadManager>,
 }
 
 #[tokio::main]
@@ -84,10 +86,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Launch background segment cleanup sweeper
     TranscodePipeline::spawn_cleanup_worker(config.scratch_dir.clone(), 60).await;
 
+    let upload_manager = Arc::new(ResumableUploadManager::new());
+
     let app_state = AppState {
         config: config.clone(),
         mounts: Arc::new(mounts),
         hw_accel,
+        upload_manager,
     };
 
     // CORS configuration
@@ -105,6 +110,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/browse/:mount/*path", get(browse_path_handler))
         .route("/api/v1/stream/:mount/*path", get(stream_file_handler))
         .route("/api/v1/share/create", post(create_share_link_handler))
+        .route("/api/v1/upload/:mount/init", post(init_upload_handler))
+        .route("/api/v1/upload/:mount/chunk", post(upload_chunk_handler))
+        .route("/api/v1/upload/:mount/complete", post(complete_upload_handler))
         .route(
             "/api/v1/transcode/hls/:mount/*path/master.m3u8",
             get(hls_master_manifest_handler),
@@ -150,6 +158,7 @@ async fn system_drives_handler() -> Json<serde_json::Value> {
 #[derive(Deserialize)]
 struct TokenQuery {
     token: Option<String>,
+    download: Option<bool>,
 }
 
 async fn browse_root_handler(
@@ -197,7 +206,18 @@ async fn stream_file_handler(
     }
 
     match state.mounts.resolve_safe_path(&mount, Path::new(&subpath)) {
-        Ok(physical_path) => RangeRequestEngine::stream_file(&physical_path, &headers).await,
+        Ok(physical_path) => {
+            let mut resp = RangeRequestEngine::stream_file(&physical_path, &headers).await;
+            if query.download == Some(true) {
+                if let Some(file_name) = physical_path.file_name() {
+                    let disp = format!("attachment; filename=\"{}\"", file_name.to_string_lossy());
+                    if let Ok(hdr) = HeaderValue::from_str(&disp) {
+                        resp.headers_mut().insert(axum::http::header::CONTENT_DISPOSITION, hdr);
+                    }
+                }
+            }
+            resp
+        }
         Err(e) => e.into_response(),
     }
 }
@@ -225,11 +245,11 @@ async fn create_share_link_handler(
         allow_write,
     );
 
-    let stream_url = format!(
-        "/api/v1/stream/{}/{}?token={}",
-        payload.mount,
-        payload.path.trim_start_matches('/'),
-        token
+    let clean_path = payload.path.trim_start_matches('/');
+    let stream_url = format!("/api/v1/stream/{}/{}?token={}", payload.mount, clean_path, token);
+    let download_url = format!(
+        "/api/v1/stream/{}/{}?token={}&download=true",
+        payload.mount, clean_path, token
     );
 
     (
@@ -237,11 +257,136 @@ async fn create_share_link_handler(
         Json(serde_json::json!({
             "token": token,
             "stream_url": stream_url,
+            "download_url": download_url,
             "ttl_seconds": ttl,
             "allow_write": allow_write
         })),
     )
         .into_response()
+}
+
+#[derive(Deserialize)]
+struct InitUploadRequest {
+    upload_id: String,
+    path: String,
+    total_size: u64,
+    chunk_size: Option<u64>,
+}
+
+async fn init_upload_handler(
+    AxPath(mount): AxPath<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<InitUploadRequest>,
+) -> Response {
+    if let Err(e) = state.mounts.check_write_permission(&mount) {
+        return e.into_response();
+    }
+    let target_path = match state.mounts.resolve_safe_path(&mount, Path::new(&payload.path)) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
+
+    let chunk_size = payload.chunk_size.unwrap_or(2 * 1024 * 1024);
+    match state
+        .upload_manager
+        .init_session(&payload.upload_id, target_path, payload.total_size, chunk_size)
+        .await
+    {
+        Ok(session) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "upload_id": session.upload_id,
+                "total_chunks": session.total_chunks,
+                "chunk_size": session.chunk_size,
+                "total_size": session.total_size,
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("{:?}", e) })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ChunkQuery {
+    upload_id: String,
+    chunk_index: usize,
+    sha256: Option<String>,
+}
+
+async fn upload_chunk_handler(
+    AxPath(mount): AxPath<String>,
+    Query(query): Query<ChunkQuery>,
+    State(state): State<AppState>,
+    bytes: axum::body::Bytes,
+) -> Response {
+    if let Err(e) = state.mounts.check_write_permission(&mount) {
+        return e.into_response();
+    }
+
+    let expected_sha256 = query.sha256.as_deref().unwrap_or("");
+    match state
+        .upload_manager
+        .write_session_chunk(&query.upload_id, query.chunk_index, expected_sha256, &bytes)
+        .await
+    {
+        Ok(session) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "upload_id": session.upload_id,
+                "chunk_index": query.chunk_index,
+                "received_bytes": session.received_bytes,
+                "completed_chunks": session.completed_chunks.len(),
+                "total_chunks": session.total_chunks,
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("{:?}", e) })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct CompleteUploadRequest {
+    upload_id: String,
+    expected_sha256: Option<String>,
+}
+
+async fn complete_upload_handler(
+    AxPath(mount): AxPath<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<CompleteUploadRequest>,
+) -> Response {
+    if let Err(e) = state.mounts.check_write_permission(&mount) {
+        return e.into_response();
+    }
+
+    match state
+        .upload_manager
+        .complete_session(&payload.upload_id, payload.expected_sha256.as_deref())
+        .await
+    {
+        Ok(final_path) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "status": "completed",
+                "upload_id": payload.upload_id,
+                "path": final_path.to_string_lossy(),
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("{:?}", e) })),
+        )
+            .into_response(),
+    }
 }
 
 async fn hls_master_manifest_handler(

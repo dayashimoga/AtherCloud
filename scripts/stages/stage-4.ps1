@@ -57,7 +57,27 @@ function Test-Subphase-4-1-2 {
     if (-not ($content -match "export class ShareModalComponent" -and $content -match "createShareLink")) {
         throw "ShareModalComponent incomplete!"
     }
-    Write-AetherLog "SUCCESS" "File operations and HMAC token generator UI verified."
+
+    $fePath = Join-Path $Script:RepoRoot "client/src/components/FileExplorer.ts"
+    $feContent = Get-Content $fePath -Raw
+    if (-not ($feContent -match "handleUploadFiles" -and $feContent -match "downloadSelectedFiles")) {
+        throw "FileExplorer file operations incomplete!"
+    }
+
+    $clientDir = Join-Path $Script:RepoRoot "client"
+    Push-Location $clientDir
+    try {
+        $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $buildOut = npm run build 2>&1
+        $ErrorActionPreference = $prev
+        if ($LASTEXITCODE -ne 0) {
+            throw "Client build failed: $buildOut"
+        }
+    } finally {
+        Pop-Location
+    }
+
+    Write-AetherLog "SUCCESS" "File operations, chunked upload pipeline, and HMAC token generator UI verified."
     return $true
 }
 
@@ -140,7 +160,7 @@ function Test-Subphase-4-3-3 {
 
 $subphases = @(
     @{ Id = "4.1.1"; FullId = "SUBPHASE_4.1.1"; Task = "TASK-4.1.1"; Func = { Test-Subphase-4-1-1 }; Title = "Responsive File Explorer Frontend UI"; Desc = "Engineered responsive virtual file explorer featuring breadcrumbs, grid/list view, and mime detection."; Components = @("client/src/components/FileExplorer.ts", "client/src/services/api.ts") },
-    @{ Id = "4.1.2"; FullId = "SUBPHASE_4.1.2"; Task = "TASK-4.1.2"; Func = { Test-Subphase-4-1-2 }; Title = "Multi-Select, Drag-Drop Uploads & Share UI"; Desc = "Built file operations interface supporting chunked uploads and scoped share link generation."; Components = @("client/src/components/ShareModal.ts") },
+    @{ Id = "4.1.2"; FullId = "SUBPHASE_4.1.2"; Task = "TASK-4.1.2"; Func = { Test-Subphase-4-1-2 }; Title = "Multi-Select, Drag-Drop Uploads & Share UI"; Desc = "Built file operations interface supporting chunked uploads and scoped share link generation."; Components = @("client/src/components/ShareModal.ts", "client/src/components/FileExplorer.ts", "crates/server/src/main.rs") },
     @{ Id = "4.1.3"; FullId = "SUBPHASE_4.1.3"; Task = "TASK-4.1.3"; Func = { Test-Subphase-4-1-3 }; Title = "Secure Session Storage & Adaptive Theming"; Desc = "Configured token storage security and dark-mode CSS theme custom properties."; Components = @("client/src/app.css") },
     @{ Id = "4.2.1"; FullId = "SUBPHASE_4.2.1"; Task = "TASK-4.2.1"; Func = { Test-Subphase-4-2-1 }; Title = "Hls.js Adaptive Player Engine Integration"; Desc = "Integrated Hls.js with custom EWMA bandwidth sliding window and zero-copy direct fallback."; Components = @("client/src/components/VideoPlayer.ts") },
     @{ Id = "4.2.2"; FullId = "SUBPHASE_4.2.2"; Task = "TASK-4.2.2"; Func = { Test-Subphase-4-2-2 }; Title = "Player Controls (Speed, Resolution, PiP, Gestures)"; Desc = "Designed responsive video overlay modal with custom resolution picker and touch controls."; Components = @("client/index.html") },

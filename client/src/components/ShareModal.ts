@@ -10,6 +10,8 @@ export class ShareModalComponent {
   private resultContainer: HTMLElement;
   private urlInput: HTMLInputElement;
   private copyBtn: HTMLButtonElement;
+  private downloadUrlInput: HTMLInputElement | null = null;
+  private copyDownloadBtn: HTMLButtonElement | null = null;
 
   private activeMount: string | null = null;
   private activePath: string | null = null;
@@ -24,6 +26,8 @@ export class ShareModalComponent {
     this.resultContainer = document.getElementById("share-result")!;
     this.urlInput = document.getElementById("share-url-input") as HTMLInputElement;
     this.copyBtn = document.getElementById("copy-share-btn") as HTMLButtonElement;
+    this.downloadUrlInput = document.getElementById("share-download-url") as HTMLInputElement | null;
+    this.copyDownloadBtn = document.getElementById("copy-download-btn") as HTMLButtonElement | null;
 
     this.bindEvents();
   }
@@ -48,8 +52,13 @@ export class ShareModalComponent {
           ttl,
           allowWrite
         );
-        const fullUrl = `${window.location.origin}${res.stream_url}`;
-        this.urlInput.value = fullUrl;
+        const fullStreamUrl = `${window.location.origin}${res.stream_url}`;
+        this.urlInput.value = fullStreamUrl;
+
+        if (this.downloadUrlInput && res.download_url) {
+          this.downloadUrlInput.value = `${window.location.origin}${res.download_url}`;
+        }
+
         this.resultContainer.classList.remove("hidden");
       } catch (err: any) {
         alert(`Failed to create share link: ${err.message}`);
@@ -67,6 +76,17 @@ export class ShareModalComponent {
         }, 2000);
       });
     };
+
+    if (this.copyDownloadBtn && this.downloadUrlInput) {
+      this.copyDownloadBtn.onclick = () => {
+        navigator.clipboard.writeText(this.downloadUrlInput!.value).then(() => {
+          this.copyDownloadBtn!.textContent = "Copied!";
+          setTimeout(() => {
+            this.copyDownloadBtn!.textContent = "Copy";
+          }, 2000);
+        });
+      };
+    }
   }
 
   show(mount: string, path: string) {
@@ -75,6 +95,9 @@ export class ShareModalComponent {
     this.targetDisplayEl.textContent = `Target: ${mount}/${path}`;
     this.resultContainer.classList.add("hidden");
     this.urlInput.value = "";
+    if (this.downloadUrlInput) {
+      this.downloadUrlInput.value = "";
+    }
     this.modalEl.classList.remove("hidden");
   }
 

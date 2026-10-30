@@ -15,11 +15,31 @@ export class FileExplorerComponent {
   private viewGridBtn: HTMLButtonElement | null = null;
   private viewListBtn: HTMLButtonElement | null = null;
 
+  // File Operations: Multi-Select, Drag-Drop, and Chunked Uploads
+  private selectionBarEl: HTMLElement | null = null;
+  private selectionCountEl: HTMLElement | null = null;
+  private selectAllBtn: HTMLButtonElement | null = null;
+  private downloadSelectedBtn: HTMLButtonElement | null = null;
+  private clearSelectionBtn: HTMLButtonElement | null = null;
+  private uploadBtn: HTMLButtonElement | null = null;
+  private fileUploadInput: HTMLInputElement | null = null;
+  private fileContainerEl: HTMLElement | null = null;
+  private dragOverlayEl: HTMLElement | null = null;
+
+  // Upload Progress Toast
+  private uploadProgressModalEl: HTMLElement | null = null;
+  private uploadFilenameEl: HTMLElement | null = null;
+  private uploadPercentEl: HTMLElement | null = null;
+  private uploadProgressBarEl: HTMLElement | null = null;
+  private uploadChunkInfoEl: HTMLElement | null = null;
+  private uploadStatusEl: HTMLElement | null = null;
+
   private currentMount: string | null = null;
   private currentPath = "";
   private currentItems: FileItem[] = [];
   private searchQuery = "";
   private viewMode: ViewMode = "grid";
+  private selectedFiles: Set<string> = new Set();
 
   public onPlayMedia: ((mount: string, path: string, isHls: boolean) => void) | null = null;
   public onShareItem: ((mount: string, path: string) => void) | null = null;
@@ -37,6 +57,23 @@ export class FileExplorerComponent {
     this.clearSearchBtn = document.getElementById("clear-search-btn") as HTMLButtonElement | null;
     this.viewGridBtn = document.getElementById("view-grid-btn") as HTMLButtonElement | null;
     this.viewListBtn = document.getElementById("view-list-btn") as HTMLButtonElement | null;
+
+    this.selectionBarEl = document.getElementById("selection-bar");
+    this.selectionCountEl = document.getElementById("selection-count");
+    this.selectAllBtn = document.getElementById("select-all-btn") as HTMLButtonElement | null;
+    this.downloadSelectedBtn = document.getElementById("download-selected-btn") as HTMLButtonElement | null;
+    this.clearSelectionBtn = document.getElementById("clear-selection-btn") as HTMLButtonElement | null;
+    this.uploadBtn = document.getElementById("upload-btn") as HTMLButtonElement | null;
+    this.fileUploadInput = document.getElementById("file-upload-input") as HTMLInputElement | null;
+    this.fileContainerEl = document.getElementById("file-container");
+    this.dragOverlayEl = document.getElementById("drag-overlay");
+
+    this.uploadProgressModalEl = document.getElementById("upload-progress-modal");
+    this.uploadFilenameEl = document.getElementById("upload-filename");
+    this.uploadPercentEl = document.getElementById("upload-percent");
+    this.uploadProgressBarEl = document.getElementById("upload-progress-bar");
+    this.uploadChunkInfoEl = document.getElementById("upload-chunk-info");
+    this.uploadStatusEl = document.getElementById("upload-status");
 
     this.bindControls();
   }
@@ -65,6 +102,58 @@ export class FileExplorerComponent {
 
     if (this.viewListBtn) {
       this.viewListBtn.addEventListener("click", () => this.setViewMode("list"));
+    }
+
+    // Multi-Select Actions
+    if (this.selectAllBtn) {
+      this.selectAllBtn.addEventListener("click", () => this.selectAllFiles());
+    }
+    if (this.clearSelectionBtn) {
+      this.clearSelectionBtn.addEventListener("click", () => this.clearSelection());
+    }
+    if (this.downloadSelectedBtn) {
+      this.downloadSelectedBtn.addEventListener("click", () => this.downloadSelectedFiles());
+    }
+
+    // Upload Triggers
+    if (this.uploadBtn && this.fileUploadInput) {
+      this.uploadBtn.addEventListener("click", () => {
+        this.fileUploadInput?.click();
+      });
+      this.fileUploadInput.addEventListener("change", () => {
+        if (this.fileUploadInput?.files && this.fileUploadInput.files.length > 0) {
+          this.handleUploadFiles(this.fileUploadInput.files);
+          this.fileUploadInput.value = "";
+        }
+      });
+    }
+
+    // Drag and Drop Uploads
+    if (this.fileContainerEl) {
+      ["dragenter", "dragover"].forEach((eventName) => {
+        this.fileContainerEl!.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.dragOverlayEl?.classList.remove("hidden");
+        });
+      });
+
+      ["dragleave", "dragend"].forEach((eventName) => {
+        this.fileContainerEl!.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.dragOverlayEl?.classList.add("hidden");
+        });
+      });
+
+      this.fileContainerEl.addEventListener("drop", (e: DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.dragOverlayEl?.classList.add("hidden");
+        if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+          this.handleUploadFiles(e.dataTransfer.files);
+        }
+      });
     }
   }
 
@@ -184,6 +273,8 @@ export class FileExplorerComponent {
   async loadDirectory(mount: string, path = "") {
     this.currentMount = mount;
     this.currentPath = path;
+    this.selectedFiles.clear();
+    this.updateSelectionUI();
     this.updateBreadcrumb();
 
     const loadingHtml = "<div class='loading'>Loading directory contents...</div>";
@@ -266,12 +357,178 @@ export class FileExplorerComponent {
     });
   }
 
+  private toggleSelectFile(fileName: string, isChecked?: boolean) {
+    if (isChecked !== undefined) {
+      if (isChecked) {
+        this.selectedFiles.add(fileName);
+      } else {
+        this.selectedFiles.delete(fileName);
+      }
+    } else {
+      if (this.selectedFiles.has(fileName)) {
+        this.selectedFiles.delete(fileName);
+      } else {
+        this.selectedFiles.add(fileName);
+      }
+    }
+    this.updateSelectionUI();
+  }
+
+  private selectAllFiles() {
+    this.currentItems.forEach((item) => {
+      if (!item.is_dir) {
+        this.selectedFiles.add(item.name);
+      }
+    });
+    this.updateSelectionUI();
+    this.syncSelectionDom();
+  }
+
+  private clearSelection() {
+    this.selectedFiles.clear();
+    this.updateSelectionUI();
+    this.syncSelectionDom();
+  }
+
+  private updateSelectionUI() {
+    const count = this.selectedFiles.size;
+    if (this.selectionBarEl) {
+      if (count > 0) {
+        this.selectionBarEl.classList.remove("hidden");
+      } else {
+        this.selectionBarEl.classList.add("hidden");
+      }
+    }
+    if (this.selectionCountEl) {
+      this.selectionCountEl.textContent = `${count} file${count === 1 ? "" : "s"} selected`;
+    }
+  }
+
+  private syncSelectionDom() {
+    document.querySelectorAll(".file-checkbox, .file-list-checkbox").forEach((cb) => {
+      const input = cb as HTMLInputElement;
+      input.checked = this.selectedFiles.has(input.dataset.filename || "");
+    });
+    document.querySelectorAll(".file-card").forEach((card) => {
+      const name = card.querySelector(".file-name")?.textContent || "";
+      if (this.selectedFiles.has(name)) {
+        card.classList.add("selected");
+      } else {
+        card.classList.remove("selected");
+      }
+    });
+    document.querySelectorAll(".file-list-row").forEach((row) => {
+      const name = row.querySelector(".file-list-name")?.textContent || "";
+      if (this.selectedFiles.has(name)) {
+        row.classList.add("selected");
+      } else {
+        row.classList.remove("selected");
+      }
+    });
+  }
+
+  private downloadSelectedFiles() {
+    if (this.selectedFiles.size === 0 || !this.currentMount) return;
+    this.selectedFiles.forEach((fileName) => {
+      const filePath = this.currentPath ? `${this.currentPath}/${fileName}` : fileName;
+      this.downloadFile(this.currentMount!, filePath);
+    });
+  }
+
+  public downloadFile(mount: string, path: string) {
+    const url = AetherApi.getDownloadUrl(mount, path);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = path.split("/").pop() || "download";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  async handleUploadFiles(files: FileList | File[]) {
+    if (!files || files.length === 0 || !this.currentMount) return;
+
+    if (this.uploadProgressModalEl) {
+      this.uploadProgressModalEl.classList.remove("hidden");
+    }
+
+    const chunkSize = 2 * 1024 * 1024; // 2 MiB chunks
+
+    for (let f = 0; f < files.length; f++) {
+      const file = files[f];
+      const targetPath = this.currentPath ? `${this.currentPath}/${file.name}` : file.name;
+
+      if (this.uploadFilenameEl) {
+        this.uploadFilenameEl.textContent = `${file.name} (${f + 1}/${files.length})`;
+      }
+
+      try {
+        const init = await AetherApi.initUpload(this.currentMount, targetPath, file.size, chunkSize);
+        const totalChunks = init.total_chunks;
+
+        for (let i = 0; i < totalChunks; i++) {
+          const start = i * chunkSize;
+          const end = Math.min(start + chunkSize, file.size);
+          const chunkBlob = file.slice(start, end);
+          const chunkBuffer = await chunkBlob.arrayBuffer();
+          const sha256 = await AetherApi.computeSha256(chunkBuffer);
+
+          if (this.uploadChunkInfoEl) {
+            this.uploadChunkInfoEl.textContent = `Chunk ${i + 1}/${totalChunks}`;
+          }
+          if (this.uploadStatusEl) {
+            this.uploadStatusEl.textContent = `${Math.round((end / file.size) * 100)}% verified`;
+          }
+
+          await AetherApi.uploadChunk(this.currentMount, init.upload_id, i, sha256, chunkBuffer);
+
+          const pct = Math.round(((i + 1) / totalChunks) * 100);
+          if (this.uploadProgressBarEl) {
+            this.uploadProgressBarEl.style.width = `${pct}%`;
+          }
+          if (this.uploadPercentEl) {
+            this.uploadPercentEl.textContent = `${pct}%`;
+          }
+        }
+
+        await AetherApi.completeUpload(this.currentMount, init.upload_id);
+      } catch (err: any) {
+        alert(`Upload error for ${file.name}: ${err.message}`);
+      }
+    }
+
+    if (this.uploadProgressModalEl) {
+      this.uploadProgressModalEl.classList.add("hidden");
+    }
+
+    await this.loadDirectory(this.currentMount, this.currentPath);
+  }
+
   private renderGrid(items: FileItem[]) {
     this.fileGridEl.innerHTML = "";
 
     items.forEach((item) => {
       const card = document.createElement("div");
-      card.className = "file-card";
+      card.className = `file-card ${this.selectedFiles.has(item.name) ? "selected" : ""}`;
+
+      // Checkbox for non-directories
+      if (!item.is_dir) {
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "file-checkbox";
+        cb.dataset.filename = item.name;
+        cb.checked = this.selectedFiles.has(item.name);
+        cb.onclick = (e) => {
+          e.stopPropagation();
+          this.toggleSelectFile(item.name, cb.checked);
+          if (cb.checked) {
+            card.classList.add("selected");
+          } else {
+            card.classList.remove("selected");
+          }
+        };
+        card.appendChild(cb);
+      }
 
       const icon = document.createElement("div");
       icon.className = "file-icon";
@@ -299,7 +556,7 @@ export class FileExplorerComponent {
         if (isVideo) {
           const playBtn = document.createElement("button");
           playBtn.className = "btn btn-primary btn-sm";
-          playBtn.textContent = "Play Direct";
+          playBtn.textContent = "Play";
           playBtn.onclick = (e) => {
             e.stopPropagation();
             const filePath = this.currentPath ? `${this.currentPath}/${item.name}` : item.name;
@@ -309,7 +566,7 @@ export class FileExplorerComponent {
 
           const hlsBtn = document.createElement("button");
           hlsBtn.className = "btn btn-secondary btn-sm";
-          hlsBtn.textContent = "HLS ABR";
+          hlsBtn.textContent = "HLS";
           hlsBtn.onclick = (e) => {
             e.stopPropagation();
             const filePath = this.currentPath ? `${this.currentPath}/${item.name}` : item.name;
@@ -317,6 +574,17 @@ export class FileExplorerComponent {
           };
           actions.appendChild(hlsBtn);
         }
+
+        const downloadBtn = document.createElement("button");
+        downloadBtn.className = "btn btn-secondary btn-sm";
+        downloadBtn.innerHTML = "&#128229;";
+        downloadBtn.title = "Direct Download";
+        downloadBtn.onclick = (e) => {
+          e.stopPropagation();
+          const filePath = this.currentPath ? `${this.currentPath}/${item.name}` : item.name;
+          this.downloadFile(this.currentMount!, filePath);
+        };
+        actions.appendChild(downloadBtn);
 
         const shareBtn = document.createElement("button");
         shareBtn.className = "btn btn-secondary btn-sm";
@@ -356,11 +624,29 @@ export class FileExplorerComponent {
 
     items.forEach((item) => {
       const row = document.createElement("div");
-      row.className = "file-list-row";
+      row.className = `file-list-row ${this.selectedFiles.has(item.name) ? "selected" : ""}`;
 
       const icon = document.createElement("div");
       icon.className = "file-list-icon";
-      icon.innerHTML = item.is_dir ? "&#128193;" : this.getMediaIcon(item.name);
+      if (!item.is_dir) {
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "file-list-checkbox";
+        cb.dataset.filename = item.name;
+        cb.checked = this.selectedFiles.has(item.name);
+        cb.onclick = (e) => {
+          e.stopPropagation();
+          this.toggleSelectFile(item.name, cb.checked);
+          if (cb.checked) {
+            row.classList.add("selected");
+          } else {
+            row.classList.remove("selected");
+          }
+        };
+        icon.appendChild(cb);
+      } else {
+        icon.innerHTML = "&#128193;";
+      }
 
       const name = document.createElement("div");
       name.className = "file-list-name";
@@ -406,6 +692,17 @@ export class FileExplorerComponent {
           };
           actions.appendChild(hlsBtn);
         }
+
+        const downloadBtn = document.createElement("button");
+        downloadBtn.className = "btn btn-secondary btn-sm";
+        downloadBtn.innerHTML = "&#128229;";
+        downloadBtn.title = "Direct Download";
+        downloadBtn.onclick = (e) => {
+          e.stopPropagation();
+          const filePath = this.currentPath ? `${this.currentPath}/${item.name}` : item.name;
+          this.downloadFile(this.currentMount!, filePath);
+        };
+        actions.appendChild(downloadBtn);
 
         const shareBtn = document.createElement("button");
         shareBtn.className = "btn btn-secondary btn-sm";

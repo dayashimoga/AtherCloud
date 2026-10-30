@@ -533,10 +533,27 @@ video {
 .share-result {
   margin-top: 16px;
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.share-url-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.share-url-block label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.input-with-action {
+  display: flex;
   gap: 8px;
 }
 
-.share-result input {
+.input-with-action input {
   flex: 1;
   background: var(--bg-primary);
   border: 1px solid var(--border);
@@ -544,5 +561,137 @@ video {
   padding: 8px;
   border-radius: var(--radius);
   font-family: monospace;
+  font-size: 0.8rem;
+}
+
+/* Multi-Select Action Bar */
+.selection-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.selection-count {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.selection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.file-checkbox {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  z-index: 2;
+}
+
+.file-list-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.file-card.selected {
+  border-color: var(--accent);
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.file-list-row.selected {
+  border-color: var(--accent);
+  background: rgba(14, 165, 233, 0.08);
+}
+
+/* Drag-Drop Overlay */
+.file-container {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.drag-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 12, 16, 0.92);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.drag-message {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--accent-hover);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Upload Progress Modal/Toast */
+.upload-progress-modal {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1100;
+}
+
+.upload-progress-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  padding: 16px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.upload-progress-header {
+  display: flex;
+  justify-content: space-between;
   font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.progress-bar-track {
+  background: var(--bg-primary);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.progress-bar-fill {
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  height: 100%;
+  transition: width 0.15s ease;
+}
+
+.upload-progress-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: monospace;
 }

@@ -55,13 +55,29 @@
                 <input type="text" id="file-search-input" placeholder="Filter files in directory..." autocomplete="off" />
                 <button id="clear-search-btn" class="btn-clear hidden" title="Clear filter">&times;</button>
               </div>
+              <input type="file" id="file-upload-input" multiple style="display:none" />
+              <button id="upload-btn" class="btn btn-primary btn-sm" title="Upload files">&#8682; Upload</button>
               <div class="view-toggles">
                 <button id="view-grid-btn" class="btn btn-icon view-btn active" title="Grid View">&#9638;</button>
                 <button id="view-list-btn" class="btn btn-icon view-btn" title="List View">&#9776;</button>
               </div>
             </div>
           </div>
+
+          <!-- Multi-Select Action Bar -->
+          <div id="selection-bar" class="selection-bar hidden">
+            <span id="selection-count" class="selection-count">0 items selected</span>
+            <div class="selection-actions">
+              <button id="select-all-btn" class="btn btn-secondary btn-sm">Select All</button>
+              <button id="download-selected-btn" class="btn btn-primary btn-sm">&#128229; Download Selected</button>
+              <button id="clear-selection-btn" class="btn btn-secondary btn-sm">Cancel</button>
+            </div>
+          </div>
+
           <div id="file-container" class="file-container">
+            <div id="drag-overlay" class="drag-overlay hidden">
+              <div class="drag-message">&#128229; Drop files to upload to current folder</div>
+            </div>
             <div id="file-grid" class="file-grid">
               <div class="loading">Select a mount to view media...</div>
             </div>
@@ -69,6 +85,23 @@
           </div>
         </section>
       </main>
+
+      <!-- Upload Progress Overlay -->
+      <div id="upload-progress-modal" class="upload-progress-modal hidden">
+        <div class="upload-progress-box">
+          <div class="upload-progress-header">
+            <span id="upload-filename">Uploading...</span>
+            <span id="upload-percent">0%</span>
+          </div>
+          <div class="progress-bar-track">
+            <div id="upload-progress-bar" class="progress-bar-fill" style="width:0%"></div>
+          </div>
+          <div class="upload-progress-details">
+            <span id="upload-chunk-info">Chunk 0/0</span>
+            <span id="upload-status">Encrypting SHA-256...</span>
+          </div>
+        </div>
+      </div>
 
       <!-- Video Player Modal Overlay -->
       <div id="player-modal" class="modal hidden">
@@ -118,8 +151,20 @@
             <button id="close-share-btn" class="btn btn-secondary">Cancel</button>
           </div>
           <div id="share-result" class="share-result hidden">
-            <input type="text" id="share-url-input" readonly />
-            <button id="copy-share-btn" class="btn btn-sm">Copy</button>
+            <div class="share-url-block">
+              <label>Stream URL (Token Authorized):</label>
+              <div class="input-with-action">
+                <input type="text" id="share-url-input" readonly />
+                <button id="copy-share-btn" class="btn btn-sm">Copy</button>
+              </div>
+            </div>
+            <div class="share-url-block" style="margin-top: 8px;">
+              <label>Direct Download URL:</label>
+              <div class="input-with-action">
+                <input type="text" id="share-download-url" readonly />
+                <button id="copy-download-btn" class="btn btn-sm">Copy</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

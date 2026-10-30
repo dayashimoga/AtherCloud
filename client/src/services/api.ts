@@ -88,8 +88,82 @@ export class AetherApi {
     return token ? `${base}?token=${encodeURIComponent(token)}` : base;
   }
 
+  static getDownloadUrl(mount: string, path: string, token?: string): string {
+    const base = `${this.baseUrl}/api/v1/stream/${mount}/${path.replace(/^\/+/, "")}?download=true`;
+    return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+  }
+
   static getHlsMasterUrl(mount: string, path: string, token?: string): string {
     const base = `${this.baseUrl}/api/v1/transcode/hls/${mount}/${path.replace(/^\/+/, "")}/master.m3u8`;
     return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  }
+
+  static async computeSha256(buffer: ArrayBuffer): Promise<string> {
+    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  static async initUpload(
+    mount: string,
+    path: string,
+    totalSize: number,
+    chunkSize = 2 * 1024 * 1024
+  ): Promise<{ upload_id: string; total_chunks: number; chunk_size: number; total_size: number }> {
+    const uploadId = "upl_" + Math.random().toString(36).substring(2, 10) + "_" + Date.now();
+    const res = await fetch(`${this.baseUrl}/api/v1/upload/${mount}/init`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        upload_id: uploadId,
+        path,
+        total_size: totalSize,
+        chunk_size: chunkSize,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Upload init failed" }));
+      throw new Error(err.error || "Failed to initialize upload session");
+    }
+    return res.json();
+  }
+
+  static async uploadChunk(
+    mount: string,
+    uploadId: string,
+    chunkIndex: number,
+    sha256: string,
+    chunkBytes: ArrayBuffer | Blob
+  ) {
+    const url = `${this.baseUrl}/api/v1/upload/${mount}/chunk?upload_id=${encodeURIComponent(
+      uploadId
+    )}&chunk_index=${chunkIndex}&sha256=${encodeURIComponent(sha256)}`;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: chunkBytes,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Chunk upload failed" }));
+      throw new Error(err.error || `Failed to upload chunk ${chunkIndex}`);
+    }
+    return res.json();
+  }
+
+  static async completeUpload(mount: string, uploadId: string, expectedSha256?: string) {
+    const res = await fetch(`${this.baseUrl}/api/v1/upload/${mount}/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        upload_id: uploadId,
+        expected_sha256: expectedSha256 || null,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Upload completion failed" }));
+      throw new Error(err.error || "Failed to complete upload");
+    }
+    return res.json();
   }
 }
