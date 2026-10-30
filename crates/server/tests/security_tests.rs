@@ -1937,3 +1937,183 @@ fn test_sqlite_wal_migrations_and_mount_registry_schema() {
 
     println!("[SQLITE WAL SCHEMA VERIFIED] Successfully validated mounts and share_rules migrations and CRUD operations.");
 }
+
+#[test]
+fn test_sqlite_wal_acid_transactions_and_mmap_io() {
+    use aetherstream_server::storage::mount_manager::{
+        MountManager, PermissionMode, ShareRuleRecord, VirtualMountRecord, WalCheckpointMode,
+    };
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("acid_wal_test.db");
+
+    let manager = MountManager::new(&db_path).expect("Initialize SQLite MountManager");
+
+    // 1. Verify memory-mapped I/O is configured
+    let mmap_size = manager.get_mmap_size().expect("Query mmap_size");
+    assert!(
+        mmap_size >= 268435456,
+        "SQLite mmap_size must be configured to at least 256 MiB (got {})",
+        mmap_size
+    );
+
+    // 2. Test Atomic Multi-Mount Batch Transaction (ACID Commit)
+    let batch_mounts = vec![
+        VirtualMountRecord {
+            id: "batch-1".to_string(),
+            name: "mount_alpha".to_string(),
+            drive_serial: Some("SERIAL-AAA".to_string()),
+            physical_path: "/storage/alpha".to_string(),
+            permission_mode: PermissionMode::ReadOnly,
+            allowed_subpaths: vec!["sub1".to_string()],
+            password_hash: None,
+            expiration_ts: None,
+            created_at: "2026-10-30T10:00:00Z".to_string(),
+        },
+        VirtualMountRecord {
+            id: "batch-2".to_string(),
+            name: "mount_beta".to_string(),
+            drive_serial: Some("SERIAL-BBB".to_string()),
+            physical_path: "/storage/beta".to_string(),
+            permission_mode: PermissionMode::ReadWrite,
+            allowed_subpaths: vec!["sub2".to_string()],
+            password_hash: None,
+            expiration_ts: None,
+            created_at: "2026-10-30T10:00:00Z".to_string(),
+        },
+        VirtualMountRecord {
+            id: "batch-3".to_string(),
+            name: "mount_gamma".to_string(),
+            drive_serial: Some("SERIAL-CCC".to_string()),
+            physical_path: "/storage/gamma".to_string(),
+            permission_mode: PermissionMode::StreamOnly,
+            allowed_subpaths: vec!["sub3".to_string()],
+            password_hash: None,
+            expiration_ts: None,
+            created_at: "2026-10-30T10:00:00Z".to_string(),
+        },
+    ];
+
+    manager
+        .transactional_batch_upsert(&batch_mounts)
+        .expect("Batch transaction commit");
+
+    let active_mounts = manager.list_mounts().unwrap();
+    assert_eq!(active_mounts.len(), 3, "All 3 batch mounts must be committed");
+
+    // 3. Test Atomic Rollback on Failure
+    // Attempt batch with a duplicate name constraint violation (mount_beta already exists)
+    let failing_batch = vec![
+        VirtualMountRecord {
+            id: "batch-fail-4".to_string(),
+            name: "mount_delta".to_string(), // new valid name
+            drive_serial: None,
+            physical_path: "/storage/delta".to_string(),
+            permission_mode: PermissionMode::ReadOnly,
+            allowed_subpaths: vec![],
+            password_hash: None,
+            expiration_ts: None,
+            created_at: "2026-10-30T10:00:00Z".to_string(),
+        },
+        VirtualMountRecord {
+            id: "batch-fail-5".to_string(),
+            name: "mount_beta".to_string(), // DUPLICATE NAME: conflicts with batch-2
+            drive_serial: None,
+            physical_path: "/storage/conflict".to_string(),
+            permission_mode: PermissionMode::ReadOnly,
+            allowed_subpaths: vec![],
+            password_hash: None,
+            expiration_ts: None,
+            created_at: "2026-10-30T10:00:00Z".to_string(),
+        },
+    ];
+
+    let fail_res = manager.transactional_batch_upsert(&failing_batch);
+    assert!(fail_res.is_err(), "Duplicate unique name must trigger transaction error");
+
+    // Verify rollback: mount_delta was NOT inserted
+    assert!(
+        manager.get_mount("batch-fail-4").unwrap().is_none(),
+        "Transaction rollback must prevent partial write of mount_delta"
+    );
+    assert_eq!(
+        manager.list_mounts().unwrap().len(),
+        3,
+        "Mount count must remain 3 after clean transaction rollback"
+    );
+
+    // 4. Test Atomic Compound Transaction (Mount + Share Rules)
+    let compound_mount = VirtualMountRecord {
+        id: "mount-compound".to_string(),
+        name: "mount_compound".to_string(),
+        drive_serial: Some("SERIAL-DDD".to_string()),
+        physical_path: "/storage/compound".to_string(),
+        permission_mode: PermissionMode::ReadOnly,
+        allowed_subpaths: vec!["public".to_string()],
+        password_hash: None,
+        expiration_ts: None,
+        created_at: "2026-10-30T10:00:00Z".to_string(),
+    };
+
+    let compound_rules = vec![
+        ShareRuleRecord {
+            id: "rule-1".to_string(),
+            name: "rule_alpha".to_string(),
+            drive_serial: None,
+            physical_path: "/storage/compound/public/doc1".to_string(),
+            permission_mode: PermissionMode::ReadOnly,
+            allowed_subpaths: vec![],
+            password_hash: None,
+            expiration_ts: None,
+            created_at: "2026-10-30T10:00:00Z".to_string(),
+        },
+        ShareRuleRecord {
+            id: "rule-2".to_string(),
+            name: "rule_beta".to_string(),
+            drive_serial: None,
+            physical_path: "/storage/compound/public/doc2".to_string(),
+            permission_mode: PermissionMode::StreamOnly,
+            allowed_subpaths: vec![],
+            password_hash: None,
+            expiration_ts: None,
+            created_at: "2026-10-30T10:00:00Z".to_string(),
+        },
+    ];
+
+    manager
+        .transactional_mount_with_share_rules(&compound_mount, &compound_rules)
+        .expect("Atomic compound transaction");
+
+    assert!(manager.get_mount("mount-compound").unwrap().is_some());
+    assert!(manager.get_share_rule("rule-1").unwrap().is_some());
+    assert!(manager.get_share_rule("rule-2").unwrap().is_some());
+
+    // 5. Test Atomic Replace Mount
+    let replacement = VirtualMountRecord {
+        id: "mount-compound-v2".to_string(),
+        name: "mount_compound_v2".to_string(),
+        drive_serial: Some("SERIAL-DDD".to_string()),
+        physical_path: "/storage/compound_v2".to_string(),
+        permission_mode: PermissionMode::ReadWrite,
+        allowed_subpaths: vec!["all".to_string()],
+        password_hash: None,
+        expiration_ts: None,
+        created_at: "2026-10-30T10:00:00Z".to_string(),
+    };
+
+    manager
+        .atomic_replace_mount("mount-compound", &replacement)
+        .expect("Atomic replace mount");
+
+    assert!(manager.get_mount("mount-compound").unwrap().is_none());
+    assert!(manager.get_mount("mount-compound-v2").unwrap().is_some());
+
+    // 6. Test WAL Checkpointing
+    let (busy, log_frames, checkpointed_frames) =
+        manager.checkpoint_wal(WalCheckpointMode::Truncate).expect("WAL Checkpoint");
+    println!(
+        "[WAL CHECKPOINT VERIFIED] Busy: {}, Log frames: {}, Checkpointed frames: {}",
+        busy, log_frames, checkpointed_frames
+    );
+    assert_eq!(busy, 0, "WAL Checkpoint must complete with 0 busy conflicts");
+}

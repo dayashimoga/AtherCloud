@@ -1177,3 +1177,18 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered SQLite database and schema migration engine `MountManager` in `crates/server/src/storage/mount_manager.rs`. Configured WAL mode (`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;`) and implemented migration 001 creating `mounts` and `share_rules` tables with columns: `id`, `name`, `drive_serial`, `physical_path`, `permission_mode` ('stream_only', 'read_only', 'read_write'), `allowed_subpaths` (JSON array), `password_hash`, `expiration_ts`, `created_at`, and `updated_at`. Implemented CRUD operations and validated via `test_sqlite_wal_migrations_and_mount_registry_schema`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_SQLITE_MIGRATION_010
 - **Executor:** Principal Security Architect & Systems Engineer
+
+### [2026-10-30T07:00:00Z] - STAGE_8 / PHASE_8.1 / SUBPHASE_8.1.2
+- **Stage ID:** STAGE_8 (Granular Security Sandbox, Scoped RBAC & Virtual Mount Configuration)
+- **Phase ID:** PHASE_8.1 (SQLite WAL Mount Registry & Storage Schema)
+- **Subphase ID:** SUBPHASE_8.1.2 (Atomic ACID Transactions, Memory-Mapped I/O & WAL Checkpointing)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/storage/mount_manager.rs`
+  - `crates/server/src/storage/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Implemented atomic ACID write transactions, memory-mapped I/O (`PRAGMA mmap_size = 268435456`, `PRAGMA temp_store = MEMORY`, `PRAGMA cache_size = -64000`), and explicit WAL checkpointing (`WalCheckpointMode::Truncate`) in `MountManager`. Engineered `transactional_batch_upsert`, `transactional_mount_with_share_rules`, `atomic_replace_mount`, and verified complete transaction rollback guarantees on constraint violations. Verified via `test_sqlite_wal_acid_transactions_and_mmap_io`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_SQLITE_ACID_WAL_011
+- **Executor:** Principal Security Architect & Systems Engineer

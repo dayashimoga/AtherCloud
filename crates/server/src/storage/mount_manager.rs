@@ -69,6 +69,25 @@ pub struct ShareRuleRecord {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WalCheckpointMode {
+    Passive,
+    Full,
+    Restart,
+    Truncate,
+}
+
+impl WalCheckpointMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WalCheckpointMode::Passive => "PASSIVE",
+            WalCheckpointMode::Full => "FULL",
+            WalCheckpointMode::Restart => "RESTART",
+            WalCheckpointMode::Truncate => "TRUNCATE",
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct MountManager {
     conn: Arc<Mutex<Connection>>,
@@ -88,13 +107,17 @@ impl MountManager {
     }
 
     fn init_with_connection(conn: Connection) -> Result<Self, MountManagerError> {
-        // Enforce WAL mode, normal synchronous for high-throughput ACID reliability, foreign keys
+        // Enforce WAL mode, normal synchronous for high-throughput ACID reliability, foreign keys,
+        // memory-mapped I/O (256 MiB mmap_size), in-memory temp store, and 64 MiB page cache.
         conn.execute_batch(
             r#"
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA foreign_keys = ON;
             PRAGMA busy_timeout = 5000;
+            PRAGMA mmap_size = 268435456;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA cache_size = -64000;
             "#,
         )?;
 
@@ -516,6 +539,179 @@ impl MountManager {
         let conn = self.conn.lock().unwrap();
         let deleted = conn.execute("DELETE FROM share_rules WHERE id = ?1;", params![id])?;
         Ok(deleted > 0)
+    }
+
+    /// Returns the currently active memory-mapped I/O byte size
+    pub fn get_mmap_size(&self) -> Result<i64, MountManagerError> {
+        let conn = self.conn.lock().unwrap();
+        let mmap_size: i64 = conn.query_row("PRAGMA mmap_size;", [], |row| row.get(0))?;
+        Ok(mmap_size)
+    }
+
+    /// Performs an explicit WAL checkpoint in the specified mode (PASSIVE, FULL, RESTART, TRUNCATE),
+    /// returning (busy_status, log_frames, checkpointed_frames).
+    pub fn checkpoint_wal(&self, mode: WalCheckpointMode) -> Result<(i32, i32, i32), MountManagerError> {
+        let conn = self.conn.lock().unwrap();
+        let query = format!("PRAGMA wal_checkpoint({});", mode.as_str());
+        let res = conn.query_row(&query, [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        Ok(res)
+    }
+
+    /// Executes an atomic ACID transaction batch-upserting multiple virtual mount records.
+    /// If any insert fails, the entire transaction is rolled back cleanly.
+    pub fn transactional_batch_upsert(&self, mounts: &[VirtualMountRecord]) -> Result<(), MountManagerError> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        {
+            let mut stmt = tx.prepare(
+                r#"
+                INSERT INTO mounts (
+                    id, name, drive_serial, physical_path, permission_mode,
+                    allowed_subpaths, password_hash, expiration_ts, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now', 'utc'))
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    drive_serial = excluded.drive_serial,
+                    physical_path = excluded.physical_path,
+                    permission_mode = excluded.permission_mode,
+                    allowed_subpaths = excluded.allowed_subpaths,
+                    password_hash = excluded.password_hash,
+                    expiration_ts = excluded.expiration_ts,
+                    updated_at = datetime('now', 'utc');
+                "#,
+            )?;
+
+            for mount in mounts {
+                let allowed_json = serde_json::to_string(&mount.allowed_subpaths)?;
+                stmt.execute(params![
+                    mount.id,
+                    mount.name,
+                    mount.drive_serial,
+                    mount.physical_path,
+                    mount.permission_mode.as_str(),
+                    allowed_json,
+                    mount.password_hash,
+                    mount.expiration_ts,
+                    mount.created_at,
+                ])?;
+            }
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Atomically creates or updates a virtual mount along with a set of associated share rules
+    /// inside a single ACID transaction. If any step fails, changes roll back completely.
+    pub fn transactional_mount_with_share_rules(
+        &self,
+        mount: &VirtualMountRecord,
+        rules: &[ShareRuleRecord],
+    ) -> Result<(), MountManagerError> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        // 1. Upsert mount
+        let allowed_json = serde_json::to_string(&mount.allowed_subpaths)?;
+        tx.execute(
+            r#"
+            INSERT INTO mounts (
+                id, name, drive_serial, physical_path, permission_mode,
+                allowed_subpaths, password_hash, expiration_ts, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now', 'utc'))
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                drive_serial = excluded.drive_serial,
+                physical_path = excluded.physical_path,
+                permission_mode = excluded.permission_mode,
+                allowed_subpaths = excluded.allowed_subpaths,
+                password_hash = excluded.password_hash,
+                expiration_ts = excluded.expiration_ts,
+                updated_at = datetime('now', 'utc');
+            "#,
+            params![
+                mount.id,
+                mount.name,
+                mount.drive_serial,
+                mount.physical_path,
+                mount.permission_mode.as_str(),
+                allowed_json,
+                mount.password_hash,
+                mount.expiration_ts,
+                mount.created_at,
+            ],
+        )?;
+
+        // 2. Upsert associated share rules
+        for rule in rules {
+            let rule_allowed_json = serde_json::to_string(&rule.allowed_subpaths)?;
+            tx.execute(
+                r#"
+                INSERT INTO share_rules (
+                    id, name, drive_serial, physical_path, permission_mode,
+                    allowed_subpaths, password_hash, expiration_ts, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now', 'utc'))
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    drive_serial = excluded.drive_serial,
+                    physical_path = excluded.physical_path,
+                    permission_mode = excluded.permission_mode,
+                    allowed_subpaths = excluded.allowed_subpaths,
+                    password_hash = excluded.password_hash,
+                    expiration_ts = excluded.expiration_ts,
+                    updated_at = datetime('now', 'utc');
+                "#,
+                params![
+                    rule.id,
+                    rule.name,
+                    rule.drive_serial,
+                    rule.physical_path,
+                    rule.permission_mode.as_str(),
+                    rule_allowed_json,
+                    rule.password_hash,
+                    rule.expiration_ts,
+                    rule.created_at,
+                ],
+            )?;
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Atomically replaces an existing virtual mount with a new mount record
+    pub fn atomic_replace_mount(&self, old_id: &str, new_mount: &VirtualMountRecord) -> Result<(), MountManagerError> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        tx.execute("DELETE FROM mounts WHERE id = ?1;", params![old_id])?;
+
+        let allowed_json = serde_json::to_string(&new_mount.allowed_subpaths)?;
+        tx.execute(
+            r#"
+            INSERT INTO mounts (
+                id, name, drive_serial, physical_path, permission_mode,
+                allowed_subpaths, password_hash, expiration_ts, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now', 'utc'));
+            "#,
+            params![
+                new_mount.id,
+                new_mount.name,
+                new_mount.drive_serial,
+                new_mount.physical_path,
+                new_mount.permission_mode.as_str(),
+                allowed_json,
+                new_mount.password_hash,
+                new_mount.expiration_ts,
+                new_mount.created_at,
+            ],
+        )?;
+
+        tx.commit()?;
+        Ok(())
     }
 }
 
