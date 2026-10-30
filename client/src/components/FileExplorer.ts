@@ -43,6 +43,8 @@ export class FileExplorerComponent {
 
   public onPlayMedia: ((mount: string, path: string, isHls: boolean) => void) | null = null;
   public onShareItem: ((mount: string, path: string) => void) | null = null;
+  public onSelectDrive: ((drive: DiscoveredDriveItem) => void) | null = null;
+  public onSelectMount: ((mount: MountItem) => void) | null = null;
 
   constructor() {
     this.mountListEl = document.getElementById("mount-list")!;
@@ -227,8 +229,12 @@ export class FileExplorerComponent {
       li.title = m.description || m.path_display;
       li.onclick = () => {
         document.querySelectorAll(".mount-item").forEach((el) => el.classList.remove("active"));
+        document.querySelectorAll(".drive-item").forEach((el) => el.classList.remove("active"));
         li.classList.add("active");
         this.loadDirectory(m.id, "");
+        if (this.onSelectMount) {
+          this.onSelectMount(m);
+        }
       };
       this.mountListEl.appendChild(li);
     });
@@ -253,19 +259,65 @@ export class FileExplorerComponent {
 
     drives.forEach((d) => {
       const li = document.createElement("li");
-      li.className = "drive-item";
+      li.className = "drive-item clickable";
 
-      const nameDiv = document.createElement("div");
-      nameDiv.className = "drive-name";
-      nameDiv.innerHTML = `<span>&#128452;</span> <span>${d.name || d.path}</span>`;
+      const total = d.total_bytes || 0;
+      const avail = d.available_bytes || 0;
+      const used = Math.max(0, total - avail);
+      const pct = total > 0 ? Math.min(100, Math.max(0, Math.round((used / total) * 100))) : 0;
+      const color = d.is_read_only
+        ? "var(--accent, #0ea5e9)"
+        : pct >= 90
+        ? "var(--danger, #ef4444)"
+        : pct >= 75
+        ? "var(--warning, #f59e0b)"
+        : "var(--success, #10b981)";
 
-      const badge = document.createElement("span");
-      badge.className = `drive-badge ${d.is_system ? "system" : d.is_removable ? "removable" : ""}`;
-      badge.textContent = d.is_system ? "System" : d.is_removable ? "USB" : d.drive_type || "Drive";
+      const mt = (d.media_type || d.drive_type || "").toLowerCase();
+      const icon = mt.includes("nvme")
+        ? "&#9889;"
+        : mt.includes("ssd")
+        ? "&#128190;"
+        : mt.includes("removable") || mt.includes("usb")
+        ? "&#128268;"
+        : "&#128452;";
 
-      li.appendChild(nameDiv);
-      li.appendChild(badge);
-      li.title = `Path: ${d.path} (${d.drive_type})`;
+      li.innerHTML = `
+        <div class="drive-item-main">
+          <div class="drive-name">
+            <span class="drive-icon">${icon}</span>
+            <span class="drive-title" title="${d.mount_point || d.path}">${d.name || d.mount_point || d.path}</span>
+          </div>
+          <div class="drive-badges-row">
+            ${d.filesystem ? `<span class="drive-fs-pill">${d.filesystem}</span>` : ""}
+            <span class="drive-badge ${d.is_system ? "system" : d.is_removable ? "removable" : d.is_read_only ? "readonly" : ""}">
+              ${d.is_system ? "System" : d.is_removable ? "USB" : d.is_read_only ? "RO" : d.drive_type || "Drive"}
+            </span>
+          </div>
+        </div>
+        ${total > 0 ? `
+          <div class="sidebar-drive-capacity">
+            <div class="sidebar-drive-track">
+              <div class="sidebar-drive-bar" style="width: ${pct}%; background: ${color};"></div>
+            </div>
+            <div class="sidebar-drive-metric">
+              <span>${pct}% used</span>
+              <span>${d.filesystem_label || d.filesystem || ""}</span>
+            </div>
+          </div>
+        ` : ""}
+      `;
+
+      li.title = `Path: ${d.mount_point || d.path} (${d.drive_type || d.media_type})\nFilesystem: ${d.filesystem}\nClick to inspect in Storage & Drives Dashboard`;
+      li.onclick = () => {
+        document.querySelectorAll(".mount-item").forEach((el) => el.classList.remove("active"));
+        document.querySelectorAll(".drive-item").forEach((el) => el.classList.remove("active"));
+        li.classList.add("active");
+        if (this.onSelectDrive) {
+          this.onSelectDrive(d);
+        }
+      };
+
       this.driveListEl!.appendChild(li);
     });
   }

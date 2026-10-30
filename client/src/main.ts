@@ -4,11 +4,13 @@ import { SessionManager, ThemeMode } from "./services/session";
 import { FileExplorerComponent } from "./components/FileExplorer";
 import { VideoPlayerComponent } from "./components/VideoPlayer";
 import { ShareModalComponent } from "./components/ShareModal";
+import { DrivesDashboardComponent } from "./components/DrivesDashboard";
 
 class AetherApp {
   private fileExplorer: FileExplorerComponent;
   private videoPlayer: VideoPlayerComponent;
   private shareModal: ShareModalComponent;
+  private drivesDashboard: DrivesDashboardComponent;
   private session: SessionManager;
 
   private playerModalEl: HTMLElement;
@@ -16,6 +18,14 @@ class AetherApp {
   private closePlayerBtn: HTMLButtonElement;
   private refreshBtn: HTMLButtonElement;
   private hwAccelBadge: HTMLElement;
+
+  // View Navigation
+  private navExplorerBtn: HTMLButtonElement;
+  private navDrivesBtn: HTMLButtonElement;
+  private drivesNavBadge: HTMLElement | null;
+  private drivesSidebarHeader: HTMLElement | null;
+  private explorerViewEl: HTMLElement;
+  private drivesViewEl: HTMLElement;
 
   // Theme & Session Settings
   private themeToggleBtn: HTMLButtonElement;
@@ -33,12 +43,21 @@ class AetherApp {
     this.fileExplorer = new FileExplorerComponent();
     this.videoPlayer = new VideoPlayerComponent();
     this.shareModal = new ShareModalComponent();
+    this.drivesDashboard = new DrivesDashboardComponent("drives-view");
 
     this.playerModalEl = document.getElementById("player-modal")!;
     this.videoTitleEl = document.getElementById("video-title")!;
     this.closePlayerBtn = document.getElementById("close-player-btn") as HTMLButtonElement;
     this.refreshBtn = document.getElementById("refresh-btn") as HTMLButtonElement;
     this.hwAccelBadge = document.getElementById("hw-accel-badge")!;
+
+    // Navigation elements
+    this.navExplorerBtn = document.getElementById("nav-explorer-btn") as HTMLButtonElement;
+    this.navDrivesBtn = document.getElementById("nav-drives-btn") as HTMLButtonElement;
+    this.drivesNavBadge = document.getElementById("drives-nav-badge");
+    this.drivesSidebarHeader = document.getElementById("drives-sidebar-header");
+    this.explorerViewEl = document.getElementById("explorer-view")!;
+    this.drivesViewEl = document.getElementById("drives-view")!;
 
     this.themeToggleBtn = document.getElementById("theme-toggle-btn") as HTMLButtonElement;
     this.settingsBtn = document.getElementById("settings-btn") as HTMLButtonElement;
@@ -60,6 +79,37 @@ class AetherApp {
     this.refreshBtn.onclick = () => {
       this.loadMounts();
       this.loadDrives();
+    };
+
+    // Navigation Tabs
+    if (this.navExplorerBtn) {
+      this.navExplorerBtn.onclick = () => this.switchView("explorer");
+    }
+    if (this.navDrivesBtn) {
+      this.navDrivesBtn.onclick = () => this.switchView("drives");
+    }
+    if (this.drivesSidebarHeader) {
+      this.drivesSidebarHeader.onclick = () => this.switchView("drives");
+    }
+
+    // Sidebar & Explorer Event Wiring
+    this.fileExplorer.onSelectMount = () => {
+      this.switchView("explorer");
+    };
+
+    this.fileExplorer.onSelectDrive = (drive) => {
+      this.switchView("drives");
+      this.drivesDashboard.selectDrive(drive.mount_point || drive.path || "");
+    };
+
+    // Drives Dashboard Callbacks
+    this.drivesDashboard.onRefresh = async () => {
+      await this.loadDrives();
+    };
+
+    this.drivesDashboard.onCreateMount = (drive) => {
+      console.log("[MountManager] Quick mount initiated for drive:", drive);
+      // Prepared for interactive Create Mount modal in Subphase 11.1.2
     };
 
     // Theme Toggle
@@ -104,6 +154,20 @@ class AetherApp {
     this.fileExplorer.onShareItem = (mount, path) => {
       this.shareModal.show(mount, path);
     };
+  }
+
+  public switchView(view: "explorer" | "drives") {
+    if (view === "explorer") {
+      this.navExplorerBtn?.classList.add("active");
+      this.navDrivesBtn?.classList.remove("active");
+      this.explorerViewEl?.classList.remove("hidden");
+      this.drivesViewEl?.classList.add("hidden");
+    } else {
+      this.navDrivesBtn?.classList.add("active");
+      this.navExplorerBtn?.classList.remove("active");
+      this.drivesViewEl?.classList.remove("hidden");
+      this.explorerViewEl?.classList.add("hidden");
+    }
   }
 
   private updateThemeButtonIcon(theme: ThemeMode) {
@@ -154,10 +218,14 @@ class AetherApp {
 
   private async loadDrives() {
     try {
-      const drives = await AetherApi.getSystemDrives();
+      const drives = await AetherApi.getStorageDrives();
       this.fileExplorer.renderDrives(drives);
+      this.drivesDashboard.setDrives(drives);
+      if (this.drivesNavBadge) {
+        this.drivesNavBadge.textContent = drives.length.toString();
+      }
     } catch (err: any) {
-      console.error("Failed to load system drives:", err);
+      console.error("Failed to load storage drives:", err);
     }
   }
 

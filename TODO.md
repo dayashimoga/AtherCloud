@@ -985,3 +985,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Systems Architect & Distributed Ingress Engineer
 - **Execution Trace:** cargo test --test security_tests test_one_time_passkey_device_pairing_and_remote_session_security
 - **Validation Proof:** Engineered DevicePairingAuthority, PasskeyRecord, PairedDevice, and tunnel_pairing_router in crates/server/src/tunnel/pairing.rs. Features single-use formatted passkey generation, constant-time verification, SQLite WAL persistence, long-lived HMAC session credentials (30-day), remote ingress challenge defense distinguishing local LAN from remote tunnel clients, device revocation, and full REST API (/api/v1/tunnel/pair/*). Marked Phase 4.3 (PHASE_10.3) and Stage 4 (STAGE_10: Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress) 100% complete. Verified via test_one_time_passkey_device_pairing_and_remote_session_security (44.587µs/op benchmark) and all 54 integration tests passing.
+
+### [2026-10-30T10:55:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-11.1.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Frontend Architect & Systems Telemetry Engineer
+- **Execution Trace:** cargo test --test security_tests test_storage_drives_dashboard_volume_inspection_and_telemetry
+- **Validation Proof:** Engineered DrivesDashboardComponent in client/src/components/DrivesDashboard.ts with real-time physical disk telemetry widgets, global storage capacity KPIs, search & category filter toolbar, capacity utilization progress bars with color warning thresholds (<75% green, 75-89% amber, >=90% red), volume health indicators (Healthy, Low Space, Critical, Read-Only), filesystem labels, and quick virtual mount actions. Enhanced sidebar drive cards with mini capacity tracks and integrated top view switcher in client/index.html, app.css, and main.ts. Verified via test_storage_drives_dashboard_volume_inspection_and_telemetry with all 55 integration tests passing.

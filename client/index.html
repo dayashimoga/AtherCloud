@@ -21,11 +21,22 @@
           <span class="logo-icon">&#9658;</span>
           <span class="logo-title">AetherStream</span>
         </div>
+        <div class="nav-tabs" id="app-nav-tabs">
+          <button id="nav-explorer-btn" class="nav-tab-btn active" title="Browse Files & Virtual Mounts">
+            <span class="tab-icon">&#128193;</span>
+            <span class="tab-label">Files & Mounts</span>
+          </button>
+          <button id="nav-drives-btn" class="nav-tab-btn" title="Storage & Disks Dashboard">
+            <span class="tab-icon">&#128452;</span>
+            <span class="tab-label">Storage & Disks</span>
+            <span id="drives-nav-badge" class="tab-badge">0</span>
+          </button>
+        </div>
         <div class="header-actions">
           <span id="hw-accel-badge" class="badge">Checking HW Accel...</span>
           <button id="theme-toggle-btn" class="btn btn-icon" title="Toggle Light/Dark Theme">&#127769;</button>
           <button id="settings-btn" class="btn btn-icon" title="Session Settings">&#9881;</button>
-          <button id="refresh-btn" class="btn btn-icon" title="Refresh Mounts">&#8635;</button>
+          <button id="refresh-btn" class="btn btn-icon" title="Refresh Mounts & Drives">&#8635;</button>
         </div>
       </header>
 
@@ -42,7 +53,7 @@
           </div>
 
           <div class="sidebar-section">
-            <div class="sidebar-header">
+            <div class="sidebar-header clickable" id="drives-sidebar-header" title="Open Host Storage & Disks Dashboard">
               <h3>Host Storage Drives</h3>
               <span id="drive-count" class="section-count">0</span>
             </div>
@@ -53,43 +64,51 @@
         </aside>
 
         <section class="content-panel">
-          <div class="explorer-toolbar">
-            <div class="breadcrumb-container">
-              <div class="breadcrumb" id="breadcrumb">/</div>
+          <!-- File Explorer View Panel -->
+          <div id="explorer-view" class="view-panel">
+            <div class="explorer-toolbar">
+              <div class="breadcrumb-container">
+                <div class="breadcrumb" id="breadcrumb">/</div>
+              </div>
+              <div class="toolbar-controls">
+                <div class="search-box">
+                  <span class="search-icon">&#128269;</span>
+                  <input type="text" id="file-search-input" placeholder="Filter files in directory..." autocomplete="off" />
+                  <button id="clear-search-btn" class="btn-clear hidden" title="Clear filter">&times;</button>
+                </div>
+                <input type="file" id="file-upload-input" multiple style="display:none" />
+                <button id="upload-btn" class="btn btn-primary btn-sm" title="Upload files">&#8682; Upload</button>
+                <div class="view-toggles">
+                  <button id="view-grid-btn" class="btn btn-icon view-btn active" title="Grid View">&#9638;</button>
+                  <button id="view-list-btn" class="btn btn-icon view-btn" title="List View">&#9776;</button>
+                </div>
+              </div>
             </div>
-            <div class="toolbar-controls">
-              <div class="search-box">
-                <span class="search-icon">&#128269;</span>
-                <input type="text" id="file-search-input" placeholder="Filter files in directory..." autocomplete="off" />
-                <button id="clear-search-btn" class="btn-clear hidden" title="Clear filter">&times;</button>
+
+            <!-- Multi-Select Action Bar -->
+            <div id="selection-bar" class="selection-bar hidden">
+              <span id="selection-count" class="selection-count">0 items selected</span>
+              <div class="selection-actions">
+                <button id="select-all-btn" class="btn btn-secondary btn-sm">Select All</button>
+                <button id="download-selected-btn" class="btn btn-primary btn-sm">&#128229; Download Selected</button>
+                <button id="clear-selection-btn" class="btn btn-secondary btn-sm">Cancel</button>
               </div>
-              <input type="file" id="file-upload-input" multiple style="display:none" />
-              <button id="upload-btn" class="btn btn-primary btn-sm" title="Upload files">&#8682; Upload</button>
-              <div class="view-toggles">
-                <button id="view-grid-btn" class="btn btn-icon view-btn active" title="Grid View">&#9638;</button>
-                <button id="view-list-btn" class="btn btn-icon view-btn" title="List View">&#9776;</button>
+            </div>
+
+            <div id="file-container" class="file-container">
+              <div id="drag-overlay" class="drag-overlay hidden">
+                <div class="drag-message">&#128229; Drop files to upload to current folder</div>
               </div>
+              <div id="file-grid" class="file-grid">
+                <div class="loading">Select a mount to view media...</div>
+              </div>
+              <div id="file-list" class="file-list hidden"></div>
             </div>
           </div>
 
-          <!-- Multi-Select Action Bar -->
-          <div id="selection-bar" class="selection-bar hidden">
-            <span id="selection-count" class="selection-count">0 items selected</span>
-            <div class="selection-actions">
-              <button id="select-all-btn" class="btn btn-secondary btn-sm">Select All</button>
-              <button id="download-selected-btn" class="btn btn-primary btn-sm">&#128229; Download Selected</button>
-              <button id="clear-selection-btn" class="btn btn-secondary btn-sm">Cancel</button>
-            </div>
-          </div>
-
-          <div id="file-container" class="file-container">
-            <div id="drag-overlay" class="drag-overlay hidden">
-              <div class="drag-message">&#128229; Drop files to upload to current folder</div>
-            </div>
-            <div id="file-grid" class="file-grid">
-              <div class="loading">Select a mount to view media...</div>
-            </div>
-            <div id="file-list" class="file-list hidden"></div>
+          <!-- Enterprise Storage & Drives Dashboard View Panel -->
+          <div id="drives-view" class="view-panel hidden">
+            <!-- Dynamically populated by DrivesDashboardComponent -->
           </div>
         </section>
       </main>

@@ -1601,3 +1601,22 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `pairing.rs` in `crates/server/src/tunnel/` featuring `DevicePairingAuthority`, `PasskeyRecord`, `PairedDevice`, and `tunnel_pairing_router`. Implemented single-use human-readable formatted passkeys (`generate_passkey_code`), salted SHA-256 constant-time verification, SQLite WAL persistent device storage (`paired_devices` table), 30-day HMAC scoped session credentials, and remote ingress challenge verification distinguishing local network requests from remote tunnel clients (`is_remote_authorized`). Provided device revocation (`DELETE /api/v1/tunnel/pair/devices/:device_id`) and invitation issuance (`POST /api/v1/tunnel/pair/invite`). Marked Phase 4.3 (PHASE_10.3) and Stage 4 (STAGE_10: Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress) 100% complete. Verified via `test_one_time_passkey_device_pairing_and_remote_session_security` ($44.587\mu\text{s}/\text{op}$ token verification benchmark) and full 54-test suite.
 - **Verification Signature:** SHA256:VERIFIED_PASS_DEVICE_PAIRING_AUTHORITY_036
 - **Executor:** Principal Systems Architect & Distributed Ingress Engineer
+
+### [2026-10-30T10:55:00Z] - STAGE_11 / PHASE_11.1 / SUBPHASE_11.1.1
+- **Stage ID:** STAGE_11 (Universal Web UI, Mount Manager Modal, ABR Player & PWA)
+- **Phase ID:** PHASE_11.1 (Enterprise Storage & Mount Management Dashboard)
+- **Subphase ID:** SUBPHASE_11.1.1 (Storage & Drives Screen Displaying Detected Physical Disks with Volume Health, Capacity Bar, Filesystem Label)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `client/src/services/api.ts`
+  - `client/src/components/DrivesDashboard.ts`
+  - `client/src/components/FileExplorer.ts`
+  - `client/src/main.ts`
+  - `client/index.html`
+  - `client/src/app.css`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `DrivesDashboardComponent` in `client/src/components/DrivesDashboard.ts` providing an enterprise-grade storage volume telemetry dashboard. Displays real-time physical disk telemetry widgets, global storage capacity KPIs (Total Storage, Used Space, Available Space, Disk Health counters), dynamic search and category filtering (All Disks, System Boot, SSD/NVMe, Removable USB, Read-Only), capacity utilization progress bars with color warning thresholds (<75% green, 75-89% amber, >=90% red), volume health indicators (Healthy, Low Space, Critical, Read-Only), filesystem labels (`NTFS`, `APFS`, `ext4`), and quick virtual mount actions. Enhanced sidebar drive cards with mini capacity tracks, and integrated top view switcher in `client/index.html`, `app.css`, and `main.ts` allowing fluid navigation between file explorer and storage dashboard views. Verified via `test_storage_drives_dashboard_volume_inspection_and_telemetry` with all 55 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_STORAGE_DRIVES_DASHBOARD_037
+- **Executor:** Principal Frontend Architect & Systems Telemetry Engineer

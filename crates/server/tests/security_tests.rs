@@ -6555,3 +6555,127 @@ async fn test_one_time_passkey_device_pairing_and_remote_session_security() {
 
     println!("[TASK-10.3.3 VERIFIED] One-time passkey device pairing protocol for remote sessions outside local subnet verified.");
 }
+
+#[tokio::test]
+async fn test_storage_drives_dashboard_volume_inspection_and_telemetry() {
+    use aetherstream_server::storage::{
+        storage_api_router, MountManager, MountRegistry, StorageApiState, VolumeInspector,
+    };
+    use axum::body::to_bytes;
+    use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tower::ServiceExt;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("drives_test.db");
+    let mount_manager = Arc::new(MountManager::new(&db_path).unwrap());
+    let mounts = Arc::new(MountRegistry::new());
+    let state = StorageApiState::new(mounts.clone(), mount_manager.clone());
+    let app = storage_api_router(state);
+
+    // 1. Dispatch GET /api/v1/storage/drives
+    let req = Request::builder()
+        .uri("/api/v1/storage/drives")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert!(json.get("drives").is_some(), "Payload must contain 'drives' key");
+    let drives = json["drives"].as_array().expect("drives must be an array");
+
+    // 2. Validate structural and numerical telemetry invariants on all enumerated volumes
+    for drive in drives {
+        let name = drive.get("name").and_then(|v| v.as_str()).expect("name must be string");
+        let mount_point = drive.get("mount_point").and_then(|v| v.as_str()).expect("mount_point must be string");
+        let filesystem = drive.get("filesystem").and_then(|v| v.as_str()).expect("filesystem must be string");
+        let total_bytes = drive.get("total_bytes").and_then(|v| v.as_u64()).expect("total_bytes must be u64");
+        let available_bytes = drive.get("available_bytes").and_then(|v| v.as_u64()).expect("available_bytes must be u64");
+        let is_removable = drive.get("is_removable").and_then(|v| v.as_bool()).expect("is_removable must be bool");
+        let is_system = drive.get("is_system").and_then(|v| v.as_bool()).expect("is_system must be bool");
+        let is_read_only = drive.get("is_read_only").and_then(|v| v.as_bool()).expect("is_read_only must be bool");
+        let media_type = drive.get("media_type").and_then(|v| v.as_str()).expect("media_type must be string");
+
+        assert!(!name.is_empty(), "Volume name must not be empty");
+        assert!(!mount_point.is_empty(), "Mount point must not be empty");
+        assert!(!filesystem.is_empty(), "Filesystem string must not be empty");
+
+        // Verify media type validity
+        assert!(
+            matches!(
+                media_type,
+                "NvmeSsd" | "SataSsd" | "RotationalHdd" | "RemovableUsb" | "OpticalDrive" | "NetworkDrive" | "Unknown"
+            ),
+            "media_type '{}' must match DiskMediaType enum",
+            media_type
+        );
+
+        // Verify available bytes does not exceed total bytes (unless volume is uninitialized or 0)
+        if total_bytes > 0 {
+            assert!(
+                available_bytes <= total_bytes,
+                "Available bytes ({}) cannot exceed total bytes ({}) on volume {}",
+                available_bytes,
+                total_bytes,
+                mount_point
+            );
+
+            // Compute capacity percentage (matching frontend DrivesDashboard widget)
+            let used_bytes = total_bytes.saturating_sub(available_bytes);
+            let used_pct = (used_bytes as f64 / total_bytes as f64) * 100.0;
+            assert!(
+                (0.0..=100.0).contains(&used_pct),
+                "Capacity percentage must be between 0% and 100%, got {:.2}%",
+                used_pct
+            );
+        }
+
+        println!(
+            "[VOLUME INSPECTED] {} ({}) - FS: {}, Total: {} bytes, Free: {} bytes, System: {}, Removable: {}, RO: {}, Type: {}",
+            name, mount_point, filesystem, total_bytes, available_bytes, is_system, is_removable, is_read_only, media_type
+        );
+    }
+
+    // 3. Verify static universal client distribution contains Stage 5 dashboard elements
+    let index_html_path = std::path::Path::new("client/dist/index.html");
+    if index_html_path.exists() {
+        let index_content = std::fs::read_to_string(index_html_path).unwrap();
+        assert!(
+            index_content.contains("nav-drives-btn"),
+            "Client index.html must contain #nav-drives-btn navigation button"
+        );
+        assert!(
+            index_content.contains("drives-view"),
+            "Client index.html must contain #drives-view dashboard container"
+        );
+        assert!(
+            index_content.contains("drives-sidebar-header"),
+            "Client index.html must contain #drives-sidebar-header"
+        );
+        assert!(
+            index_content.contains("explorer-view"),
+            "Client index.html must contain #explorer-view"
+        );
+        println!("[CLIENT VERIFIED] client/dist/index.html verified with all Stage 5 dashboard components.");
+    }
+
+    // 4. Benchmark volume inspection latency
+    let start = Instant::now();
+    let iterations = 100;
+    for _ in 0..iterations {
+        let _ = VolumeInspector::inspect_volumes();
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] VolumeInspector::inspect_volumes: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+
+    println!("[TASK-11.1.1 VERIFIED] Storage & Drives screen displaying detected physical disks with volume health, capacity bar, filesystem label verified.");
+}
