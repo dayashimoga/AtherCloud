@@ -224,21 +224,64 @@ impl HardwareAccel {
 }
 
 /// Extracted media container, stream codec, and structural properties
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct MediaMetadata {
     pub container: String,
     pub video_codec: Option<String>,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub aspect_ratio: Option<String>,
     pub framerate: Option<f64>,
     pub bitrate_kbps: Option<u64>,
     pub audio_codec: Option<String>,
     pub audio_channels: Option<u32>,
+    pub audio_layout: Option<String>,
+    pub audio_sample_rate: Option<u32>,
+    pub pix_fmt: Option<String>,
     pub gop_size: Option<u32>,
     pub duration_secs: Option<f64>,
 }
 
 impl MediaMetadata {
+    /// Computes display aspect ratio string from pixel dimensions
+    pub fn calculate_aspect_ratio(width: u32, height: u32) -> String {
+        if width == 0 || height == 0 {
+            return "unknown".to_string();
+        }
+        fn gcd(mut a: u32, mut b: u32) -> u32 {
+            while b != 0 {
+                let t = b;
+                b = a % b;
+                a = t;
+            }
+            a
+        }
+        let div = gcd(width, height);
+        let rw = width / div;
+        let rh = height / div;
+        if rw <= 64 && rh <= 64 {
+            format!("{}:{}", rw, rh)
+        } else {
+            let ratio = (width as f64) / (height as f64);
+            format!("{:.2}:1", ratio)
+        }
+    }
+
+    /// Infers human-readable audio layout name from channel count
+    pub fn infer_audio_layout(channels: u32) -> &'static str {
+        match channels {
+            1 => "mono",
+            2 => "stereo",
+            3 => "2.1",
+            4 => "4.0",
+            5 => "5.0",
+            6 => "5.1",
+            7 => "6.1",
+            8 => "7.1",
+            _ => "surround",
+        }
+    }
+
     /// Determines whether the media file can be streamed directly to modern web/mobile clients
     /// without active transcoding (Direct Stream / Direct Play mode).
     pub fn is_direct_streamable(&self) -> bool {
@@ -298,14 +341,20 @@ pub struct FFprobeOutput {
 pub struct FFprobeStream {
     pub index: Option<u32>,
     pub codec_name: Option<String>,
+    pub codec_long_name: Option<String>,
+    pub profile: Option<String>,
     pub codec_type: Option<String>,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub display_aspect_ratio: Option<String>,
+    pub sample_aspect_ratio: Option<String>,
+    pub pix_fmt: Option<String>,
     pub r_frame_rate: Option<String>,
     pub avg_frame_rate: Option<String>,
     pub bit_rate: Option<String>,
     pub channels: Option<u32>,
     pub channel_layout: Option<String>,
+    pub sample_rate: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -346,10 +395,14 @@ impl TranscodePipeline {
         let mut video_codec = None;
         let mut width = None;
         let mut height = None;
+        let mut aspect_ratio = None;
         let mut framerate = None;
         let mut video_bitrate = None;
+        let mut pix_fmt = None;
         let mut audio_codec = None;
         let mut audio_channels = None;
+        let mut audio_layout = None;
+        let mut audio_sample_rate = None;
 
         if let Some(streams) = output.streams {
             for stream in streams {
@@ -358,6 +411,23 @@ impl TranscodePipeline {
                     video_codec = stream.codec_name;
                     width = stream.width;
                     height = stream.height;
+                    pix_fmt = stream.pix_fmt;
+
+                    let dar_clean = stream.display_aspect_ratio.as_deref().filter(|dar| {
+                        !dar.is_empty() && *dar != "0:1" && *dar != "N/A"
+                    });
+
+                    aspect_ratio = dar_clean
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            match (width, height) {
+                                (Some(w), Some(h)) if w > 0 && h > 0 => {
+                                    Some(MediaMetadata::calculate_aspect_ratio(w, h))
+                                }
+                                _ => None,
+                            }
+                        });
+
                     framerate = stream
                         .avg_frame_rate
                         .as_deref()
@@ -369,6 +439,15 @@ impl TranscodePipeline {
                 } else if codec_type == "audio" && audio_codec.is_none() {
                     audio_codec = stream.codec_name;
                     audio_channels = stream.channels;
+                    audio_layout = stream
+                        .channel_layout
+                        .filter(|layout| !layout.is_empty() && layout != "unknown")
+                        .or_else(|| {
+                            audio_channels
+                                .map(MediaMetadata::infer_audio_layout)
+                                .map(str::to_string)
+                        });
+                    audio_sample_rate = stream.sample_rate.and_then(|s| s.parse::<u32>().ok());
                 }
             }
         }
@@ -416,10 +495,14 @@ impl TranscodePipeline {
             video_codec,
             width,
             height,
+            aspect_ratio,
             framerate,
             bitrate_kbps,
             audio_codec,
             audio_channels,
+            audio_layout,
+            audio_sample_rate,
+            pix_fmt,
             gop_size,
             duration_secs,
         })
@@ -482,10 +565,14 @@ impl TranscodePipeline {
                     video_codec: Some("h264".to_string()),
                     width: Some(1920),
                     height: Some(1080),
+                    aspect_ratio: Some("16:9".to_string()),
                     framerate: Some(30.0),
                     bitrate_kbps: Some(4000),
                     audio_codec: Some("aac".to_string()),
                     audio_channels: Some(2),
+                    audio_layout: Some("stereo".to_string()),
+                    audio_sample_rate: Some(48000),
+                    pix_fmt: Some("yuv420p".to_string()),
                     gop_size: Some(60),
                     duration_secs: None,
                 })

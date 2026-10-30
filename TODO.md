@@ -880,3 +880,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
 - **Execution Trace:** cargo test --test security_tests test_transcode_status_rest_api_and_telemetry_hud
 - **Validation Proof:** Engineered TranscodeStatusResponse and GET /api/v1/transcode/status endpoint in crates/server/src/transcode/status_api.rs wired into Axum daemon router. Exposed real-time frontend telemetry HUD state covering active GPU/CPU accelerator, primary H.264/HEVC/AV1 encoders, hardware acceleration boolean, extra FFmpeg hardware switches, dry-run latency diagnostics, and failover status. Marked Phase 3.1 100% complete. Verified 39/39 integration tests passing.
+
+### [2026-10-30T08:28:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-9.2.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
+- **Execution Trace:** cargo test --test security_tests test_ffprobe_json_metadata_parser_aspect_ratio_and_audio_layouts
+- **Validation Proof:** Engineered comprehensive FFprobe JSON metadata parser in TranscodePipeline (parse_ffprobe_json, MediaMetadata::calculate_aspect_ratio, MediaMetadata::infer_audio_layout). Extracted video codecs, audio codecs, bitrates, resolutions, display aspect ratios (explicit DAR and greatest common divisor calculations), audio channel layouts (explicit layout names and channel count inference), audio sample rates, and pixel formats. Verified 40/40 integration tests passing.

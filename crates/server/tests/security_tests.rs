@@ -244,6 +244,7 @@ fn test_master_manifest_generation() {
         audio_channels: Some(2),
         gop_size: Some(60),
         duration_secs: Some(300.0),
+        ..Default::default()
     };
     let manifest_480 = TranscodePipeline::generate_master_manifest_for_media(
         "/api/v1/transcode/hls/videos/stream480.mp4",
@@ -637,6 +638,7 @@ async fn test_ffprobe_metadata_extraction() {
         audio_channels: Some(2),
         gop_size: Some(50),
         duration_secs: Some(60.0),
+        ..Default::default()
     };
     let ladder_240 = low_meta.filter_rendition_ladder(STANDARD_RENDITION_LADDER);
     assert_eq!(ladder_240.len(), 1);
@@ -900,6 +902,7 @@ fn test_audio_passthrough_and_stereo_downmix() {
         audio_channels: Some(2),
         gop_size: Some(60),
         duration_secs: Some(100.0),
+        ..Default::default()
     };
     let strat_passthrough = AudioTranscodeStrategy::determine(&meta_aac_stereo);
     assert_eq!(strat_passthrough, AudioTranscodeStrategy::PassThrough);
@@ -927,6 +930,7 @@ fn test_audio_passthrough_and_stereo_downmix() {
         audio_channels: Some(6),
         gop_size: Some(48),
         duration_secs: Some(5000.0),
+        ..Default::default()
     };
     let strat_5_1 = AudioTranscodeStrategy::determine(&meta_5_1);
     assert_eq!(strat_5_1, AudioTranscodeStrategy::DownmixSurroundToStereo);
@@ -1045,6 +1049,7 @@ async fn test_offline_transcode_worker_and_lifecycle() {
         audio_channels: Some(2),
         gop_size: Some(60),
         duration_secs: Some(120.0),
+        ..Default::default()
     };
 
     let worker = OfflineTranscodeWorker::new();
@@ -3923,4 +3928,173 @@ async fn test_transcode_status_rest_api_and_telemetry_hud() {
     );
 
     println!("[TASK-9.1.3 VERIFIED] /api/v1/transcode/status telemetry endpoint and HUD payload verified.");
+}
+
+#[test]
+fn test_ffprobe_json_metadata_parser_aspect_ratio_and_audio_layouts() {
+    use aetherstream_server::transcode::pipeline::{MediaMetadata, TranscodePipeline};
+    use std::time::Instant;
+
+    // 1. Explicit display_aspect_ratio and 7.1 audio channel layout with sample rate and 10-bit pix_fmt
+    let raw_json_7_1 = r#"{
+        "format": {
+            "format_name": "matroska,webm",
+            "duration": "142.800000",
+            "size": "95000000",
+            "bit_rate": "5322128"
+        },
+        "streams": [
+            {
+                "index": 0,
+                "codec_name": "hevc",
+                "codec_type": "video",
+                "width": 3840,
+                "height": 2160,
+                "display_aspect_ratio": "16:9",
+                "pix_fmt": "yuv420p10le",
+                "avg_frame_rate": "24000/1001",
+                "bit_rate": "4800000"
+            },
+            {
+                "index": 1,
+                "codec_name": "truehd",
+                "codec_type": "audio",
+                "channels": 8,
+                "channel_layout": "7.1",
+                "sample_rate": "48000",
+                "bit_rate": "450000"
+            }
+        ]
+    }"#;
+
+    let meta1 = TranscodePipeline::parse_ffprobe_json(raw_json_7_1).expect("Parse 7.1 HEVC JSON");
+    assert_eq!(meta1.container, "matroska,webm");
+    assert_eq!(meta1.video_codec.as_deref(), Some("hevc"));
+    assert_eq!(meta1.width, Some(3840));
+    assert_eq!(meta1.height, Some(2160));
+    assert_eq!(meta1.aspect_ratio.as_deref(), Some("16:9"));
+    assert_eq!(meta1.pix_fmt.as_deref(), Some("yuv420p10le"));
+    assert_eq!(meta1.audio_codec.as_deref(), Some("truehd"));
+    assert_eq!(meta1.audio_channels, Some(8));
+    assert_eq!(meta1.audio_layout.as_deref(), Some("7.1"));
+    assert_eq!(meta1.audio_sample_rate, Some(48000));
+    assert_eq!(meta1.bitrate_kbps, Some(4800));
+
+    // 2. Anamorphic Cinematic Widescreen: 2.39:1 with 5.1(side) audio
+    let raw_json_cinematic = r#"{
+        "format": { "format_name": "mov,mp4", "bit_rate": "8000000" },
+        "streams": [
+            {
+                "index": 0,
+                "codec_name": "h264",
+                "codec_type": "video",
+                "width": 1920,
+                "height": 804,
+                "display_aspect_ratio": "2.39:1",
+                "pix_fmt": "yuv420p"
+            },
+            {
+                "index": 1,
+                "codec_name": "eac3",
+                "codec_type": "audio",
+                "channels": 6,
+                "channel_layout": "5.1(side)",
+                "sample_rate": "44100"
+            }
+        ]
+    }"#;
+
+    let meta2 = TranscodePipeline::parse_ffprobe_json(raw_json_cinematic).expect("Parse cinematic JSON");
+    assert_eq!(meta2.aspect_ratio.as_deref(), Some("2.39:1"));
+    assert_eq!(meta2.audio_layout.as_deref(), Some("5.1(side)"));
+    assert_eq!(meta2.audio_sample_rate, Some(44100));
+
+    // 3. Fallback Calculation: No display_aspect_ratio in stream -> GCD reduction
+    // 1920x1080 -> 16:9
+    let calc_16_9 = MediaMetadata::calculate_aspect_ratio(1920, 1080);
+    assert_eq!(calc_16_9, "16:9");
+
+    // 1280x720 -> 16:9
+    let calc_720 = MediaMetadata::calculate_aspect_ratio(1280, 720);
+    assert_eq!(calc_720, "16:9");
+
+    // 640x480 -> 4:3
+    let calc_4_3 = MediaMetadata::calculate_aspect_ratio(640, 480);
+    assert_eq!(calc_4_3, "4:3");
+
+    // 1920x800 -> 12:5
+    let calc_widescreen = MediaMetadata::calculate_aspect_ratio(1920, 800);
+    assert_eq!(calc_widescreen, "12:5");
+
+    // 1920x804 -> non-integer ratio -> 2.39:1
+    let calc_cinema = MediaMetadata::calculate_aspect_ratio(1920, 804);
+    assert_eq!(calc_cinema, "2.39:1");
+
+    // Stream with missing DAR in JSON -> must auto-calculate
+    let raw_json_no_dar = r#"{
+        "format": { "format_name": "mp4" },
+        "streams": [
+            {
+                "index": 0,
+                "codec_name": "av1",
+                "codec_type": "video",
+                "width": 1280,
+                "height": 720
+            },
+            {
+                "index": 1,
+                "codec_name": "opus",
+                "codec_type": "audio",
+                "channels": 2
+            }
+        ]
+    }"#;
+    let meta3 = TranscodePipeline::parse_ffprobe_json(raw_json_no_dar).expect("Parse no-DAR JSON");
+    assert_eq!(meta3.aspect_ratio.as_deref(), Some("16:9"));
+    assert_eq!(meta3.audio_layout.as_deref(), Some("stereo")); // Inferred from 2 channels
+
+    // 4. Audio Layout Fallback Inference from Channels
+    assert_eq!(MediaMetadata::infer_audio_layout(1), "mono");
+    assert_eq!(MediaMetadata::infer_audio_layout(2), "stereo");
+    assert_eq!(MediaMetadata::infer_audio_layout(6), "5.1");
+    assert_eq!(MediaMetadata::infer_audio_layout(8), "7.1");
+
+    // 5. Format Bitrate Fallback when Video Stream lacks bit_rate
+    let raw_json_fmt_bitrate = r#"{
+        "format": {
+            "format_name": "mp4",
+            "bit_rate": "6500000"
+        },
+        "streams": [
+            {
+                "index": 0,
+                "codec_name": "h264",
+                "codec_type": "video",
+                "width": 1920,
+                "height": 1080
+            }
+        ]
+    }"#;
+    let meta5 = TranscodePipeline::parse_ffprobe_json(raw_json_fmt_bitrate).expect("Parse format bitrate");
+    assert_eq!(meta5.bitrate_kbps, Some(6500));
+
+    // 6. High-Throughput JSON Parsing Benchmark
+    let parse_iterations = 10_000;
+    let bench_start = Instant::now();
+    for _ in 0..parse_iterations {
+        let _ = TranscodePipeline::parse_ffprobe_json(raw_json_7_1).unwrap();
+    }
+    let elapsed = bench_start.elapsed();
+    let per_parse_micros = (elapsed.as_secs_f64() * 1_000_000.0) / (parse_iterations as f64);
+    println!(
+        "[FFPROBE PARSER BENCHMARK] {} parses in {:?} (avg {:.2} µs/parse)",
+        parse_iterations, elapsed, per_parse_micros
+    );
+    assert!(
+        per_parse_micros < 50.0,
+        "FFprobe metadata parsing must execute under 50µs/parse (got {:.2} µs)",
+        per_parse_micros
+    );
+
+    println!("[TASK-9.2.1 VERIFIED] FFprobe JSON metadata parser with aspect ratio and audio layout verified.");
 }
