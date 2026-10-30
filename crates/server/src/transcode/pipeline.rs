@@ -119,9 +119,19 @@ impl AudioTranscodeStrategy {
             Some(c) => c.to_lowercase(),
             None => return AudioTranscodeStrategy::NoAudio,
         };
-        let channels = meta.audio_channels.unwrap_or(2);
+        let is_surround = if let Some(ch) = meta.audio_channels {
+            ch > 2
+        } else {
+            meta.audio_layout.as_deref().is_some_and(|layout| {
+                let lower = layout.to_lowercase();
+                lower.contains("5.1")
+                    || lower.contains("7.1")
+                    || lower.contains("6.1")
+                    || lower.contains("surround")
+            })
+        };
 
-        if channels > 2 {
+        if is_surround {
             AudioTranscodeStrategy::DownmixSurroundToStereo
         } else if codec == "aac" || codec == "mp4a" {
             AudioTranscodeStrategy::PassThrough
@@ -158,6 +168,37 @@ impl AudioTranscodeStrategy {
             AudioTranscodeStrategy::NoAudio => vec![
                 "-an".to_string(),
             ],
+        }
+    }
+
+    /// Returns the target channel count for downstream web player compatibility
+    pub fn target_channels(&self) -> u32 {
+        match self {
+            AudioTranscodeStrategy::PassThrough => 2,
+            AudioTranscodeStrategy::DownmixSurroundToStereo => 2,
+            AudioTranscodeStrategy::TranscodeToStereoAac => 2,
+            AudioTranscodeStrategy::NoAudio => 0,
+        }
+    }
+
+    /// Returns whether active audio transcoding/downmixing is performed (false for direct pass-through or silent)
+    pub fn is_transcoding_required(&self) -> bool {
+        matches!(
+            self,
+            AudioTranscodeStrategy::DownmixSurroundToStereo
+                | AudioTranscodeStrategy::TranscodeToStereoAac
+        )
+    }
+
+    /// Human-readable description of audio processing mode
+    pub fn description(&self) -> &'static str {
+        match self {
+            AudioTranscodeStrategy::PassThrough => "Direct copy (Stereo AAC pass-through)",
+            AudioTranscodeStrategy::DownmixSurroundToStereo => {
+                "Surround sound (5.1/7.1) downmixed to Stereo AAC with Pro Logic II matrix encoding"
+            }
+            AudioTranscodeStrategy::TranscodeToStereoAac => "Stereo audio transcoded to AAC",
+            AudioTranscodeStrategy::NoAudio => "No audio stream",
         }
     }
 }
@@ -298,8 +339,18 @@ impl MediaMetadata {
 
         let is_valid_audio = match self.audio_codec.as_deref() {
             Some("aac") | Some("mp3") | Some("opus") => {
-                // Browser direct streaming requires stereo (<= 2 channels); surround sound 5.1/7.1 requires downmixing
-                self.audio_channels.unwrap_or(2) <= 2
+                let is_surround = if let Some(ch) = self.audio_channels {
+                    ch > 2
+                } else {
+                    self.audio_layout.as_deref().is_some_and(|layout| {
+                        let l = layout.to_lowercase();
+                        l.contains("5.1")
+                            || l.contains("7.1")
+                            || l.contains("6.1")
+                            || l.contains("surround")
+                    })
+                };
+                !is_surround
             }
             None => true, // Video without audio stream is direct streamable
             _ => false,

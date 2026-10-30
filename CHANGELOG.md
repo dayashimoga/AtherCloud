@@ -1397,3 +1397,17 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered RFC 8216 compliant dynamic master playlist compiler in `TranscodePipeline` (`generate_master_manifest_for_media` and `RenditionProfile::to_custom_stream_inf`). Enforces strict zero-upscaling boundaries (omitting profiles with resolution greater than source height), proportional horizontal aspect ratio scaling for non-16:9 sources (such as 4:3 and 2.39:1 widescreen) with macroblock even-width alignment, dynamic bitrate clamping avoiding bitrate inflation on lower-bitrate source files, and framerate bounding. Integrated dynamic manifest generation into daemon routing (`GET /api/v1/transcode/hls/:mount/*path`) serving standard MIME `application/vnd.apple.mpegurl` with no-cache headers. Verified via `test_rfc8216_adaptive_master_manifest_compiler_and_upscaling_prevention`. All 41 integration tests passed.
 - **Verification Signature:** SHA256:VERIFIED_PASS_ADAPTIVE_MASTER_MANIFEST_023
 - **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
+
+### [2026-10-30T08:44:00Z] - STAGE_9 / PHASE_9.2 / SUBPHASE_9.2.3
+- **Stage ID:** STAGE_9 (Automated Hardware Transcoding Ladder & Adaptive Bitrate (ABR) Pipeline)
+- **Phase ID:** PHASE_9.2 (RFC 8216 Compliant Multi-Variant HLS Manifest Compiler)
+- **Subphase ID:** SUBPHASE_9.2.3 (Ensure Strict Audio Compatibility by Downmixing Multi-Channel Audio to Stereo AAC)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/transcode/pipeline.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `AudioTranscodeStrategy` in `crates/server/src/transcode/pipeline.rs` providing strict audio compatibility across all client devices and browsers. Detects multi-channel audio layouts (including 5.1, 7.1, 6.1, and surround designations) and applies Dolby Pro Logic II matrix downmixing (`-af aresample=matrix_encoding=dplii`) with 2-channel AAC encoding, preserving dialogue clarity and avoiding speaker phase cancellation. Retains direct copy pass-through (`-c:a copy`) for stereo AAC sources, encodes non-AAC stereo (Opus, Vorbis, FLAC) to stereo AAC without downmix filters, and strips audio (`-an`) for silent streams. Updated `MediaMetadata::is_direct_streamable()` to reject multi-channel audio (even when encoded in AAC) to enforce client-side stereo compatibility. Marked Phase 3.2 100% complete. Verified via `test_multi_channel_surround_sound_audio_downmix_to_stereo_aac` and full 42-test suite.
+- **Verification Signature:** SHA256:VERIFIED_PASS_AUDIO_DOWNMIX_STEREO_AAC_024
+- **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer

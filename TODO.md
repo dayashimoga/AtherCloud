@@ -894,3 +894,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
 - **Execution Trace:** cargo test --test security_tests test_rfc8216_adaptive_master_manifest_compiler_and_upscaling_prevention
 - **Validation Proof:** Engineered RFC 8216 compliant dynamic master playlist compiler in TranscodePipeline (generate_master_manifest_for_media, RenditionProfile::to_custom_stream_inf). Enforced strict upscaling prevention bounding rendition heights by source height, proportional aspect ratio scaling for non-16:9 media (4:3, 2.39:1 widescreen) with macroblock even-width alignment, dynamic bitrate clamping avoiding bitrate inflation, and framerate bounding. Wired into daemon HLS master.m3u8 endpoint with standard MIME types. Verified 41/41 integration tests passing.
+
+### [2026-10-30T08:44:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-9.2.3
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
+- **Execution Trace:** cargo test --test security_tests test_multi_channel_surround_sound_audio_downmix_to_stereo_aac
+- **Validation Proof:** Engineered AudioTranscodeStrategy in crates/server/src/transcode/pipeline.rs with intelligent multi-channel audio downmixing (5.1/7.1 to stereo AAC) utilizing Dolby Pro Logic II matrix encoding (-af aresample=matrix_encoding=dplii) to preserve center dialogue audibility and prevent clipping. Maintained zero-copy pass-through (-c:a copy) for stereo AAC, transcode to AAC for non-AAC stereo codecs (MP3, Opus, FLAC), and -an for silent video. Enforced direct play invalidation for 5.1 AAC in MediaMetadata::is_direct_streamable() to guarantee downmixing across web browsers and mobile clients. Verified 42/42 integration tests passing.

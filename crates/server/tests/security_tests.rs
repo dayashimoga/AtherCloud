@@ -560,6 +560,7 @@ async fn test_ffprobe_metadata_extraction() {
     // 2. Test stereo AAC audio makes H.264 direct streamable
     let mut stereo_meta = meta.clone();
     stereo_meta.audio_channels = Some(2);
+    stereo_meta.audio_layout = Some("stereo".to_string());
     assert!(stereo_meta.is_direct_streamable());
 
     // 3. Test HEVC 4K parsing
@@ -4235,4 +4236,179 @@ async fn test_rfc8216_adaptive_master_manifest_compiler_and_upscaling_prevention
     );
 
     println!("[TASK-9.2.2 VERIFIED] Dynamic master playlist (master.m3u8) serving adaptive ladder verified.");
+}
+
+#[test]
+fn test_multi_channel_surround_sound_audio_downmix_to_stereo_aac() {
+    use aetherstream_server::transcode::pipeline::{
+        AudioTranscodeStrategy, HardwareAccel, MediaMetadata, TranscodePipeline,
+    };
+    use aetherstream_server::transcode::profiles::STANDARD_RENDITION_LADDER;
+    use std::path::Path;
+
+    let profile_1080 = &STANDARD_RENDITION_LADDER[0]; // 1080p_high (audio: 192k)
+    let profile_720 = &STANDARD_RENDITION_LADDER[1];  // 720p_med (audio: 128k)
+    let profile_480 = &STANDARD_RENDITION_LADDER[2];  // 480p_low (audio: 96k)
+    let profile_360 = &STANDARD_RENDITION_LADDER[3];  // 360p_min (audio: 64k)
+
+    // 1. 5.1 AC-3 / Dolby Digital Surround Source
+    let meta_ac3_5_1 = MediaMetadata {
+        container: "mkv".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(1920),
+        height: Some(1080),
+        audio_codec: Some("ac3".to_string()),
+        audio_channels: Some(6),
+        audio_layout: Some("5.1".to_string()),
+        ..Default::default()
+    };
+    let strat_ac3 = AudioTranscodeStrategy::determine(&meta_ac3_5_1);
+    assert_eq!(strat_ac3, AudioTranscodeStrategy::DownmixSurroundToStereo);
+    assert!(strat_ac3.is_transcoding_required());
+    assert_eq!(strat_ac3.target_channels(), 2);
+    assert!(strat_ac3.description().contains("Pro Logic II"));
+
+    let flags_ac3 = strat_ac3.ffmpeg_flags(profile_1080.audio_bitrate_kbps);
+    assert!(flags_ac3.contains(&"-c:a".to_string()));
+    assert!(flags_ac3.contains(&"aac".to_string()));
+    assert!(flags_ac3.contains(&"-ac".to_string()));
+    assert!(flags_ac3.contains(&"2".to_string()));
+    assert!(flags_ac3.contains(&"-af".to_string()));
+    assert!(flags_ac3.contains(&"aresample=matrix_encoding=dplii".to_string()));
+    assert!(flags_ac3.contains(&"192k".to_string()));
+    assert!(!meta_ac3_5_1.is_direct_streamable(), "5.1 AC-3 must require transcode/downmixing");
+
+    // 2. 7.1 TrueHD / Dolby Atmos Blu-ray Audio (8 channels)
+    let meta_truehd_7_1 = MediaMetadata {
+        container: "mkv".to_string(),
+        video_codec: Some("hevc".to_string()),
+        width: Some(3840),
+        height: Some(2160),
+        audio_codec: Some("truehd".to_string()),
+        audio_channels: Some(8),
+        audio_layout: Some("7.1".to_string()),
+        ..Default::default()
+    };
+    let strat_truehd = AudioTranscodeStrategy::determine(&meta_truehd_7_1);
+    assert_eq!(strat_truehd, AudioTranscodeStrategy::DownmixSurroundToStereo);
+    let flags_720 = strat_truehd.ffmpeg_flags(profile_720.audio_bitrate_kbps);
+    assert!(flags_720.contains(&"128k".to_string()));
+    assert!(flags_720.contains(&"aresample=matrix_encoding=dplii".to_string()));
+
+    // 3. 5.1 AAC Audio: Even though codec is AAC, multi-channel (6ch) must still downmix for mobile/browser
+    let meta_aac_5_1 = MediaMetadata {
+        container: "mp4".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(1920),
+        height: Some(1080),
+        audio_codec: Some("aac".to_string()),
+        audio_channels: Some(6),
+        audio_layout: Some("5.1".to_string()),
+        ..Default::default()
+    };
+    let strat_aac_5_1 = AudioTranscodeStrategy::determine(&meta_aac_5_1);
+    assert_eq!(strat_aac_5_1, AudioTranscodeStrategy::DownmixSurroundToStereo);
+    assert!(!meta_aac_5_1.is_direct_streamable(), "5.1 AAC is not direct streamable (requires stereo downmix)");
+
+    // 4. DTS-HD Master Audio (e.g. dts 6 channels)
+    let meta_dts = MediaMetadata {
+        container: "mkv".to_string(),
+        video_codec: Some("h264".to_string()),
+        audio_codec: Some("dts".to_string()),
+        audio_channels: Some(6),
+        audio_layout: Some("5.1(side)".to_string()),
+        ..Default::default()
+    };
+    let strat_dts = AudioTranscodeStrategy::determine(&meta_dts);
+    assert_eq!(strat_dts, AudioTranscodeStrategy::DownmixSurroundToStereo);
+
+    // 5. Stereo AAC 2.0 -> Direct Pass-Through (-c:a copy) with ZERO downmix overhead
+    let meta_stereo_aac = MediaMetadata {
+        container: "mp4".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(1920),
+        height: Some(1080),
+        audio_codec: Some("aac".to_string()),
+        audio_channels: Some(2),
+        audio_layout: Some("stereo".to_string()),
+        ..Default::default()
+    };
+    let strat_stereo_aac = AudioTranscodeStrategy::determine(&meta_stereo_aac);
+    assert_eq!(strat_stereo_aac, AudioTranscodeStrategy::PassThrough);
+    assert!(!strat_stereo_aac.is_transcoding_required());
+    assert_eq!(strat_stereo_aac.ffmpeg_flags(128), vec!["-c:a", "copy"]);
+    assert!(meta_stereo_aac.is_direct_streamable(), "Stereo H.264 AAC is 100% direct streamable");
+
+    // 6. Mono AAC 1.0 -> Direct Pass-Through
+    let meta_mono_aac = MediaMetadata {
+        container: "mp4".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(640),
+        height: Some(480),
+        audio_codec: Some("aac".to_string()),
+        audio_channels: Some(1),
+        audio_layout: Some("mono".to_string()),
+        ..Default::default()
+    };
+    let strat_mono_aac = AudioTranscodeStrategy::determine(&meta_mono_aac);
+    assert_eq!(strat_mono_aac, AudioTranscodeStrategy::PassThrough);
+
+    // 7. Stereo Non-AAC (e.g. MP3, Opus, FLAC, Vorbis) -> TranscodeToStereoAac (no matrix downmix filter)
+    let meta_stereo_opus = MediaMetadata {
+        container: "mkv".to_string(),
+        video_codec: Some("h264".to_string()),
+        audio_codec: Some("opus".to_string()),
+        audio_channels: Some(2),
+        audio_layout: Some("stereo".to_string()),
+        ..Default::default()
+    };
+    let strat_opus = AudioTranscodeStrategy::determine(&meta_stereo_opus);
+    assert_eq!(strat_opus, AudioTranscodeStrategy::TranscodeToStereoAac);
+    let flags_opus = strat_opus.ffmpeg_flags(profile_480.audio_bitrate_kbps);
+    assert!(flags_opus.contains(&"96k".to_string()));
+    assert!(flags_opus.contains(&"aac".to_string()));
+    assert!(!flags_opus.contains(&"aresample=matrix_encoding=dplii".to_string()), "Stereo source must not apply surround matrix");
+
+    // 8. Video Without Audio Track -> NoAudio (-an)
+    let meta_silent = MediaMetadata {
+        container: "mp4".to_string(),
+        video_codec: Some("h264".to_string()),
+        audio_codec: None,
+        ..Default::default()
+    };
+    let strat_silent = AudioTranscodeStrategy::determine(&meta_silent);
+    assert_eq!(strat_silent, AudioTranscodeStrategy::NoAudio);
+    assert_eq!(strat_silent.ffmpeg_flags(128), vec!["-an"]);
+    assert_eq!(strat_silent.target_channels(), 0);
+
+    // 9. Audio channels None with surround layout -> DownmixSurroundToStereo
+    let meta_channels_none_surround = MediaMetadata {
+        container: "mp4".to_string(),
+        video_codec: Some("h264".to_string()),
+        audio_codec: Some("aac".to_string()),
+        audio_channels: None,
+        audio_layout: Some("5.1".to_string()),
+        ..Default::default()
+    };
+    let strat_channels_none = AudioTranscodeStrategy::determine(&meta_channels_none_surround);
+    assert_eq!(strat_channels_none, AudioTranscodeStrategy::DownmixSurroundToStereo);
+    assert!(!meta_channels_none_surround.is_direct_streamable());
+
+    // 10. Pipeline FFmpeg CLI argument builder verification across bitrates
+    let args_downmix = TranscodePipeline::build_ffmpeg_args_with_metadata(
+        Path::new("surround_movie.mkv"),
+        Path::new("/tmp/hls_rendition"),
+        HardwareAccel::SoftwareCpu,
+        profile_360,
+        &meta_ac3_5_1,
+    );
+    assert!(args_downmix.contains(&"-c:a".to_string()));
+    assert!(args_downmix.contains(&"aac".to_string()));
+    assert!(args_downmix.contains(&"-ac".to_string()));
+    assert!(args_downmix.contains(&"2".to_string()));
+    assert!(args_downmix.contains(&"-af".to_string()));
+    assert!(args_downmix.contains(&"aresample=matrix_encoding=dplii".to_string()));
+    assert!(args_downmix.contains(&"64k".to_string()), "360p profile must cap audio bitrate to 64k");
+
+    println!("[TASK-9.2.3 VERIFIED] Multi-channel surround sound downmixing to stereo AAC verified.");
 }
