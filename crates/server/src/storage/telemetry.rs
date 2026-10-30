@@ -114,17 +114,8 @@ impl StorageTelemetryEngine {
         let last_read_lat = self.last_read_latency_micros.load(Ordering::Relaxed);
         let last_write_lat = self.last_write_latency_micros.load(Ordering::Relaxed);
 
-        let avg_read_lat = if read_ops > 0 {
-            total_read_latency / read_ops
-        } else {
-            0
-        };
-
-        let avg_write_lat = if write_ops > 0 {
-            total_write_latency / write_ops
-        } else {
-            0
-        };
+        let avg_read_lat = total_read_latency.checked_div(read_ops).unwrap_or(0);
+        let avg_write_lat = total_write_latency.checked_div(write_ops).unwrap_or(0);
 
         // Calculate rate of disk bus byte transfer
         let (read_rate, write_rate) = {

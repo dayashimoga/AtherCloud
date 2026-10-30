@@ -1149,7 +1149,7 @@ async fn test_video_pipeline_random_seek_stress_and_latency() {
                 headers.insert(header::RANGE, HeaderValue::from_str(&range_header).unwrap());
 
                 let seek_start = Instant::now();
-                let resp = RangeRequestEngine::stream_file(&*path, &headers).await;
+                let resp = RangeRequestEngine::stream_file(&path, &headers).await;
 
                 assert_eq!(resp.status(), axum::http::StatusCode::PARTIAL_CONTENT);
                 let body_bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
@@ -1825,13 +1825,13 @@ async fn test_storage_telemetry_latency_and_bus_utilization() {
     let pre_read_ops = engine.snapshot().total_read_ops;
     let _resp = RangeRequestEngine::stream_file(&sample_file, &HeaderMap::new()).await;
     let post_read_ops = engine.snapshot().total_read_ops;
-    assert!(post_read_ops >= pre_read_ops + 1, "RangeRequestEngine must record read op");
+    assert!(post_read_ops > pre_read_ops, "RangeRequestEngine must record read op");
 
     let upload_target = temp_dir.path().join("telemetry_upload_target.bin");
     let pre_write_ops = engine.snapshot().total_write_ops;
     let _write_res = ResumableUploadManager::write_chunk(&upload_target, 0, "", &[0xCDu8; 64 * 1024]).await;
     let post_write_ops = engine.snapshot().total_write_ops;
-    assert!(post_write_ops >= pre_write_ops + 1, "ResumableUploadManager must record write op");
+    assert!(post_write_ops > pre_write_ops, "ResumableUploadManager must record write op");
 
     // 4. Verify snapshot serialization & disk bus utilization format
     let snap_final = engine.snapshot();
@@ -3414,4 +3414,147 @@ async fn test_public_sharing_urls_expiration_and_passkey_protection() {
     );
 
     println!("[TASK-8.3.3 VERIFIED] Public sharing URLs generator with time expiration and passkey protection verified.");
+}
+
+#[tokio::test]
+async fn test_gpu_probe_engine_and_hardware_acceleration_ladder() {
+    use aetherstream_server::transcode::gpu_probe::GpuProbeEngine;
+    use aetherstream_server::transcode::pipeline::{HardwareAccel, TranscodePipeline};
+    use std::time::Instant;
+
+    // 1. Validate Priority Ladder Hierarchy
+    let ladder = GpuProbeEngine::priority_ladder();
+    assert_eq!(
+        ladder,
+        &[
+            HardwareAccel::Nvenc,
+            HardwareAccel::QuickSync,
+            HardwareAccel::VideoToolbox,
+            HardwareAccel::Vaapi,
+            HardwareAccel::SoftwareCpu,
+        ]
+    );
+
+    // 2. High-End Dual-GPU System (NVIDIA RTX + Intel UHD iGPU) -> NVENC with AV1 & HEVC
+    let dual_gpu_hwaccels = "Hardware acceleration methods:\ncuda\nqsv\nd3d11va\ndxva2\n";
+    let dual_gpu_encoders = r#"
+Encoders:
+ V..... h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)
+ V..... hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)
+ V..... av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)
+ V..... h264_qsv             Intel Quick Sync Video acceleration for H.264 (codec h264)
+ V..... hevc_qsv             Intel Quick Sync Video acceleration for HEVC (codec hevc)
+ V..... libx264              libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (codec h264)
+ V..... libx265              libx265 H.265 / HEVC (codec hevc)
+"#;
+    let dual_report = GpuProbeEngine::parse_capabilities(dual_gpu_hwaccels, dual_gpu_encoders);
+    assert_eq!(dual_report.primary_accel, HardwareAccel::Nvenc);
+    assert!(dual_report.is_hardware_accelerated());
+    assert!(dual_report.nvenc.available);
+    assert_eq!(dual_report.nvenc.h264_encoder.as_deref(), Some("h264_nvenc"));
+    assert_eq!(dual_report.nvenc.hevc_encoder.as_deref(), Some("hevc_nvenc"));
+    assert_eq!(dual_report.nvenc.av1_encoder.as_deref(), Some("av1_nvenc"));
+    assert!(dual_report.qsv.available);
+    assert_eq!(dual_report.qsv.h264_encoder.as_deref(), Some("h264_qsv"));
+    assert_eq!(dual_report.get_encoder_for(HardwareAccel::Nvenc, "av1"), Some("av1_nvenc"));
+    assert_eq!(dual_report.get_encoder_for(HardwareAccel::QuickSync, "hevc"), Some("hevc_qsv"));
+
+    // 3. Intel QuickSync System (Core i7 Laptop with Iris Xe) -> QuickSync with AV1
+    let qsv_hwaccels = "Hardware acceleration methods:\nqsv\nd3d11va\n";
+    let qsv_encoders = r#"
+Encoders:
+ V..... h264_qsv             Intel Quick Sync Video acceleration for H.264 (codec h264)
+ V..... hevc_qsv             Intel Quick Sync Video acceleration for HEVC (codec hevc)
+ V..... av1_qsv              Intel Quick Sync Video acceleration for AV1 (codec av1)
+ V..... libx264              libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (codec h264)
+"#;
+    let qsv_report = GpuProbeEngine::parse_capabilities(qsv_hwaccels, qsv_encoders);
+    assert_eq!(qsv_report.primary_accel, HardwareAccel::QuickSync);
+    assert!(qsv_report.is_hardware_accelerated());
+    assert!(!qsv_report.nvenc.available);
+    assert!(qsv_report.qsv.available);
+    assert_eq!(qsv_report.qsv.av1_encoder.as_deref(), Some("av1_qsv"));
+
+    // 4. Apple Silicon System (M1/M2/M3 Mac) -> VideoToolbox
+    let vt_hwaccels = "Hardware acceleration methods:\nvideotoolbox\n";
+    let vt_encoders = r#"
+Encoders:
+ V..... h264_videotoolbox    VideoToolbox H.264 Encoder (codec h264)
+ V..... hevc_videotoolbox    VideoToolbox H.265 Encoder (codec hevc)
+ V..... libx264              libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (codec h264)
+"#;
+    let vt_report = GpuProbeEngine::parse_capabilities(vt_hwaccels, vt_encoders);
+    assert_eq!(vt_report.primary_accel, HardwareAccel::VideoToolbox);
+    assert!(vt_report.is_hardware_accelerated());
+    assert!(vt_report.videotoolbox.available);
+    assert_eq!(vt_report.get_encoder_for(HardwareAccel::VideoToolbox, "h264"), Some("h264_videotoolbox"));
+
+    // 5. Linux Server with VA-API
+    let vaapi_hwaccels = "Hardware acceleration methods:\nvaapi\n";
+    let vaapi_encoders = r#"
+Encoders:
+ V..... h264_vaapi           H.264/AVC (VAAPI) (codec h264)
+ V..... hevc_vaapi           H.265/HEVC (VAAPI) (codec hevc)
+ V..... libx264              libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (codec h264)
+"#;
+    let vaapi_report = GpuProbeEngine::parse_capabilities(vaapi_hwaccels, vaapi_encoders);
+    assert_eq!(vaapi_report.primary_accel, HardwareAccel::Vaapi);
+    assert!(vaapi_report.is_hardware_accelerated());
+    assert!(vaapi_report.vaapi.available);
+    assert_eq!(vaapi_report.get_encoder_for(HardwareAccel::Vaapi, "hevc"), Some("hevc_vaapi"));
+
+    // 6. Headless VM / Pure CPU Fallback (No GPUs detected)
+    let cpu_hwaccels = "Hardware acceleration methods:\n";
+    let cpu_encoders = r#"
+Encoders:
+ V..... libx264              libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (codec h264)
+ V..... libx265              libx265 H.265 / HEVC (codec hevc)
+ V..... libsvtav1            SVT-AV1(Scalable Video Technology for AV1) encoder (codec av1)
+"#;
+    let cpu_report = GpuProbeEngine::parse_capabilities(cpu_hwaccels, cpu_encoders);
+    assert_eq!(cpu_report.primary_accel, HardwareAccel::SoftwareCpu);
+    assert!(!cpu_report.is_hardware_accelerated());
+    assert!(cpu_report.cpu_fallback.available);
+    assert_eq!(cpu_report.get_encoder_for(HardwareAccel::SoftwareCpu, "h264"), Some("libx264"));
+    assert_eq!(cpu_report.get_encoder_for(HardwareAccel::SoftwareCpu, "hevc"), Some("libx265"));
+    assert_eq!(cpu_report.get_encoder_for(HardwareAccel::SoftwareCpu, "av1"), Some("libsvtav1"));
+
+    // 7. Live System Hardware Probe Execution
+    let live_report = GpuProbeEngine::probe_system().await;
+    assert!(!live_report.detection_logs.is_empty());
+    println!("[LIVE GPU PROBE] Detected primary accelerator: {:?}", live_report.primary_accel);
+    for log in &live_report.detection_logs {
+        println!("  -> {}", log);
+    }
+
+    // Verify TranscodePipeline integration
+    let pipeline_accel = TranscodePipeline::probe_hardware().await;
+    assert_eq!(pipeline_accel, live_report.primary_accel);
+    let pipeline_report = TranscodePipeline::probe_capabilities().await;
+    assert_eq!(pipeline_report.primary_accel, live_report.primary_accel);
+
+    // 8. Microsecond Capability Lookup Benchmark
+    let iterations = 10_000;
+    let bench_start = Instant::now();
+    for _ in 0..iterations {
+        let enc1 = dual_report.get_encoder_for(HardwareAccel::Nvenc, "h264");
+        assert_eq!(enc1, Some("h264_nvenc"));
+        let enc2 = dual_report.get_encoder_for(HardwareAccel::QuickSync, "hevc");
+        assert_eq!(enc2, Some("hevc_qsv"));
+        let enc3 = dual_report.get_encoder_for(HardwareAccel::SoftwareCpu, "av1");
+        assert_eq!(enc3, None);
+    }
+    let total_elapsed = bench_start.elapsed();
+    let per_op_micros = total_elapsed.as_secs_f64() * 1_000_000.0 / ((iterations * 3) as f64);
+    println!(
+        "[GPU CAPABILITY LOOKUP] {} iterations in {:?} (avg {:.3} µs/op)",
+        iterations * 3, total_elapsed, per_op_micros
+    );
+    assert!(
+        per_op_micros < 10.0,
+        "GPU capability lookups must execute under 10 µs/op (got {:.3} µs)",
+        per_op_micros
+    );
+
+    println!("[TASK-9.1.1 VERIFIED] Dynamic GPU probe with NVENC, VAAPI, VideoToolbox, QSV, and CPU fallback verified.");
 }

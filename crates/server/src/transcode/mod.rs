@@ -1,7 +1,9 @@
+pub mod gpu_probe;
 pub mod offline;
 pub mod pipeline;
 pub mod profiles;
 
+pub use gpu_probe::{AcceleratorCapabilities, GpuCapabilityReport, GpuProbeEngine};
 pub use offline::{OfflineTranscodeJob, OfflineTranscodeWorker, TranscodeJobStatus};
 pub use pipeline::{
     AudioTranscodeStrategy, CachedSegment, DiskCacheConfig, DiskCacheSupervisor, HardwareAccel,

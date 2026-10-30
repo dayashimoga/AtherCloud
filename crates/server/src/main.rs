@@ -74,9 +74,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Hardware Acceleration Strategy: {:?}", hw_accel);
 
     // Load configuration
-    let mut config = ServerConfig::default();
-    config.host = args.host;
-    config.port = args.port;
+    let config = ServerConfig {
+        host: args.host,
+        port: args.port,
+        ..Default::default()
+    };
 
     // Initialize Mount Registry
     let mounts = MountRegistry::new();

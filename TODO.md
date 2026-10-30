@@ -859,3 +859,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Security Architect & Systems Engineer
 - **Execution Trace:** cargo test --test security_tests test_public_sharing_urls_expiration_and_passkey_protection
 - **Validation Proof:** Engineered public sharing URLs generator and passkey protection engine in crates/server/src/security/share_link.rs with salted SHA-256 passkey hashing, constant-time verification (subtle::ConstantTimeEq), and automatic time expiration. Integrated passkey validation across streaming, browsing, verification, and share landing endpoints. Backed by SQLite WAL share_rules. Marked Phase 2.3 and Stage 2 (Stage 8) 100% complete. All 36 integration tests passed.
+
+### [2026-10-30T08:08:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-9.1.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
+- **Execution Trace:** cargo test --test security_tests test_gpu_probe_engine_and_hardware_acceleration_ladder
+- **Validation Proof:** Engineered GpuProbeEngine and GpuCapabilityReport in crates/server/src/transcode/gpu_probe.rs implementing deterministic hardware acceleration ladder prioritizing NVENC -> QuickSync (QSV) -> Apple VideoToolbox -> VA-API -> Software CPU fallback. Implemented multi-codec inspection for H.264, HEVC, and AV1 across platform device buses (/dev/dri/renderD128, /dev/dri/card0) and CLI binaries. Integrated with TranscodePipeline capabilities detection. Verified 37/37 integration tests passing.

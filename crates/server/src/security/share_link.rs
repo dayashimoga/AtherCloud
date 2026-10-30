@@ -156,6 +156,7 @@ impl PublicShareState {
 }
 
 /// Helper function to create a public share and persist its rule to SQLite WAL
+#[allow(clippy::result_large_err)]
 pub fn create_public_share_link(
     state: &PublicShareState,
     payload: &CreateShareLinkRequest,

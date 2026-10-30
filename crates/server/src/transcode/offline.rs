@@ -223,9 +223,7 @@ impl OfflineTranscodeWorker {
             let rendition_dir = job.target_directory.join(&tag);
             let _ = tokio::fs::create_dir_all(&rendition_dir).await;
             let playlist = rendition_dir.join("index.m3u8");
-            let stub_content = format!(
-                "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-ENDLIST\n"
-            );
+            let stub_content = "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-ENDLIST\n";
             let _ = tokio::fs::write(&playlist, stub_content.as_bytes()).await;
             rendered_tags.push(tag);
         }

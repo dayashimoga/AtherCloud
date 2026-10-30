@@ -219,22 +219,7 @@ impl HardwareAccel {
     /// Evaluates the priority ladder across available FFmpeg encoders.
     /// Order of preference: NVENC -> QuickSync -> VideoToolbox -> VA-API -> libx264.
     pub fn detect_from_encoder_list(output: &str) -> Self {
-        if output.contains("h264_nvenc") {
-            info!("NVIDIA NVENC hardware acceleration detected.");
-            HardwareAccel::Nvenc
-        } else if output.contains("h264_qsv") {
-            info!("Intel QuickSync Video (QSV) hardware acceleration detected.");
-            HardwareAccel::QuickSync
-        } else if output.contains("h264_videotoolbox") {
-            info!("Apple VideoToolbox hardware acceleration detected.");
-            HardwareAccel::VideoToolbox
-        } else if output.contains("h264_vaapi") {
-            info!("Linux VA-API hardware acceleration detected.");
-            HardwareAccel::Vaapi
-        } else {
-            info!("No dedicated hardware encoder detected; utilizing libx264 software fallback.");
-            HardwareAccel::SoftwareCpu
-        }
+        super::gpu_probe::GpuProbeEngine::parse_capabilities("", output).primary_accel
     }
 }
 
@@ -263,10 +248,10 @@ impl MediaMetadata {
             || container_lower.contains("webm")
             || container_lower.contains("matroska");
 
-        let is_valid_video = match self.video_codec.as_deref() {
-            Some("h264") | Some("avc1") | Some("vp9") | Some("av1") | Some("av01") => true,
-            _ => false,
-        };
+        let is_valid_video = matches!(
+            self.video_codec.as_deref(),
+            Some("h264") | Some("avc1") | Some("vp9") | Some("av1") | Some("av01")
+        );
 
         let is_valid_audio = match self.audio_codec.as_deref() {
             Some("aac") | Some("mp3") | Some("opus") => {
@@ -447,7 +432,7 @@ impl TranscodePipeline {
         }
 
         let probe_cmd = Command::new("ffprobe")
-            .args(&[
+            .args([
                 "-v",
                 "quiet",
                 "-print_format",
@@ -510,22 +495,12 @@ impl TranscodePipeline {
 
     /// Probes the local system environment for available FFmpeg binary and hardware acceleration support
     pub async fn probe_hardware() -> HardwareAccel {
-        let ffmpeg_check = Command::new("ffmpeg")
-            .arg("-encoders")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await;
+        super::gpu_probe::GpuProbeEngine::probe_system().await.primary_accel
+    }
 
-        let output = match ffmpeg_check {
-            Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).to_string(),
-            _ => {
-                warn!("FFmpeg not found on host PATH. Defaulting to Software CPU profile.");
-                return HardwareAccel::SoftwareCpu;
-            }
-        };
-
-        HardwareAccel::detect_from_encoder_list(&output)
+    /// Performs full dynamic GPU capability introspection across NVENC, QuickSync, VideoToolbox, VA-API, and CPU fallback
+    pub async fn probe_capabilities() -> super::gpu_probe::GpuCapabilityReport {
+        super::gpu_probe::GpuProbeEngine::probe_system().await
     }
 
     /// Generates an RFC 8216 compliant HLS Master Manifest string linking all rendition profiles
@@ -723,13 +698,13 @@ impl DiskCacheSupervisor {
                 let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
                 if let Ok(elapsed) = modified.elapsed() {
-                    if elapsed.as_secs_f64() >= config.ttl_seconds as f64 {
-                        if tokio::fs::remove_file(&path).await.is_ok() {
-                            evicted_count += 1;
-                            reclaimed_bytes += len;
-                            debug!("Evicted TTL-expired segment: {:?}", path);
-                            continue;
-                        }
+                    if elapsed.as_secs_f64() >= config.ttl_seconds as f64
+                        && tokio::fs::remove_file(&path).await.is_ok()
+                    {
+                        evicted_count += 1;
+                        reclaimed_bytes += len;
+                        debug!("Evicted TTL-expired segment: {:?}", path);
+                        continue;
                     }
                 }
 

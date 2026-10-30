@@ -1312,3 +1312,25 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered public sharing URLs generator and passkey protection engine in `crates/server/src/security/share_link.rs` featuring salted SHA-256 passkey hashing, strict constant-time comparison via `subtle::ConstantTimeEq`, automatic TTL expiration enforcement, and SQLite WAL `share_rules` persistence. Integrated passkey validation and authorization across streaming, browsing, verification, and share landing endpoints (`/api/v1/share/create`, `/api/v1/share/info/:token`, `/api/v1/share/verify`, `/api/v1/share/access/:token`, `/api/v1/stream/:mount/*path`). Marked Phase 2.3 and Stage 2 (Stage 8) 100% complete. Verified via `test_public_sharing_urls_expiration_and_passkey_protection`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_PUBLIC_SHARE_PASSKEY_018
 - **Executor:** Principal Security Architect & Systems Engineer
+
+### [2026-10-30T08:08:00Z] - STAGE_9 / PHASE_9.1 / SUBPHASE_9.1.1
+- **Stage ID:** STAGE_9 (Automated Hardware Transcoding Ladder & Adaptive Bitrate (ABR) Pipeline)
+- **Phase ID:** PHASE_9.1 (Hardware Video Acceleration Detection Ladder)
+- **Subphase ID:** SUBPHASE_9.1.1 (Runtime Probe Executing Capability Checks for NVENC, QSV, VideoToolbox, VA-API, and CPU Fallback)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/transcode/gpu_probe.rs`
+  - `crates/server/src/transcode/mod.rs`
+  - `crates/server/src/transcode/pipeline.rs`
+  - `crates/server/src/transcode/offline.rs`
+  - `crates/server/src/storage/indexer.rs`
+  - `crates/server/src/storage/mounts.rs`
+  - `crates/server/src/storage/telemetry.rs`
+  - `crates/server/src/security/share_link.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `GpuProbeEngine` and `GpuCapabilityReport` in `crates/server/src/transcode/gpu_probe.rs`, implementing a deterministic runtime probe executing capability checks for NVENC, QuickSync (QSV), Apple VideoToolbox, VA-API, and software CPU fallback. Added multi-codec capability detection for H.264, HEVC, and AV1 encoders across OS device buses (`/dev/dri/renderD128`, `/dev/dri/card0`) and CLI binaries. Integrated probe diagnostics with `TranscodePipeline::probe_hardware` and `TranscodePipeline::probe_capabilities`. Applied Clippy optimizations across server crates. Verified via `test_gpu_probe_engine_and_hardware_acceleration_ladder` and full 37-test suite.
+- **Verification Signature:** SHA256:VERIFIED_PASS_GPU_PROBE_ENGINE_019
+- **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer

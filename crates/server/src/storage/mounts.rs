@@ -96,6 +96,15 @@ impl MountRegistry {
             mounts: std::sync::RwLock::new(HashMap::new()),
         }
     }
+}
+
+impl Default for MountRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MountRegistry {
 
     /// Discovers system drive roots across Windows and POSIX systems with detailed metadata
     pub fn discover_detailed_drives() -> Vec<DiscoveredDrive> {
@@ -406,10 +415,10 @@ impl MountRegistry {
         };
 
         // Whitelist check for browse: must be allowed descendant, exact match, or ancestor
-        if !entry.allowed_subpaths.is_empty() {
-            if !crate::security::PathSandbox::is_allowed_or_ancestor(&entry.allowed_subpaths, subpath) {
-                return Err(MountError::SubpathForbidden(subpath.to_string_lossy().to_string()));
-            }
+        if !entry.allowed_subpaths.is_empty()
+            && !crate::security::PathSandbox::is_allowed_or_ancestor(&entry.allowed_subpaths, subpath)
+        {
+            return Err(MountError::SubpathForbidden(subpath.to_string_lossy().to_string()));
         }
 
         let safe_dir = crate::security::PathSandbox::resolve_sandboxed_path(&entry.base_path, subpath)

@@ -29,6 +29,15 @@ impl FileTreeIndexer {
             cache: RwLock::new(HashMap::new()),
         }
     }
+}
+
+impl Default for FileTreeIndexer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FileTreeIndexer {
 
     /// Indexes an entire mount directory recursively into in-memory search index
     pub fn index_mount(&self, mount_id: &str, root_path: &Path) -> std::io::Result<usize> {
