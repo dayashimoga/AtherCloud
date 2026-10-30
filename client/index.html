@@ -120,7 +120,9 @@
               <div class="hud-item"><span class="hud-label">Rendition:</span> <span id="hud-rendition">Auto</span></div>
               <div class="hud-item"><span class="hud-label">Bandwidth:</span> <span id="hud-bandwidth">0 kbps</span></div>
               <div class="hud-item"><span class="hud-label">Buffer Health:</span> <span id="hud-buffer">0.0s</span></div>
-              <div class="hud-item"><span class="hud-label">Dropped Frames:</span> <span id="hud-dropped">0</span></div>
+              <div class="hud-item"><span class="hud-label">Dropped Frames:</span> <span id="hud-dropped">0 (0.0%)</span></div>
+              <div class="hud-item"><span class="hud-label">ABR Shifts:</span> <span id="hud-shifts">0</span></div>
+              <div class="hud-item"><span class="hud-label">Codec Stream:</span> <span id="hud-codec">Direct / HLS</span></div>
             </div>
 
             <!-- Double Tap Gesture Indicator Ripples -->
@@ -174,6 +176,9 @@
                       <option value="-1" selected>Auto ABR</option>
                     </select>
                   </div>
+
+                  <!-- Diagnostics HUD Toggle Button -->
+                  <button id="player-stats-btn" class="ctrl-btn" title="Toggle Live Telemetry HUD (D)">&#128202;</button>
 
                   <!-- Picture-in-Picture Button -->
                   <button id="player-pip-btn" class="ctrl-btn" title="Picture-in-Picture (P)">&#128471;</button>

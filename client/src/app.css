@@ -671,17 +671,26 @@ video {
   position: absolute;
   top: 12px;
   right: 12px;
-  background: rgba(10, 12, 16, 0.85);
+  background: rgba(10, 12, 16, 0.88);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--border);
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: var(--radius);
   font-family: monospace;
   font-size: 0.75rem;
   color: var(--accent-hover);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   pointer-events: none;
+  z-index: 25;
+  min-width: 220px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.telemetry-hud.hidden {
+  display: none;
 }
 
 .hud-item {
@@ -691,6 +700,9 @@ video {
 }
 
 .hud-label { color: var(--text-muted); }
+.hud-val-good { color: var(--success); font-weight: 600; }
+.hud-val-warn { color: #f59e0b; font-weight: 600; }
+.hud-val-danger { color: var(--danger); font-weight: 600; }
 
 /* Share Card */
 .share-card {

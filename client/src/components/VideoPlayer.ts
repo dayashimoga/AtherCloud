@@ -14,11 +14,15 @@ export class VideoPlayerComponent {
   private hls: Hls | null = null;
 
   // Live Telemetry HUD Elements
+  private telemetryHudEl: HTMLElement | null = null;
   private hudRendition: HTMLElement;
   private hudBandwidth: HTMLElement;
   private hudBuffer: HTMLElement;
   private hudDropped: HTMLElement;
+  private hudShifts: HTMLElement | null = null;
+  private hudCodec: HTMLElement | null = null;
   private telemetryTimer: number | null = null;
+  private abrShiftCount = 0;
 
   // Custom Controls UI Elements
   private controlsBar: HTMLElement | null = null;
@@ -32,6 +36,7 @@ export class VideoPlayerComponent {
   private durationEl: HTMLElement | null = null;
   private speedSelect: HTMLSelectElement | null = null;
   private resolutionSelect: HTMLSelectElement | null = null;
+  private statsBtn: HTMLButtonElement | null = null;
   private pipBtn: HTMLButtonElement | null = null;
   private theaterBtn: HTMLButtonElement | null = null;
   private fullscreenBtn: HTMLButtonElement | null = null;
@@ -51,10 +56,13 @@ export class VideoPlayerComponent {
     this.videoWrapper = document.getElementById("video-wrapper");
     this.videoContainerEl = document.querySelector(".video-container");
 
+    this.telemetryHudEl = document.getElementById("telemetry-hud");
     this.hudRendition = document.getElementById("hud-rendition")!;
     this.hudBandwidth = document.getElementById("hud-bandwidth")!;
     this.hudBuffer = document.getElementById("hud-buffer")!;
     this.hudDropped = document.getElementById("hud-dropped")!;
+    this.hudShifts = document.getElementById("hud-shifts");
+    this.hudCodec = document.getElementById("hud-codec");
 
     this.controlsBar = document.getElementById("player-controls");
     this.playBtn = document.getElementById("player-play-btn") as HTMLButtonElement | null;
@@ -67,6 +75,7 @@ export class VideoPlayerComponent {
     this.durationEl = document.getElementById("player-duration");
     this.speedSelect = document.getElementById("player-speed-select") as HTMLSelectElement | null;
     this.resolutionSelect = document.getElementById("player-resolution-select") as HTMLSelectElement | null;
+    this.statsBtn = document.getElementById("player-stats-btn") as HTMLButtonElement | null;
     this.pipBtn = document.getElementById("player-pip-btn") as HTMLButtonElement | null;
     this.theaterBtn = document.getElementById("player-theater-btn") as HTMLButtonElement | null;
     this.fullscreenBtn = document.getElementById("player-fullscreen-btn") as HTMLButtonElement | null;
@@ -174,7 +183,12 @@ export class VideoPlayerComponent {
       };
     }
 
-    // 7. Picture-in-Picture
+    // 7. Live Telemetry HUD Toggle Button
+    if (this.statsBtn) {
+      this.statsBtn.onclick = () => this.toggleTelemetryHud();
+    }
+
+    // 8. Picture-in-Picture
     if (this.pipBtn) {
       this.pipBtn.onclick = async () => {
         try {
@@ -189,14 +203,14 @@ export class VideoPlayerComponent {
       };
     }
 
-    // 8. Theater Mode Toggle
+    // 9. Theater Mode Toggle
     if (this.theaterBtn) {
       this.theaterBtn.onclick = () => {
         this.videoContainerEl?.classList.toggle("theater-mode");
       };
     }
 
-    // 9. Fullscreen Toggle
+    // 10. Fullscreen Toggle
     if (this.fullscreenBtn) {
       this.fullscreenBtn.onclick = () => {
         if (!document.fullscreenElement) {
@@ -207,13 +221,13 @@ export class VideoPlayerComponent {
       };
     }
 
-    // 10. Mobile Touch Double-Tap Gestures & Inactivity Timer
+    // 11. Mobile Touch Double-Tap Gestures & Inactivity Timer
     if (this.videoWrapper) {
       this.videoWrapper.onmousemove = () => this.handleUserActivity();
       this.videoWrapper.ontouchstart = (e) => this.handleTouch(e);
     }
 
-    // 11. Keyboard Navigation
+    // 12. Keyboard Navigation
     window.addEventListener("keydown", (e) => {
       // Only handle if video modal is visible and no input is focused
       if (
@@ -237,6 +251,10 @@ export class VideoPlayerComponent {
           e.preventDefault();
           this.seekRelative(10);
           break;
+        case "d":
+        case "D":
+          this.toggleTelemetryHud();
+          break;
         case "f":
         case "F":
           this.fullscreenBtn?.click();
@@ -251,6 +269,12 @@ export class VideoPlayerComponent {
           break;
       }
     });
+  }
+
+  public toggleTelemetryHud() {
+    if (this.telemetryHudEl) {
+      this.telemetryHudEl.classList.toggle("hidden");
+    }
   }
 
   private togglePlay() {
@@ -366,6 +390,12 @@ export class VideoPlayerComponent {
     this.destroy();
 
     // Reset controls UI state
+    this.abrShiftCount = 0;
+    if (this.hudShifts) this.hudShifts.textContent = "0";
+    if (this.hudCodec) {
+      this.hudCodec.textContent = isHls ? "AVC1 / HLS ABR" : "Direct Zero-Copy";
+    }
+
     if (this.seekRange) this.seekRange.value = "0";
     if (this.currentTimeEl) this.currentTimeEl.textContent = "00:00";
     if (this.durationEl) this.durationEl.textContent = "00:00";
@@ -412,6 +442,11 @@ export class VideoPlayerComponent {
       });
 
       this.hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
+        this.abrShiftCount++;
+        if (this.hudShifts) {
+          this.hudShifts.textContent = this.abrShiftCount.toString();
+        }
+
         const level = this.hls?.levels[data.level];
         if (level) {
           const info: RenditionInfo = {
@@ -529,7 +564,7 @@ export class VideoPlayerComponent {
   private startTelemetryLoop() {
     this.stopTelemetryLoop();
     this.telemetryTimer = window.setInterval(() => {
-      // 1. Buffer health calculation
+      // 1. Buffer health calculation & adaptive coloration
       if (this.videoElement.buffered.length > 0) {
         const current = this.videoElement.currentTime;
         let forwardBuffer = 0;
@@ -544,6 +579,15 @@ export class VideoPlayerComponent {
         }
         this.hudBuffer.textContent = `${forwardBuffer.toFixed(1)}s`;
 
+        // Color coding based on buffer margin
+        if (forwardBuffer >= 15.0) {
+          this.hudBuffer.className = "hud-val-good";
+        } else if (forwardBuffer >= 6.0) {
+          this.hudBuffer.className = "hud-val-warn";
+        } else {
+          this.hudBuffer.className = "hud-val-danger";
+        }
+
         // Emergency buffer starvation prevention (<6s)
         if (forwardBuffer < 6.0 && this.hls && this.hls.currentLevel > 0) {
           console.warn("[TELEMETRY] Buffer starvation alert (<6s). Downgrading rendition ladder.");
@@ -551,10 +595,33 @@ export class VideoPlayerComponent {
         }
       }
 
-      // 2. Dropped frames calculation
+      // 2. Dropped frames calculation & GPU decode throttling detection
       if ("getVideoPlaybackQuality" in this.videoElement) {
         const quality = this.videoElement.getVideoPlaybackQuality();
-        this.hudDropped.textContent = `${quality.droppedVideoFrames}`;
+        const dropped = quality.droppedVideoFrames;
+        const total = quality.totalVideoFrames;
+        const dropPct = total > 0 ? (dropped / total) * 100 : 0;
+
+        this.hudDropped.textContent = `${dropped} (${dropPct.toFixed(1)}%)`;
+
+        if (dropPct > 5.0) {
+          this.hudDropped.className = "hud-val-danger";
+          // If frame drop rate exceeds 5% on active playback, step down level to relieve hardware decoder
+          if (this.hls && this.hls.currentLevel > 0) {
+            console.warn(`[TELEMETRY] Excessive frame drop rate (${dropPct.toFixed(1)}%). Downscaling rendition.`);
+            this.hls.nextLevel = Math.max(0, this.hls.currentLevel - 1);
+          }
+        } else if (dropPct > 1.0) {
+          this.hudDropped.className = "hud-val-warn";
+        } else {
+          this.hudDropped.className = "hud-val-good";
+        }
+      }
+
+      // 3. Bandwidth update
+      if (this.hls) {
+        const bw = Math.round((this.hls.bandwidthEstimate || 0) / 1000);
+        this.hudBandwidth.textContent = `${bw} kbps`;
       }
     }, 1000);
   }
