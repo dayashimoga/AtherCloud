@@ -120,3 +120,4 @@ export class SessionManager {
     this.applyTheme(DEFAULT_CONFIG.theme);
   }
 }
+

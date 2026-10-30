@@ -1,5 +1,12 @@
 import Hls from "hls.js";
 
+export interface RenditionInfo {
+  index: number;
+  height: number;
+  bitrate: number;
+  name: string;
+}
+
 export class VideoPlayerComponent {
   private videoElement: HTMLVideoElement;
   private hls: Hls | null = null;
@@ -8,6 +15,9 @@ export class VideoPlayerComponent {
   private hudBuffer: HTMLElement;
   private hudDropped: HTMLElement;
   private telemetryTimer: number | null = null;
+
+  public onLevelsLoaded: ((levels: RenditionInfo[]) => void) | null = null;
+  public onLevelSwitched: ((level: RenditionInfo | null) => void) | null = null;
 
   constructor() {
     this.videoElement = document.getElementById("video-element") as HTMLVideoElement;
@@ -21,20 +31,50 @@ export class VideoPlayerComponent {
     this.destroy();
 
     if (isHls && Hls.isSupported()) {
+      // Fine-tuned ABR tuning (EWMA sliding window, conservative margins & buffer horizons)
       this.hls = new Hls({
         capLevelToPlayerSize: true,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
+        maxBufferLength: 30, // 30s forward buffer horizon
+        maxMaxBufferLength: 60, // 60s max buffer cap
+        maxBufferSize: 60 * 1024 * 1024, // 60 MB buffer size ceiling
+        maxBufferHole: 0.5,
+        backBufferLength: 30, // 30s backward buffer preservation for instant seek back
         lowLatencyMode: true,
+
+        // EWMA Sliding Window Bandwidth Estimation & ABR Tuning
+        abrEwmaFastLive: 3.0,
+        abrEwmaSlowLive: 9.0,
+        abrEwmaFastVoD: 3.0,
+        abrEwmaSlowVoD: 9.0,
+        abrEwmaDefaultEstimate: 5000000, // Initial 5 Mbps baseline to prevent starting at lowest rendition
+        abrBandWidthFactor: 0.85, // 15% safety headroom
+        abrBandWidthUpFactor: 0.70, // Requires 30% headroom before ascending ladder
+        abrMaxWithRealBitrate: true,
+
+        fragLoadingTimeOut: 20000,
+        manifestLoadingTimeOut: 15000,
+        levelLoadingTimeOut: 15000,
       });
 
       this.hls.loadSource(url);
       this.hls.attachMedia(this.videoElement);
 
+      this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        const levels = this.getLevels();
+        this.onLevelsLoaded?.(levels);
+      });
+
       this.hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
         const level = this.hls?.levels[data.level];
         if (level) {
-          this.hudRendition.textContent = `${level.height}p (${Math.round(level.bitrate / 1000)}k)`;
+          const info: RenditionInfo = {
+            index: data.level,
+            height: level.height,
+            bitrate: level.bitrate,
+            name: `${level.height}p (${Math.round(level.bitrate / 1000)}k)`,
+          };
+          this.hudRendition.textContent = info.name;
+          this.onLevelSwitched?.(info);
         }
       });
 
@@ -43,17 +83,86 @@ export class VideoPlayerComponent {
         const bw = Math.round((stats.bandwidth || this.hls?.bandwidthEstimate || 0) / 1000);
         this.hudBandwidth.textContent = `${bw} kbps`;
       });
+
+      // Adaptive Error Recovery Strategy
+      this.hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.warn("[HLS] Fatal network error encountered, attempting recovery...", data);
+              this.hls?.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.warn("[HLS] Fatal media error encountered, recovering media error...", data);
+              this.hls?.recoverMediaError();
+              break;
+            default:
+              console.error("[HLS] Unrecoverable fatal error encountered, falling back to direct stream:", data);
+              this.destroy();
+              this.loadSource(url, false);
+              break;
+          }
+        }
+      });
+    } else if (isHls && this.videoElement.canPlayType("application/vnd.apple.mpegurl")) {
+      // Native Apple HLS Fallback (Safari macOS / iOS WebKit)
+      this.videoElement.src = url;
+      this.hudRendition.textContent = "Native Apple HLS";
     } else {
-      // Direct stream fallback
+      // Zero-Copy Direct Stream Fallback
       this.videoElement.src = url;
       this.hudRendition.textContent = "Direct (Zero-Copy)";
     }
 
     this.videoElement.play().catch(() => {
-      // Autoplay blocked by browser policy
+      // Autoplay blocked by browser policy until user gesture
     });
 
     this.startTelemetryLoop();
+  }
+
+  public getLevels(): RenditionInfo[] {
+    if (!this.hls) return [];
+    return this.hls.levels.map((lvl, idx) => ({
+      index: idx,
+      height: lvl.height,
+      bitrate: lvl.bitrate,
+      name: `${lvl.height}p (${Math.round(lvl.bitrate / 1000)}k)`,
+    }));
+  }
+
+  public getCurrentLevel(): number {
+    return this.hls ? this.hls.currentLevel : -1;
+  }
+
+  public setLevel(levelIndex: number) {
+    if (this.hls) {
+      this.hls.currentLevel = levelIndex;
+      if (levelIndex === -1) {
+        this.hudRendition.textContent = "Auto ABR";
+        this.onLevelSwitched?.(null);
+      } else {
+        const lvl = this.hls.levels[levelIndex];
+        if (lvl) {
+          const info: RenditionInfo = {
+            index: levelIndex,
+            height: lvl.height,
+            bitrate: lvl.bitrate,
+            name: `${lvl.height}p (${Math.round(lvl.bitrate / 1000)}k)`,
+          };
+          this.hudRendition.textContent = info.name;
+          this.onLevelSwitched?.(info);
+        }
+      }
+    }
+  }
+
+  public getVideoElement(): HTMLVideoElement {
+    return this.videoElement;
+  }
+
+  public isHlsActive(): boolean {
+    return this.hls !== null;
   }
 
   private startTelemetryLoop() {
@@ -74,7 +183,7 @@ export class VideoPlayerComponent {
         }
         this.hudBuffer.textContent = `${forwardBuffer.toFixed(1)}s`;
 
-        // Emergency buffer starvation prevention
+        // Emergency buffer starvation prevention (<6s)
         if (forwardBuffer < 6.0 && this.hls && this.hls.currentLevel > 0) {
           console.warn("[TELEMETRY] Buffer starvation alert (<6s). Downgrading rendition ladder.");
           this.hls.nextLevel = 0; // Drop to lowest safe rendition

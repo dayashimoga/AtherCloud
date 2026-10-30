@@ -119,10 +119,24 @@ function Test-Subphase-4-2-1 {
     Write-AetherLog "INFO" "Auditing Subphase 4.2.1: Hls.js Adaptive Player Integration..."
     $vpPath = Join-Path $Script:RepoRoot "client/src/components/VideoPlayer.ts"
     $content = Get-Content $vpPath -Raw
-    if (-not ($content.Contains('hls.js') -and $content.Contains('loadSource'))) {
+    if (-not ($content.Contains('hls.js') -and $content.Contains('loadSource') -and $content.Contains('abrBandWidthFactor'))) {
         throw "VideoPlayerComponent Hls.js integration incomplete!"
     }
-    Write-AetherLog "SUCCESS" "Hls.js adaptive player engine verified with direct stream fallback."
+
+    $clientDir = Join-Path $Script:RepoRoot "client"
+    Push-Location $clientDir
+    try {
+        $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $buildOut = npm run build 2>&1
+        $ErrorActionPreference = $prev
+        if ($LASTEXITCODE -ne 0) {
+            throw "Client build failed: $buildOut"
+        }
+    } finally {
+        Pop-Location
+    }
+
+    Write-AetherLog "SUCCESS" "Hls.js adaptive player engine verified with fine-tuned EWMA sliding window and direct stream fallback."
     return $true
 }
 
