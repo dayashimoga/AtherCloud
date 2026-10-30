@@ -32,6 +32,15 @@ pnpm-debug.log*
 !client/**/*.ts
 !crates/**/*.ts
 
+# User media storage (keep sample test fixtures, ignore large personal files)
+/media_storage/*
+!/media_storage/audio/
+!/media_storage/audio/*.wav
+!/media_storage/images/
+!/media_storage/images/*.png
+!/media_storage/documents/
+!/media_storage/documents/*.txt
+
 # OS and IDE files
 .DS_Store
 Thumbs.db

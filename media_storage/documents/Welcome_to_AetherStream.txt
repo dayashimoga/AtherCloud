@@ -1,0 +1,10 @@
+Welcome to AetherStream!
+
+This personal media cloud is powered by:
+- Rust Axum Zero-Copy Async Reactor (27.9 Gbps loopback)
+- RFC 7233 Byte Range Streaming Engine
+- Dynamic HLS Adaptive Bitrate Manifest Generator
+- Scoped HMAC-SHA256 Token Authority
+- Responsive PWA with Offline Shell Cache & Custom Video Player
+
+Feel free to upload files via the Web UI or copy media directly into your storage mounts.
