@@ -17,6 +17,8 @@
         </div>
         <div class="header-actions">
           <span id="hw-accel-badge" class="badge">Checking HW Accel...</span>
+          <button id="theme-toggle-btn" class="btn btn-icon" title="Toggle Light/Dark Theme">&#127769;</button>
+          <button id="settings-btn" class="btn btn-icon" title="Session Settings">&#9881;</button>
           <button id="refresh-btn" class="btn btn-icon" title="Refresh Mounts">&#8635;</button>
         </div>
       </header>
@@ -165,6 +167,37 @@
                 <button id="copy-download-btn" class="btn btn-sm">Copy</button>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings & Session Storage Modal -->
+      <div id="settings-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content settings-card">
+          <div class="player-header">
+            <h4>Client Preferences & Session Security</h4>
+            <button id="close-settings-btn" class="btn btn-close">&times;</button>
+          </div>
+          <div class="form-group">
+            <label>Remote Server URL (leave blank for local same-origin):</label>
+            <input type="text" id="settings-server-url" placeholder="https://media.aetherstream.io" />
+          </div>
+          <div class="form-group">
+            <label>Persistent HMAC Authentication Token:</label>
+            <input type="password" id="settings-auth-token" placeholder="Paste scoped HMAC token..." />
+          </div>
+          <div class="form-group">
+            <label>Theme Preference:</label>
+            <select id="settings-theme">
+              <option value="auto">System Default (Auto)</option>
+              <option value="dark" selected>Cinema Dark (OLED)</option>
+              <option value="light">Daylight Light</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button id="save-settings-btn" class="btn btn-primary">Save Preferences</button>
+            <button id="clear-session-btn" class="btn btn-secondary">Reset / Clear Tokens</button>
           </div>
         </div>
       </div>

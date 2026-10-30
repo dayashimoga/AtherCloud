@@ -1,3 +1,5 @@
+import { SessionManager } from "./session";
+
 export interface MountItem {
   id: string;
   read_only: boolean;
@@ -28,23 +30,38 @@ export interface BrowseResponse {
 }
 
 export class AetherApi {
-  private static baseUrl = "";
+  private static get baseUrl(): string {
+    return SessionManager.getInstance().getServerUrl();
+  }
+
+  private static getHeaders(custom: Record<string, string> = {}): Record<string, string> {
+    return {
+      ...SessionManager.getInstance().getAuthHeaders(),
+      ...custom,
+    };
+  }
 
   static async getHealth() {
-    const res = await fetch(`${this.baseUrl}/api/v1/health`);
+    const res = await fetch(`${this.baseUrl}/api/v1/health`, {
+      headers: this.getHeaders(),
+    });
     if (!res.ok) throw new Error("Health check failed");
     return res.json();
   }
 
   static async getMounts(): Promise<MountItem[]> {
-    const res = await fetch(`${this.baseUrl}/api/v1/mounts`);
+    const res = await fetch(`${this.baseUrl}/api/v1/mounts`, {
+      headers: this.getHeaders(),
+    });
     if (!res.ok) throw new Error("Failed to load mounts");
     const data = await res.json();
     return data.mounts;
   }
 
   static async getSystemDrives(): Promise<DiscoveredDriveItem[]> {
-    const res = await fetch(`${this.baseUrl}/api/v1/system/drives`);
+    const res = await fetch(`${this.baseUrl}/api/v1/system/drives`, {
+      headers: this.getHeaders(),
+    });
     if (!res.ok) throw new Error("Failed to load system drives");
     const data = await res.json();
     return data.drives;
@@ -55,7 +72,9 @@ export class AetherApi {
     const url = sanitizedPath
       ? `${this.baseUrl}/api/v1/browse/${mount}/${sanitizedPath}`
       : `${this.baseUrl}/api/v1/browse/${mount}`;
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      headers: this.getHeaders(),
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "Browse failed" }));
       throw new Error(err.error || "Failed to browse directory");
@@ -71,7 +90,7 @@ export class AetherApi {
   ) {
     const res = await fetch(`${this.baseUrl}/api/v1/share/create`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: this.getHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         mount,
         path,
@@ -84,18 +103,21 @@ export class AetherApi {
   }
 
   static getStreamUrl(mount: string, path: string, token?: string): string {
+    const effectiveToken = token || SessionManager.getInstance().getToken();
     const base = `${this.baseUrl}/api/v1/stream/${mount}/${path.replace(/^\/+/, "")}`;
-    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+    return effectiveToken ? `${base}?token=${encodeURIComponent(effectiveToken)}` : base;
   }
 
   static getDownloadUrl(mount: string, path: string, token?: string): string {
+    const effectiveToken = token || SessionManager.getInstance().getToken();
     const base = `${this.baseUrl}/api/v1/stream/${mount}/${path.replace(/^\/+/, "")}?download=true`;
-    return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    return effectiveToken ? `${base}&token=${encodeURIComponent(effectiveToken)}` : base;
   }
 
   static getHlsMasterUrl(mount: string, path: string, token?: string): string {
+    const effectiveToken = token || SessionManager.getInstance().getToken();
     const base = `${this.baseUrl}/api/v1/transcode/hls/${mount}/${path.replace(/^\/+/, "")}/master.m3u8`;
-    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+    return effectiveToken ? `${base}?token=${encodeURIComponent(effectiveToken)}` : base;
   }
 
   static async computeSha256(buffer: ArrayBuffer): Promise<string> {
@@ -113,7 +135,7 @@ export class AetherApi {
     const uploadId = "upl_" + Math.random().toString(36).substring(2, 10) + "_" + Date.now();
     const res = await fetch(`${this.baseUrl}/api/v1/upload/${mount}/init`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: this.getHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         upload_id: uploadId,
         path,
@@ -141,7 +163,7 @@ export class AetherApi {
 
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
+      headers: this.getHeaders({ "Content-Type": "application/octet-stream" }),
       body: chunkBytes,
     });
     if (!res.ok) {
@@ -154,7 +176,7 @@ export class AetherApi {
   static async completeUpload(mount: string, uploadId: string, expectedSha256?: string) {
     const res = await fetch(`${this.baseUrl}/api/v1/upload/${mount}/complete`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: this.getHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         upload_id: uploadId,
         expected_sha256: expectedSha256 || null,
