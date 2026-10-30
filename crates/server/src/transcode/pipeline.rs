@@ -1,10 +1,103 @@
 use crate::transcode::profiles::{RenditionProfile, STANDARD_RENDITION_LADDER};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
+
+/// In-memory cached transport segment descriptor
+#[derive(Debug, Clone)]
+pub struct CachedSegment {
+    pub segment_name: String,
+    pub sequence: u64,
+    pub size_bytes: usize,
+    pub created_at: Instant,
+    pub data: Option<bytes::Bytes>,
+}
+
+/// Rolling LRU ring buffer managing JIT segment cache and proactive disk eviction
+#[derive(Debug)]
+pub struct LruSegmentRingBuffer {
+    max_segments: usize,
+    segments: HashMap<String, CachedSegment>,
+    order: VecDeque<String>,
+}
+
+impl LruSegmentRingBuffer {
+    pub fn new(max_segments: usize) -> Self {
+        Self {
+            max_segments: max_segments.max(1),
+            segments: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    /// Inserts a newly generated transport segment into the ring buffer.
+    /// If capacity is exceeded, evicts the oldest segment key for storage cleanup.
+    pub fn insert_segment(
+        &mut self,
+        name: String,
+        sequence: u64,
+        data: Option<bytes::Bytes>,
+        size_bytes: usize,
+    ) -> Option<String> {
+        let mut evicted = None;
+
+        if self.segments.contains_key(&name) {
+            self.order.retain(|k| k != &name);
+        } else if self.segments.len() >= self.max_segments {
+            if let Some(oldest_key) = self.order.pop_front() {
+                self.segments.remove(&oldest_key);
+                evicted = Some(oldest_key);
+            }
+        }
+
+        self.order.push_back(name.clone());
+        self.segments.insert(
+            name.clone(),
+            CachedSegment {
+                segment_name: name,
+                sequence,
+                size_bytes,
+                created_at: Instant::now(),
+                data,
+            },
+        );
+
+        evicted
+    }
+
+    /// Retrieves a segment from cache and touches its recency position
+    pub fn get_segment(&mut self, name: &str) -> Option<&CachedSegment> {
+        if self.segments.contains_key(name) {
+            let key = name.to_string();
+            self.order.retain(|k| k != &key);
+            self.order.push_back(key);
+            self.segments.get(name)
+        } else {
+            None
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.segments.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.segments.is_empty()
+    }
+
+    pub fn total_cached_bytes(&self) -> usize {
+        self.segments.values().map(|s| s.size_bytes).sum()
+    }
+
+    pub fn clear(&mut self) {
+        self.segments.clear();
+        self.order.clear();
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HardwareAccel {
@@ -433,6 +526,8 @@ impl TranscodePipeline {
             input_file.to_string_lossy().to_string(),
         ]);
 
+        let gop_size = ((profile.max_fps as f32) * profile.segment_duration_secs).round() as u32;
+
         // Video codec & scale filter
         args.extend(vec![
             "-c:v".to_string(),
@@ -442,9 +537,15 @@ impl TranscodePipeline {
             "-b:v".to_string(),
             format!("{}k", profile.video_bitrate_kbps),
             "-maxrate".to_string(),
-            format!("{}k", profile.video_bitrate_kbps + 500),
+            format!("{}k", profile.maxrate_kbps()),
             "-bufsize".to_string(),
-            format!("{}k", profile.video_bitrate_kbps * 2),
+            format!("{}k", profile.bufsize_kbps()),
+            "-g".to_string(),
+            gop_size.to_string(),
+            "-keyint_min".to_string(),
+            gop_size.to_string(),
+            "-sc_threshold".to_string(),
+            "0".to_string(),
             "-preset".to_string(),
             "veryfast".to_string(),
         ]);

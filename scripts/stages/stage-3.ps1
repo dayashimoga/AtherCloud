@@ -96,10 +96,16 @@ function Test-Subphase-3-2-2 {
     Write-AetherLog "INFO" "Auditing Subphase 3.2.2: JIT 2-4s Segmenting & Rolling Ring Buffer..."
     $pipelineFile = Join-Path $Script:RepoRoot "crates/server/src/transcode/pipeline.rs"
     $content = Get-Content $pipelineFile -Raw
-    if (-not ($content -match "build_ffmpeg_args" -and $content -match "delete_segments")) {
-        throw "JIT segmenter command builder missing in pipeline.rs!"
+    if (-not ($content -match "build_ffmpeg_args" -and $content -match "delete_segments" -and $content -match "LruSegmentRingBuffer")) {
+        throw "JIT segmenter command builder or LruSegmentRingBuffer missing in pipeline.rs!"
     }
-    Write-AetherLog "SUCCESS" "JIT HLS segmenter command generator with ring buffer flags verified."
+
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $testOut = cargo test --test security_tests test_jit_segmenter_and_lru_ring_buffer -- --nocapture 2>&1
+    $ErrorActionPreference = $prev
+    if ($LASTEXITCODE -ne 0) { throw "JIT segmenter and LRU ring buffer test failed: $testOut" }
+
+    Write-AetherLog "SUCCESS" "JIT HLS segmenter command generator with ring buffer flags and LRU eviction verified."
     return $true
 }
 

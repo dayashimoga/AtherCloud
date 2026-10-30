@@ -797,3 +797,83 @@ fn test_adaptive_profile_definitions() {
     // Non-existent tag lookup
     assert!(get_profile_by_tag("unknown_rendition").is_none());
 }
+
+#[test]
+fn test_jit_segmenter_and_lru_ring_buffer() {
+    use aetherstream_server::transcode::pipeline::{
+        HardwareAccel, LruSegmentRingBuffer, TranscodePipeline,
+    };
+    use aetherstream_server::transcode::profiles::STANDARD_RENDITION_LADDER;
+    use bytes::Bytes;
+    use std::path::Path;
+
+    // 1. Verify FFmpeg segmenter CLI flags for 4s segments & GOP alignment
+    let profile_1080 = &STANDARD_RENDITION_LADDER[0]; // 60 fps, 4.0s duration
+    let args = TranscodePipeline::build_ffmpeg_args(
+        Path::new("input.mkv"),
+        Path::new("/tmp/hls_out"),
+        HardwareAccel::Nvenc,
+        profile_1080,
+    );
+
+    assert!(args.contains(&"-f".to_string()));
+    assert!(args.contains(&"hls".to_string()));
+    assert!(args.contains(&"-hls_time".to_string()));
+    assert!(args.contains(&"4".to_string()));
+    assert!(args.contains(&"-hls_list_size".to_string()));
+    assert!(args.contains(&"10".to_string()));
+    assert!(args.contains(&"-hls_flags".to_string()));
+    assert!(args.contains(&"delete_segments+independent_segments".to_string()));
+
+    // Keyframe alignment verification (GOP = 60 * 4 = 240 frames)
+    let gop_pos = args.iter().position(|a| a == "-g").expect("-g must be set");
+    assert_eq!(args[gop_pos + 1], "240");
+    let keyint_pos = args
+        .iter()
+        .position(|a| a == "-keyint_min")
+        .expect("-keyint_min must be set");
+    assert_eq!(args[keyint_pos + 1], "240");
+    let sc_pos = args
+        .iter()
+        .position(|a| a == "-sc_threshold")
+        .expect("-sc_threshold must be set");
+    assert_eq!(args[sc_pos + 1], "0");
+
+    // 2. Rolling LRU ring buffer verification
+    let mut ring = LruSegmentRingBuffer::new(3);
+    assert_eq!(ring.len(), 0);
+    assert!(ring.is_empty());
+
+    let payload = Bytes::from_static(b"TEST_MPEGTS_PAYLOAD_CHUNK_DATA");
+
+    // Insert 3 segments -> ring buffer fills to capacity
+    assert!(ring
+        .insert_segment("seg_0.ts".to_string(), 0, Some(payload.clone()), payload.len())
+        .is_none());
+    assert!(ring
+        .insert_segment("seg_1.ts".to_string(), 1, Some(payload.clone()), payload.len())
+        .is_none());
+    assert!(ring
+        .insert_segment("seg_2.ts".to_string(), 2, Some(payload.clone()), payload.len())
+        .is_none());
+    assert_eq!(ring.len(), 3);
+    assert_eq!(ring.total_cached_bytes(), payload.len() * 3);
+
+    // Touch seg_0 (access moves it to MRU)
+    assert!(ring.get_segment("seg_0.ts").is_some());
+
+    // Insert 4th segment -> seg_1 was oldest unaccessed, so seg_1 is evicted
+    let evicted =
+        ring.insert_segment("seg_3.ts".to_string(), 3, Some(payload.clone()), payload.len());
+    assert_eq!(evicted, Some("seg_1.ts".to_string()));
+    assert_eq!(ring.len(), 3);
+
+    assert!(ring.get_segment("seg_1.ts").is_none());
+    assert!(ring.get_segment("seg_0.ts").is_some());
+    assert!(ring.get_segment("seg_2.ts").is_some());
+    assert!(ring.get_segment("seg_3.ts").is_some());
+
+    ring.clear();
+    assert_eq!(ring.len(), 0);
+    assert!(ring.is_empty());
+}
