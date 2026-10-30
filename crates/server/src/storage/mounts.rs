@@ -83,15 +83,24 @@ pub struct MountEntry {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MountRegistry {
-    mounts: HashMap<String, MountEntry>,
+    mounts: std::sync::RwLock<HashMap<String, MountEntry>>,
+}
+
+impl Clone for MountRegistry {
+    fn clone(&self) -> Self {
+        let guard = self.mounts.read().unwrap();
+        Self {
+            mounts: std::sync::RwLock::new(guard.clone()),
+        }
+    }
 }
 
 impl MountRegistry {
     pub fn new() -> Self {
         Self {
-            mounts: HashMap::new(),
+            mounts: std::sync::RwLock::new(HashMap::new()),
         }
     }
 
@@ -182,7 +191,7 @@ impl MountRegistry {
         Self::discover_detailed_drives().into_iter().map(|d| d.path).collect()
     }
 
-    pub fn register(&mut self, name: &str, path: PathBuf, read_only: bool, description: Option<String>) -> Result<(), MountError> {
+    pub fn register(&self, name: &str, path: PathBuf, read_only: bool, description: Option<String>) -> Result<(), MountError> {
         let permission = if read_only {
             MountPermission::Read
         } else {
@@ -192,7 +201,7 @@ impl MountRegistry {
     }
 
     pub fn register_with_permission(
-        &mut self,
+        &self,
         name: &str,
         path: PathBuf,
         permission: MountPermission,
@@ -210,7 +219,8 @@ impl MountRegistry {
         if !path.exists() {
             let _ = std::fs::create_dir_all(&path);
         }
-        self.mounts.insert(
+        let mut guard = self.mounts.write().unwrap();
+        guard.insert(
             name.to_string(),
             MountEntry {
                 base_path: canonical,
@@ -222,27 +232,29 @@ impl MountRegistry {
     }
 
     /// Dynamically unregisters a virtual mount by its mount identifier
-    pub fn unregister(&mut self, name: &str) -> Option<MountEntry> {
-        self.mounts.remove(name)
+    pub fn unregister(&self, name: &str) -> Option<MountEntry> {
+        let mut guard = self.mounts.write().unwrap();
+        guard.remove(name)
     }
 
     /// Dynamically unregisters any virtual mount matching or residing within the given physical path
-    pub fn unregister_by_path(&mut self, path: &Path) -> Option<String> {
+    pub fn unregister_by_path(&self, path: &Path) -> Option<String> {
         let canonical = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        let to_remove: Option<String> = self
-            .mounts
+        let mut guard = self.mounts.write().unwrap();
+        let to_remove: Option<String> = guard
             .iter()
             .find(|(_, entry)| entry.base_path == canonical || entry.base_path.starts_with(&canonical))
             .map(|(k, _)| k.clone());
 
         if let Some(ref key) = to_remove {
-            self.mounts.remove(key);
+            guard.remove(key);
         }
         to_remove
     }
 
     pub fn list_mounts(&self) -> Vec<serde_json::Value> {
-        self.mounts
+        let guard = self.mounts.read().unwrap();
+        guard
             .iter()
             .map(|(k, v)| {
                 serde_json::json!({
@@ -259,8 +271,8 @@ impl MountRegistry {
 
     /// Verifies that the targeted virtual mount has WRITE permissions
     pub fn check_write_permission(&self, mount_id: &str) -> Result<(), MountError> {
-        let entry = self
-            .mounts
+        let guard = self.mounts.read().unwrap();
+        let entry = guard
             .get(mount_id)
             .ok_or_else(|| MountError::MountNotFound(mount_id.to_string()))?;
         if entry.permission != MountPermission::Write {
@@ -271,8 +283,8 @@ impl MountRegistry {
 
     /// Verifies that the targeted virtual mount allows media streaming
     pub fn check_stream_permission(&self, mount_id: &str) -> Result<(), MountError> {
-        let _ = self
-            .mounts
+        let guard = self.mounts.read().unwrap();
+        let _ = guard
             .get(mount_id)
             .ok_or_else(|| MountError::MountNotFound(mount_id.to_string()))?;
         Ok(())
@@ -282,7 +294,8 @@ impl MountRegistry {
     pub fn export_sqlite_ddl_and_inserts(&self) -> String {
         let mut sql = String::from(SQLITE_WAL_SCHEMA);
         sql.push('\n');
-        for (id, entry) in &self.mounts {
+        let guard = self.mounts.read().unwrap();
+        for (id, entry) in guard.iter() {
             let perm_str = match entry.permission {
                 MountPermission::Read => "READ",
                 MountPermission::Write => "WRITE",
@@ -302,10 +315,13 @@ impl MountRegistry {
 
     /// Resolves a relative path within a virtual mount and ensures no traversal escapes the mount root.
     pub fn resolve_safe_path(&self, mount_id: &str, relative_path: &Path) -> Result<PathBuf, MountError> {
-        let entry = self
-            .mounts
-            .get(mount_id)
-            .ok_or_else(|| MountError::MountNotFound(mount_id.to_string()))?;
+        let entry = {
+            let guard = self.mounts.read().unwrap();
+            guard
+                .get(mount_id)
+                .cloned()
+                .ok_or_else(|| MountError::MountNotFound(mount_id.to_string()))?
+        };
 
         // 1. String-level injection and encoded sequence detection
         let path_str = relative_path.to_string_lossy();

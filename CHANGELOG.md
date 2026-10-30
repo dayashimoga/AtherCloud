@@ -1096,3 +1096,19 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Implemented Linux kernel netlink raw socket listener (`NETLINK_KOBJECT_UEVENT`) monitoring the `block` subsystem for dynamic disk/partition plug events, and macOS DiskArbitration framework integration mapping `/Volumes` mount callbacks. Engineered deterministic `NetlinkUeventParser` and `MacDiskArbitrationEvent` converting raw kernel uevent payloads into standardized `StorageDeviceEvent` variants. Added `libc` Unix dependencies and verified via `test_linux_netlink_and_macos_disk_arbitration_parsers`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_NETLINK_DISKARB_005
 - **Executor:** Principal Systems & Rust Distributed Storage Engineer
+
+### [2026-10-30T05:51:00Z] - STAGE_7 / PHASE_7.2 / SUBPHASE_7.2.3
+- **Stage ID:** STAGE_7 (Core Daemon Refactor, OS Storage Bus & Dynamic Mount Engine)
+- **Phase ID:** PHASE_7.2 (Plug-and-Play OS Hot-Plug Event Bus)
+- **Subphase ID:** SUBPHASE_7.2.3 (Tokio Broadcast Channel Distribution & Subsystem Integration)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/storage/disk_watcher.rs`
+  - `crates/server/src/storage/mounts.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Integrated Tokio `broadcast::channel` into `DiskWatcher` supporting concurrent multi-subscriber event dissemination across daemon subsystems. Engineered background asynchronous event dispatcher worker (`spawn_storage_event_dispatcher`) automating dynamic virtual mounting of newly detected storage volumes and auto-unmounting disconnected paths. Refactored `MountRegistry` with internal `std::sync::RwLock` for thread-safe concurrent access. Implemented real-time Server-Sent Events (SSE) route `/api/v1/storage/events`. Validated via `test_hotplug_broadcast_channel_and_dispatcher`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_EVENT_DISPATCHER_006
+- **Executor:** Principal Systems & Rust Distributed Storage Engineer

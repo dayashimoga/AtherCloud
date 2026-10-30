@@ -16,7 +16,7 @@ fn test_path_traversal_prevention() {
     let safe_file = mount_root.join("sample.mp4");
     std::fs::write(&safe_file, b"sample media data").unwrap();
 
-    let mut registry = MountRegistry::new();
+    let registry = MountRegistry::new();
     assert!(registry.register("media", mount_root.clone(), false, None).is_ok());
 
     // 1. Valid path must resolve
@@ -279,7 +279,7 @@ fn test_virtual_mount_permissions_and_sqlite_schema() {
     let temp_dir = tempfile::tempdir().unwrap();
     let root = temp_dir.path().to_path_buf();
 
-    let mut registry = MountRegistry::new();
+    let registry = MountRegistry::new();
     assert!(registry.register_with_permission(
         "media_ro",
         root.clone(),
@@ -1258,7 +1258,7 @@ fn test_os_critical_path_quarantine_and_exclusion() {
     assert!(!PathQuarantine::is_critical_system_path(Path::new("/home/user/media")));
 
     // 2. Reject registering OS-critical system path as a virtual mount
-    let mut registry = MountRegistry::new();
+    let registry = MountRegistry::new();
     let reg_win = registry.register("win_sys", std::path::PathBuf::from("C:\\Windows"), true, None);
     assert!(reg_win.is_err(), "Registering C:\\Windows as mount must be rejected");
     match reg_win {
@@ -1354,7 +1354,7 @@ async fn test_windows_hotplug_device_watcher() {
     }
 
     // 3. Mount Registry dynamic unmount simulation upon Unplugged event
-    let mut registry = MountRegistry::new();
+    let registry = MountRegistry::new();
     let temp_usb = tempfile::tempdir().unwrap();
     let usb_path = temp_usb.path().to_path_buf();
     assert!(registry.register("usb_drive", usb_path.clone(), false, Some("Plugged USB".into())).is_ok());
@@ -1441,4 +1441,89 @@ fn test_linux_netlink_and_macos_disk_arbitration_parsers() {
         }
         _ => panic!("Expected StorageDeviceEvent::Unplugged"),
     }
+}
+
+#[tokio::test]
+async fn test_hotplug_broadcast_channel_and_dispatcher() {
+    use aetherstream_server::storage::disk_watcher::{DiskWatcher, StorageDeviceEvent};
+    use aetherstream_server::storage::mounts::MountRegistry;
+    use aetherstream_server::storage::volume_info::{DiskMediaType, VolumeInfo};
+    use std::sync::Arc;
+
+    let watcher = Arc::new(DiskWatcher::new());
+    let mounts = Arc::new(MountRegistry::new());
+
+    // 1. Subscribe multiple independent daemon subsystems
+    let mut sub_telemetry = watcher.subscribe();
+    let mut sub_indexer = watcher.subscribe();
+    let mut sub_sse = watcher.subscribe();
+
+    // 2. Spawn dynamic storage event dispatcher
+    let dispatcher_handle = DiskWatcher::spawn_storage_event_dispatcher(watcher.clone(), mounts.clone());
+
+    // Create a temp directory representing a real plugged USB
+    let temp_usb = tempfile::tempdir().unwrap();
+    let usb_path = temp_usb.path().to_path_buf();
+
+    let plugged_vol = VolumeInfo {
+        name: "Samsung Portable T7 (T:)".to_string(),
+        mount_point: usb_path.clone(),
+        filesystem: "NTFS".to_string(),
+        filesystem_label: Some("SamsungT7".to_string()),
+        total_bytes: 1_000_000_000_000,
+        available_bytes: 800_000_000_000,
+        is_removable: true,
+        is_system: false,
+        media_type: DiskMediaType::RemovableUsb,
+        serial_number: Some("SAMSUNG-T7-999".to_string()),
+        is_read_only: false,
+    };
+
+    // 3. Publish Plugged event
+    watcher.publish(StorageDeviceEvent::Plugged(plugged_vol.clone()));
+
+    // Verify all subscribers received the broadcast
+    let ev1 = sub_telemetry.recv().await.expect("Telemetry sub received");
+    let ev2 = sub_indexer.recv().await.expect("Indexer sub received");
+    let ev3 = sub_sse.recv().await.expect("SSE sub received");
+
+    match (ev1, ev2, ev3) {
+        (
+            StorageDeviceEvent::Plugged(v1),
+            StorageDeviceEvent::Plugged(v2),
+            StorageDeviceEvent::Plugged(v3),
+        ) => {
+            assert_eq!(v1.serial_number, Some("SAMSUNG-T7-999".to_string()));
+            assert_eq!(v2.serial_number, Some("SAMSUNG-T7-999".to_string()));
+            assert_eq!(v3.serial_number, Some("SAMSUNG-T7-999".to_string()));
+        }
+        _ => panic!("Expected Plugged events on all subscribers"),
+    }
+
+    // Wait for dispatcher task to process auto-mount
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Verify MountRegistry has auto-registered the plugged volume
+    let active_mounts = mounts.list_mounts();
+    assert_eq!(active_mounts.len(), 1, "MountRegistry must contain auto-registered volume");
+    println!("[EVENT DISPATCHER VERIFIED] Auto-mounted volumes: {:?}", active_mounts);
+
+    // 4. Publish Unplugged event
+    watcher.publish(StorageDeviceEvent::Unplugged(usb_path.to_string_lossy().to_string()));
+
+    let un1 = sub_telemetry.recv().await.expect("Telemetry sub unplugged");
+    match un1 {
+        StorageDeviceEvent::Unplugged(p) => assert_eq!(p, usb_path.to_string_lossy()),
+        _ => panic!("Expected Unplugged event"),
+    }
+
+    // Wait for dispatcher task to process auto-unmount
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Verify MountRegistry dynamically removed the unplugged volume
+    let after_unmount = mounts.list_mounts();
+    assert_eq!(after_unmount.len(), 0, "MountRegistry must have removed disconnected mount");
+    println!("[EVENT DISPATCHER VERIFIED] Dynamic unmount confirmed: 0 active mounts remaining");
+
+    dispatcher_handle.abort();
 }

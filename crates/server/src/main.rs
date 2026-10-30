@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.port = args.port;
 
     // Initialize Mount Registry
-    let mut mounts = MountRegistry::new();
+    let mounts = MountRegistry::new();
     for (name, mount_cfg) in &config.mounts {
         match mounts.register(
             name,
@@ -99,11 +99,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("OS Storage Bus & Hot-Plug Event Watcher active");
     }
 
+    let mounts_arc = Arc::new(mounts);
+    DiskWatcher::spawn_storage_event_dispatcher(disk_watcher.clone(), mounts_arc.clone());
+
     let upload_manager = Arc::new(ResumableUploadManager::new());
 
     let app_state = AppState {
         config: config.clone(),
-        mounts: Arc::new(mounts),
+        mounts: mounts_arc,
         hw_accel,
         upload_manager,
         disk_watcher,
@@ -120,6 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/health", get(health_handler))
         .route("/api/v1/mounts", get(list_mounts_handler))
         .route("/api/v1/system/drives", get(system_drives_handler))
+        .route("/api/v1/storage/events", get(storage_events_sse_handler))
         .route("/api/v1/browse/:mount", get(browse_root_handler))
         .route("/api/v1/browse/:mount/*path", get(browse_path_handler))
         .route("/api/v1/stream/:mount/*path", get(stream_file_handler))
@@ -433,5 +437,32 @@ async fn hls_master_manifest_handler(
             "no-cache, no-store, must-revalidate",
         )
         .body(manifest.into())
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+async fn storage_events_sse_handler(
+    State(state): State<AppState>,
+) -> Response {
+    let rx = state.disk_watcher.subscribe();
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        match rx.recv().await {
+            Ok(event) => {
+                let json = serde_json::to_string(&event).unwrap_or_default();
+                let event_type = match &event {
+                    storage::disk_watcher::StorageDeviceEvent::Plugged(_) => "storage_plugged",
+                    storage::disk_watcher::StorageDeviceEvent::Unplugged(_) => "storage_unplugged",
+                };
+                let sse_chunk = format!("event: {}\ndata: {}\n\n", event_type, json);
+                Some((Ok::<_, std::io::Error>(axum::body::Bytes::from(sse_chunk)), rx))
+            }
+            Err(_) => None,
+        }
+    });
+
+    Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, "text/event-stream")
+        .header(axum::http::header::CACHE_CONTROL, "no-cache")
+        .header(axum::http::header::CONNECTION, "keep-alive")
+        .body(axum::body::Body::from_stream(stream))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }

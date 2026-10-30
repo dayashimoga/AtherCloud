@@ -238,6 +238,54 @@ impl DiskWatcher {
         self.publish(event);
     }
 
+    /// Spawns an asynchronous Tokio daemon worker that subscribes to the hot-plug broadcast channel
+    /// and dynamically updates the MountRegistry and storage subsystems upon Plugged and Unplugged events.
+    pub fn spawn_storage_event_dispatcher(
+        watcher: Arc<DiskWatcher>,
+        mounts: Arc<super::mounts::MountRegistry>,
+    ) -> tokio::task::JoinHandle<()> {
+        let mut rx = watcher.subscribe();
+        tokio::spawn(async move {
+            info!("Storage hot-plug background dispatcher active and listening to event bus");
+            while let Ok(event) = rx.recv().await {
+                match event {
+                    StorageDeviceEvent::Plugged(vol) => {
+                        info!("[HOTPLUG DISPATCHER] Storage device plugged: {} ({:?})", vol.name, vol.mount_point);
+                        if !super::quarantine::PathQuarantine::is_critical_system_path(&vol.mount_point) {
+                            let clean_name = vol
+                                .mount_point
+                                .to_string_lossy()
+                                .replace([':', '\\', '/', ' '], "_")
+                                .trim_matches('_')
+                                .to_lowercase();
+                            let mount_name = if vol.is_removable {
+                                format!("usb_{}", clean_name)
+                            } else {
+                                format!("disk_{}", clean_name)
+                            };
+
+                            let _ = mounts.register_with_permission(
+                                &mount_name,
+                                vol.mount_point.clone(),
+                                super::mounts::MountPermission::Write,
+                                Some(format!("Dynamic Hot-Plug Volume ({})", vol.name)),
+                            );
+                            info!("[HOTPLUG DISPATCHER] Auto-registered dynamic mount '{}' -> {:?}", mount_name, vol.mount_point);
+                        } else {
+                            warn!("[HOTPLUG DISPATCHER] Plugged device {:?} is quarantined, skipped auto-mount", vol.mount_point);
+                        }
+                    }
+                    StorageDeviceEvent::Unplugged(dev_path) => {
+                        info!("[HOTPLUG DISPATCHER] Storage device unplugged: {}", dev_path);
+                        if let Some(removed_name) = mounts.unregister_by_path(&std::path::PathBuf::from(&dev_path)) {
+                            info!("[HOTPLUG DISPATCHER] Dynamically unmounted virtual mount '{}' for disconnected path {}", removed_name, dev_path);
+                        }
+                    }
+                }
+            }
+        })
+    }
+
     #[cfg(windows)]
     fn run_windows_message_loop(
         sender: broadcast::Sender<StorageDeviceEvent>,
