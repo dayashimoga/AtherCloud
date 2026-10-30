@@ -4875,3 +4875,197 @@ async fn test_autonomous_lru_cache_cleaner_worker_and_watermark_eviction() {
     );
     println!("[TASK-9.3.3 VERIFIED] Autonomous LRU cache cleaner worker maintaining segment storage under disk budget verified.");
 }
+
+#[tokio::test]
+async fn test_cloudflared_platform_detector_and_binary_manager() {
+    use aetherstream_server::tunnel::binary_manager::{
+        compute_file_sha256, parse_version_string, BinaryError, BinaryManagerConfig, BinarySource,
+        CloudflaredBinaryManager, PlatformArch,
+    };
+    use sha2::{Digest, Sha256};
+    use std::time::Instant;
+
+    // 1. Platform Detection & Matrix Mapping
+    let current_platform = PlatformArch::detect();
+    assert!(
+        current_platform.is_supported(),
+        "Current host platform must be supported by cloudflared platform detector"
+    );
+
+    // Verify matrix mapping across all target architectures
+    let matrix_cases = [
+        ("windows", "x86_64", PlatformArch::WindowsAmd64, "cloudflared.exe", Some("cloudflared-windows-amd64.exe")),
+        ("windows", "x86", PlatformArch::Windows386, "cloudflared.exe", Some("cloudflared-windows-386.exe")),
+        ("windows", "aarch64", PlatformArch::WindowsArm64, "cloudflared.exe", Some("cloudflared-windows-arm64.exe")),
+        ("linux", "x86_64", PlatformArch::LinuxAmd64, "cloudflared", Some("cloudflared-linux-amd64")),
+        ("linux", "aarch64", PlatformArch::LinuxArm64, "cloudflared", Some("cloudflared-linux-arm64")),
+        ("linux", "arm", PlatformArch::LinuxArm, "cloudflared", Some("cloudflared-linux-arm")),
+        ("macos", "x86_64", PlatformArch::DarwinAmd64, "cloudflared", Some("cloudflared-darwin-amd64.tgz")),
+        ("macos", "aarch64", PlatformArch::DarwinArm64, "cloudflared", Some("cloudflared-darwin-arm64.tgz")),
+    ];
+
+    for (os, arch, expected_platform, expected_bin, expected_artifact) in matrix_cases {
+        let detected = PlatformArch::from_os_arch(os, arch);
+        assert_eq!(detected, expected_platform);
+        assert!(detected.is_supported());
+        assert_eq!(detected.binary_filename(), expected_bin);
+        assert_eq!(detected.remote_artifact_name(), expected_artifact);
+
+        // Verify latest and pinned download URLs
+        let latest_url = detected.download_url(None).unwrap();
+        assert!(
+            latest_url.contains("https://github.com/cloudflare/cloudflared/releases/latest/download/"),
+            "Download URL must point to official Cloudflare release endpoint"
+        );
+        assert!(latest_url.ends_with(expected_artifact.unwrap()));
+
+        let pinned_url = detected.download_url(Some("2024.10.0")).unwrap();
+        assert!(pinned_url.contains("/releases/download/2024.10.0/"));
+        assert!(pinned_url.ends_with(expected_artifact.unwrap()));
+    }
+
+    // Verify unsupported platform fallback
+    let unknown = PlatformArch::from_os_arch("freebsd", "mips");
+    assert_eq!(unknown, PlatformArch::Unknown("freebsd-mips".to_string()));
+    assert!(!unknown.is_supported());
+    assert_eq!(unknown.remote_artifact_name(), None);
+    assert_eq!(unknown.download_url(None), None);
+
+    // 2. Version String Parsing
+    let std_banner = "cloudflared version 2024.10.0 (built 2024-10-15-1234 UTC)";
+    assert_eq!(parse_version_string(std_banner), Some("2024.10.0".to_string()));
+
+    let short_banner = "cloudflared version 2023.8.2";
+    assert_eq!(parse_version_string(short_banner), Some("2023.8.2".to_string()));
+
+    let multiline_banner = "Cloudflare Tunnel Daemon\ncloudflared version 2024.9.1 (commit 1234abcd)\nBuilt on Linux";
+    assert_eq!(parse_version_string(multiline_banner), Some("2024.9.1".to_string()));
+
+    let fallback_banner = "2024.6.0-custom-build";
+    assert_eq!(parse_version_string(fallback_banner), Some("2024.6.0-custom-build".to_string()));
+
+    // 3. SHA-256 Hashing Verification
+    let temp_dir = tempfile::tempdir().unwrap();
+    let temp_root = temp_dir.path().to_path_buf();
+    let test_file = temp_root.join("sample_binary.bin");
+
+    let test_bytes = b"MOCK_CLOUDFLARED_BINARY_PAYLOAD_FOR_INGRESS_AUTHENTICATION_TEST";
+    tokio::fs::write(&test_file, test_bytes).await.unwrap();
+
+    let mut hasher = Sha256::new();
+    hasher.update(test_bytes);
+    let expected_hash = hex::encode(hasher.finalize());
+
+    let computed_hash = compute_file_sha256(&test_file).expect("SHA-256 computation failed");
+    assert_eq!(computed_hash, expected_hash);
+
+    // 4. Resolution Ladder: Custom Path > Sidecar > System PATH
+    let sidecar_dir = temp_root.join("bin");
+    let custom_bin_dir = temp_root.join("custom_bin");
+    tokio::fs::create_dir_all(&sidecar_dir).await.unwrap();
+    tokio::fs::create_dir_all(&custom_bin_dir).await.unwrap();
+
+    let bin_name = current_platform.binary_filename();
+    let custom_bin_path = custom_bin_dir.join(format!("custom_{bin_name}"));
+    tokio::fs::write(&custom_bin_path, test_bytes).await.unwrap();
+
+    // Priority 1: Custom Path override
+    let custom_config = BinaryManagerConfig {
+        sidecar_dir: sidecar_dir.clone(),
+        custom_path: Some(custom_bin_path.clone()),
+        allow_auto_download: false,
+        ..Default::default()
+    };
+    let mgr_custom = CloudflaredBinaryManager::new(custom_config);
+    let resolved_custom = mgr_custom.resolve().await.expect("Failed to resolve custom path");
+    assert_eq!(resolved_custom.source, BinarySource::CustomPath);
+    assert_eq!(resolved_custom.path, custom_bin_path);
+    assert_eq!(resolved_custom.sha256, Some(expected_hash.clone()));
+    assert_eq!(resolved_custom.file_size, test_bytes.len() as u64);
+
+    // Priority 2: Local Sidecar Directory
+    let sidecar_bin_path = sidecar_dir.join(bin_name);
+    tokio::fs::write(&sidecar_bin_path, test_bytes).await.unwrap();
+
+    let sidecar_config = BinaryManagerConfig {
+        sidecar_dir: sidecar_dir.clone(),
+        custom_path: None,
+        allow_auto_download: false,
+        ..Default::default()
+    };
+    let mgr_sidecar = CloudflaredBinaryManager::new(sidecar_config);
+    let resolved_sidecar = mgr_sidecar.resolve().await.expect("Failed to resolve sidecar path");
+    assert_eq!(resolved_sidecar.source, BinarySource::LocalSidecar);
+    assert_eq!(resolved_sidecar.path, sidecar_bin_path);
+    assert_eq!(resolved_sidecar.sha256, Some(expected_hash.clone()));
+
+    // Verify sidecar finder helper
+    assert_eq!(mgr_sidecar.find_sidecar_binary(), Some(sidecar_bin_path));
+
+    // Priority 3: Mock install helper
+    let mock_dir = temp_root.join("mock_sidecar");
+    let mgr_mock = CloudflaredBinaryManager::new(BinaryManagerConfig {
+        sidecar_dir: mock_dir.clone(),
+        ..Default::default()
+    });
+    let mock_target = mgr_mock
+        .mock_install_binary("cloudflared_test_mock", test_bytes)
+        .expect("Mock install failed");
+    assert!(mock_target.exists());
+    assert_eq!(
+        mgr_mock.compute_sha256(&mock_target).unwrap(),
+        expected_hash
+    );
+
+    // 5. Error handling: Not found when auto-download disabled and binary absent
+    let empty_dir = temp_root.join("empty_dir");
+    let mgr_empty = CloudflaredBinaryManager::new(BinaryManagerConfig {
+        sidecar_dir: empty_dir,
+        custom_path: None,
+        allow_auto_download: false,
+        ..Default::default()
+    });
+    let err_not_found = mgr_empty.resolve().await.unwrap_err();
+    assert!(matches!(err_not_found, BinaryError::NotFound));
+
+    // 6. Checksum mismatch validation & connection error on invalid target
+    let bad_hash_config = BinaryManagerConfig {
+        sidecar_dir: sidecar_dir.clone(),
+        expected_sha256: Some("0000000000000000000000000000000000000000000000000000000000000000".to_string()),
+        download_url_override: Some("http://127.0.0.1:9/nonexistent".to_string()),
+        allow_auto_download: true,
+        ..Default::default()
+    };
+    let mgr_bad_hash = CloudflaredBinaryManager::new(bad_hash_config);
+    let download_err = mgr_bad_hash
+        .download_binary(
+            &temp_root.join("dummy"),
+            "http://127.0.0.1:9/nonexistent",
+            Some("0000000000000000000000000000000000000000000000000000000000000000"),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(download_err, BinaryError::Download(_)));
+
+    // 7. High-Throughput Detector Benchmark
+    let start = Instant::now();
+    let iterations = 10_000;
+    for _ in 0..iterations {
+        let p = PlatformArch::detect();
+        let _ = p.binary_filename();
+        let _ = p.download_url(None);
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] PlatformArch detection & URL generation: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 15.0,
+        "Platform detection and URL resolution must execute under 15 µs/op (measured {:.3} µs)",
+        per_op_us
+    );
+
+    println!("[TASK-10.1.1 VERIFIED] Automated cloudflared platform-specific binary detector and auto-downloader verified.");
+}

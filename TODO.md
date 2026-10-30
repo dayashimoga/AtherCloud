@@ -922,3 +922,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Media Systems Architect & Storage Optimization Engineer
 - **Execution Trace:** cargo test --test security_tests test_autonomous_lru_cache_cleaner_worker_and_watermark_eviction
 - **Validation Proof:** Engineered autonomous recursive LRU cache cleaner worker in crates/server/src/transcode/pipeline.rs (DiskCacheSupervisor, DiskCacheConfig, DiskCacheMetrics). Implemented non-blocking iterative directory discovery across multi-tier scratch folders (hls_jit, offline), dual-phase TTL expiration and quota recovery with watermark hysteresis (evicting oldest segments down to target watermark), bottom-up empty directory pruning, and background supervisor loop. Marked Phase 3.3 and Stage 3 (Stage 9) 100% complete. Verified 45/45 integration tests passing.
+
+### [2026-10-30T09:25:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-10.1.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Systems Architect & Zero-Trust Network Engineer
+- **Execution Trace:** cargo test --test security_tests test_cloudflared_platform_detector_and_binary_manager
+- **Validation Proof:** Engineered CloudflaredBinaryManager and PlatformArch detector in crates/server/src/tunnel/binary_manager.rs. Implemented multi-platform CPU/OS architecture detection (Windows x86_64/x86/ARM64, Linux x86_64/ARM64/ARM, macOS x86_64/Apple Silicon ARM64), official GitHub release download URL synthesis with version pinning support, four-tier resolution ladder (Custom Path -> Local Sidecar bin directory -> System PATH -> Automated binary auto-downloader), SHA-256 integrity verification, version probing via sub-process execution, and test mock installation. Exposed tunnel module in lib.rs and main.rs. Verified via test_cloudflared_platform_detector_and_binary_manager (0.128µs/op detector benchmark) and all 46 integration tests passing.

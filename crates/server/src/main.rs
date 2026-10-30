@@ -22,6 +22,7 @@ mod config;
 mod security;
 mod storage;
 mod transcode;
+mod tunnel;
 
 use config::ServerConfig;
 use security::hmac_auth::HmacTokenValidator;

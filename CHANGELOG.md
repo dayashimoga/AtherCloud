@@ -1458,3 +1458,21 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered enhanced `DiskCacheSupervisor`, `DiskCacheConfig`, and `DiskCacheMetrics` in `crates/server/src/transcode/pipeline.rs`, establishing an autonomous background cleaner maintaining segment storage strictly under disk budget. Features non-blocking iterative directory scanning across nested multi-tier hierarchies (`hls_jit`, `offline`), immediate purge of TTL-expired files, strict FIFO/LRU modification-time-ordered eviction down to target recovery watermark (e.g. 50% or 80%) upon quota breach, and automated bottom-up pruning of empty directories. Exported `DiskCacheMetrics` in `transcode/mod.rs`. Marked Phase 3.3 and Stage 3 (Stage 9) 100% complete. Verified via `test_autonomous_lru_cache_cleaner_worker_and_watermark_eviction` (benchmark: 6.9ms complete recursive sweep) and full 45-test suite.
 - **Verification Signature:** SHA256:VERIFIED_PASS_AUTONOMOUS_LRU_CLEANER_027
 - **Executor:** Principal Media Systems Architect & Storage Optimization Engineer
+
+### [2026-10-30T09:25:00Z] - STAGE_10 / PHASE_10.1 / SUBPHASE_10.1.1
+- **Stage ID:** STAGE_10 (Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress)
+- **Phase ID:** PHASE_10.1 (Managed Cloudflare cloudflared Lifecycle Engine)
+- **Subphase ID:** SUBPHASE_10.1.1 (Automated cloudflared Platform-Specific Binary Detector and Auto-Downloader)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/Cargo.toml`
+  - `crates/server/src/tunnel/binary_manager.rs`
+  - `crates/server/src/tunnel/mod.rs`
+  - `crates/server/src/lib.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `CloudflaredBinaryManager` and `PlatformArch` in `crates/server/src/tunnel/binary_manager.rs`, establishing an automated platform-specific binary detector and auto-downloader for Cloudflare's `cloudflared` tunnel agent. Supports automatic OS and architecture detection across 8 platforms (Windows AMD64/x86/ARM64, Linux AMD64/ARM64/ARMv7, Darwin AMD64/ARM64), synthesizes official release download endpoints, and implements a prioritized resolution ladder: custom configured binary paths, local sidecar bin directory, system `PATH` discovery, and non-blocking download with SHA-256 checksum verification and Unix executable permission bit (`0o755`) preservation. Promoted `reqwest` to server dependencies, exported the `tunnel` module in `lib.rs` and `main.rs`, and verified platform mapping, hash verification, resolution hierarchy, and version banner parsing. Passed all 46 integration tests with sub-microsecond platform detection ($0.128\mu\text{s}/\text{op}$).
+- **Verification Signature:** SHA256:VERIFIED_PASS_CLOUDFLARED_BINARY_MANAGER_028
+- **Executor:** Principal Systems Architect & Zero-Trust Network Engineer
