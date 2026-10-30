@@ -16,8 +16,8 @@ pub use jit_engine::{
 };
 pub use offline::{OfflineTranscodeJob, OfflineTranscodeWorker, TranscodeJobStatus};
 pub use pipeline::{
-    AudioTranscodeStrategy, CachedSegment, DiskCacheConfig, DiskCacheSupervisor, GopAlignmentConfig,
-    HardwareAccel, LruSegmentRingBuffer, MediaMetadata, TranscodePipeline,
+    AudioTranscodeStrategy, CachedSegment, DiskCacheConfig, DiskCacheMetrics, DiskCacheSupervisor,
+    GopAlignmentConfig, HardwareAccel, LruSegmentRingBuffer, MediaMetadata, TranscodePipeline,
 };
 pub use profiles::{
     get_profile_by_tag, select_optimal_profile, RenditionProfile, STANDARD_RENDITION_LADDER,

@@ -1042,7 +1042,7 @@ impl TranscodePipeline {
 }
 
 /// Configuration parameters for transcode scratch storage quota and TTL enforcement
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiskCacheConfig {
     pub scratch_dir: PathBuf,
     pub max_cache_bytes: u64,
@@ -1061,71 +1061,183 @@ impl Default for DiskCacheConfig {
     }
 }
 
-/// Disk cache supervisor enforcing storage quotas and LRU eviction
+impl DiskCacheConfig {
+    pub fn new(
+        scratch_dir: PathBuf,
+        max_cache_bytes: u64,
+        ttl_seconds: u64,
+        target_watermark_ratio: f64,
+    ) -> Self {
+        Self {
+            scratch_dir,
+            max_cache_bytes,
+            ttl_seconds,
+            target_watermark_ratio: target_watermark_ratio.clamp(0.1, 0.99),
+        }
+    }
+
+    /// Target byte threshold when recovering from a quota breach
+    pub fn target_watermark_bytes(&self) -> u64 {
+        ((self.max_cache_bytes as f64) * self.target_watermark_ratio) as u64
+    }
+
+    /// Evaluates if a given byte usage exceeds maximum allowed storage quota
+    pub fn is_quota_exceeded(&self, current_bytes: u64) -> bool {
+        current_bytes > self.max_cache_bytes
+    }
+}
+
+/// Comprehensive telemetry metrics emitted from a disk cache eviction sweep
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DiskCacheMetrics {
+    pub total_files_scanned: usize,
+    pub total_bytes_before: u64,
+    pub total_bytes_after: u64,
+    pub ttl_evicted_count: usize,
+    pub ttl_evicted_bytes: u64,
+    pub lru_evicted_count: usize,
+    pub lru_evicted_bytes: u64,
+    pub empty_dirs_removed: usize,
+    pub duration_ms: f64,
+    pub quota_breached: bool,
+}
+
+impl DiskCacheMetrics {
+    pub fn total_evicted_count(&self) -> usize {
+        self.ttl_evicted_count + self.lru_evicted_count
+    }
+
+    pub fn total_reclaimed_bytes(&self) -> u64 {
+        self.ttl_evicted_bytes + self.lru_evicted_bytes
+    }
+}
+
+/// Autonomous disk cache supervisor enforcing storage quotas and LRU eviction
 pub struct DiskCacheSupervisor;
 
 impl DiskCacheSupervisor {
     /// Executes a single pass of the disk cache quota and TTL eviction algorithm,
     /// returning `(evicted_files_count, reclaimed_bytes)`.
     pub async fn sweep_cache(config: &DiskCacheConfig) -> std::io::Result<(usize, u64)> {
+        let metrics = Self::sweep_cache_detailed(config).await?;
+        Ok((metrics.total_evicted_count(), metrics.total_reclaimed_bytes()))
+    }
+
+    /// Executes an in-depth sweep recursively collecting all files across root and nested directories,
+    /// purging TTL-expired segments, enforcing FIFO/LRU quota eviction, pruning empty directories,
+    /// and producing a structured `DiskCacheMetrics` report.
+    pub async fn sweep_cache_detailed(config: &DiskCacheConfig) -> std::io::Result<DiskCacheMetrics> {
+        let start_time = Instant::now();
         if !config.scratch_dir.exists() {
-            return Ok((0, 0));
+            return Ok(DiskCacheMetrics::default());
         }
 
-        let mut entries = tokio::fs::read_dir(&config.scratch_dir).await?;
+        // Pass 1: Iterative non-blocking recursive scanner across all directories
         let mut file_records: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
-        let mut evicted_count = 0usize;
-        let mut reclaimed_bytes = 0u64;
+        let mut discovered_dirs: Vec<PathBuf> = Vec::new();
+        let mut dir_queue: VecDeque<PathBuf> = VecDeque::new();
+        dir_queue.push_back(config.scratch_dir.clone());
 
-        // Pass 1: Scan and collect file metadata, evicting TTL-expired segments immediately
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            if let Ok(meta) = entry.metadata().await {
-                if !meta.is_file() {
-                    continue;
-                }
-                let len = meta.len();
-                let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-
-                if let Ok(elapsed) = modified.elapsed() {
-                    if elapsed.as_secs_f64() >= config.ttl_seconds as f64
-                        && tokio::fs::remove_file(&path).await.is_ok()
-                    {
-                        evicted_count += 1;
-                        reclaimed_bytes += len;
-                        debug!("Evicted TTL-expired segment: {:?}", path);
-                        continue;
+        while let Some(current_dir) = dir_queue.pop_front() {
+            if let Ok(mut entries) = tokio::fs::read_dir(&current_dir).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    let path = entry.path();
+                    if let Ok(meta) = entry.metadata().await {
+                        if meta.is_dir() {
+                            discovered_dirs.push(path.clone());
+                            dir_queue.push_back(path);
+                        } else if meta.is_file() {
+                            let len = meta.len();
+                            let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                            file_records.push((path, len, modified));
+                        }
                     }
                 }
-
-                file_records.push((path, len, modified));
             }
         }
 
-        // Pass 2: Calculate remaining disk usage and enforce quota via LRU eviction
-        let mut current_total_bytes: u64 = file_records.iter().map(|(_, len, _)| *len).sum();
+        let total_files_scanned = file_records.len();
+        let total_bytes_before: u64 = file_records.iter().map(|(_, len, _)| *len).sum();
 
-        if current_total_bytes > config.max_cache_bytes {
-            let target_bytes =
-                (config.max_cache_bytes as f64 * config.target_watermark_ratio) as u64;
+        let mut ttl_evicted_count = 0usize;
+        let mut ttl_evicted_bytes = 0u64;
+        let mut surviving_files: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
 
-            // Sort files by modification time ascending (oldest first)
-            file_records.sort_by_key(|(_, _, modified)| *modified);
+        // Pass 2: Purge TTL-expired segments immediately
+        for (path, len, modified) in file_records {
+            let is_expired = if config.ttl_seconds == 0 {
+                true
+            } else if let Ok(elapsed) = modified.elapsed() {
+                elapsed.as_secs_f64() >= config.ttl_seconds as f64
+            } else {
+                false
+            };
 
-            for (path, len, _) in file_records {
+            if is_expired && tokio::fs::remove_file(&path).await.is_ok() {
+                ttl_evicted_count += 1;
+                ttl_evicted_bytes += len;
+                debug!("Evicted TTL-expired segment: {:?}", path);
+            } else {
+                surviving_files.push((path, len, modified));
+            }
+        }
+
+        // Pass 3: Quota enforcement and LRU/FIFO eviction down to target watermark
+        let mut current_total_bytes: u64 = surviving_files.iter().map(|(_, len, _)| *len).sum();
+        let quota_breached = current_total_bytes > config.max_cache_bytes;
+        let mut lru_evicted_count = 0usize;
+        let mut lru_evicted_bytes = 0u64;
+
+        if quota_breached {
+            let target_bytes = config.target_watermark_bytes();
+
+            // Sort surviving files by modification timestamp ascending (oldest first for FIFO/LRU)
+            surviving_files.sort_by_key(|(_, _, modified)| *modified);
+
+            for (path, len, _) in surviving_files {
                 if current_total_bytes <= target_bytes {
                     break;
                 }
                 if tokio::fs::remove_file(&path).await.is_ok() {
-                    evicted_count += 1;
-                    reclaimed_bytes += len;
+                    lru_evicted_count += 1;
+                    lru_evicted_bytes += len;
                     current_total_bytes = current_total_bytes.saturating_sub(len);
                     debug!("Evicted LRU segment for quota relief: {:?}", path);
                 }
             }
         }
 
-        Ok((evicted_count, reclaimed_bytes))
+        // Pass 4: Prune orphaned empty subdirectories (bottom-up from deepest to shallowest)
+        discovered_dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+        let mut empty_dirs_removed = 0usize;
+
+        for dir in discovered_dirs {
+            if dir != config.scratch_dir {
+                if let Ok(mut dir_entries) = tokio::fs::read_dir(&dir).await {
+                    if dir_entries.next_entry().await.ok().flatten().is_none()
+                        && tokio::fs::remove_dir(&dir).await.is_ok()
+                    {
+                        empty_dirs_removed += 1;
+                        debug!("Pruned empty scratch directory: {:?}", dir);
+                    }
+                }
+            }
+        }
+
+        let elapsed_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+
+        Ok(DiskCacheMetrics {
+            total_files_scanned,
+            total_bytes_before,
+            total_bytes_after: current_total_bytes,
+            ttl_evicted_count,
+            ttl_evicted_bytes,
+            lru_evicted_count,
+            lru_evicted_bytes,
+            empty_dirs_removed,
+            duration_ms: elapsed_ms,
+            quota_breached,
+        })
     }
 
     /// Spawns a background task running periodic sweeps on the transcode cache directory

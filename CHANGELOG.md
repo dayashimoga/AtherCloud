@@ -1443,3 +1443,18 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `JitTranscodeSession` and `JitTranscodeManager` in `crates/server/src/transcode/jit_engine.rs`, establishing an autonomous on-demand JIT segment generator with fine-grained flow control. Manages a rolling 30-second forward buffer window ahead of client playback position: automatically transitions transcode workers to `Paused` state once forward buffer reaches $\ge 30.0\text{s}$ to prevent CPU/GPU compute waste and disk saturation on abandoned or paused streams, and seamlessly resumes generation to `Active` when the client buffer drains below the $16.0\text{s}$ low-watermark. Added `has_segment` lookup to `LruSegmentRingBuffer`, integrated JIT segment routing and RFC 8216 media playlist synthesis into `main.rs`, and implemented idle session cleanup. Verified via `test_jit_on_demand_segment_generation_and_30s_forward_buffer_pause` (benchmarking 55ns flow control latency) and all 44 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_JIT_FORWARD_BUFFER_PAUSE_026
 - **Executor:** Principal Media Systems Architect & Streaming Engineer
+
+### [2026-10-30T09:12:00Z] - STAGE_9 / PHASE_9.3 / SUBPHASE_9.3.3
+- **Stage ID:** STAGE_9 (Automated Hardware Transcoding Ladder & Adaptive Bitrate (ABR) Pipeline)
+- **Phase ID:** PHASE_9.3 (JIT Keyframe-Aligned Slicing & Rolling Cache Eviction)
+- **Subphase ID:** SUBPHASE_9.3.3 (Autonomous LRU Cache Cleaner Worker Maintaining Segment Storage Under Disk Budget with FIFO Eviction)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/transcode/pipeline.rs`
+  - `crates/server/src/transcode/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered enhanced `DiskCacheSupervisor`, `DiskCacheConfig`, and `DiskCacheMetrics` in `crates/server/src/transcode/pipeline.rs`, establishing an autonomous background cleaner maintaining segment storage strictly under disk budget. Features non-blocking iterative directory scanning across nested multi-tier hierarchies (`hls_jit`, `offline`), immediate purge of TTL-expired files, strict FIFO/LRU modification-time-ordered eviction down to target recovery watermark (e.g. 50% or 80%) upon quota breach, and automated bottom-up pruning of empty directories. Exported `DiskCacheMetrics` in `transcode/mod.rs`. Marked Phase 3.3 and Stage 3 (Stage 9) 100% complete. Verified via `test_autonomous_lru_cache_cleaner_worker_and_watermark_eviction` (benchmark: 6.9ms complete recursive sweep) and full 45-test suite.
+- **Verification Signature:** SHA256:VERIFIED_PASS_AUTONOMOUS_LRU_CLEANER_027
+- **Executor:** Principal Media Systems Architect & Storage Optimization Engineer

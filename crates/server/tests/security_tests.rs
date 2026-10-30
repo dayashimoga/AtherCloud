@@ -4725,3 +4725,153 @@ async fn test_jit_on_demand_segment_generation_and_30s_forward_buffer_pause() {
 
     println!("[TASK-9.3.2 VERIFIED] On-demand JIT segment generation with 30s forward buffer pause verified.");
 }
+
+#[tokio::test]
+async fn test_autonomous_lru_cache_cleaner_worker_and_watermark_eviction() {
+    use aetherstream_server::transcode::pipeline::{DiskCacheConfig, DiskCacheSupervisor};
+    use std::time::Instant;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let scratch_root = temp_dir.path().to_path_buf();
+
+    // 1. Create multi-tier scratch subdirectories
+    let dir_matrix = scratch_root.join("hls_jit").join("movies_matrix_1080p_high");
+    let dir_inception = scratch_root.join("hls_jit").join("movies_inception_720p_med");
+    let dir_shows = scratch_root.join("offline").join("shows_ep1_480p_low");
+    let dir_empty = scratch_root.join("orphaned_empty_dir");
+
+    tokio::fs::create_dir_all(&dir_matrix).await.unwrap();
+    tokio::fs::create_dir_all(&dir_inception).await.unwrap();
+    tokio::fs::create_dir_all(&dir_shows).await.unwrap();
+    tokio::fs::create_dir_all(&dir_empty).await.unwrap();
+
+    let segment_payload = vec![0xABu8; 100 * 1024]; // 100 KB chunks
+
+    // 2. Populate segments sequentially with strict timestamp separation
+    // Segments 0..3 in matrix (oldest)
+    for i in 0..3 {
+        let p = dir_matrix.join(format!("matrix_{:05}.ts", i));
+        tokio::fs::write(&p, &segment_payload).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(15)).await;
+    }
+
+    // Segments 3..6 in inception (intermediate)
+    for i in 3..6 {
+        let p = dir_inception.join(format!("inception_{:05}.ts", i));
+        tokio::fs::write(&p, &segment_payload).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(15)).await;
+    }
+
+    // Segments 6..10 in shows (newest)
+    for i in 6..10 {
+        let p = dir_shows.join(format!("shows_{:05}.ts", i));
+        tokio::fs::write(&p, &segment_payload).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(15)).await;
+    }
+
+    // Total: 10 files * 100 KB = 1000 KB (1,024,000 bytes)
+    // 3. Configure quota: max 600 KB, target watermark 0.50 (recovery target: 300 KB)
+    let config = DiskCacheConfig::new(
+        scratch_root.clone(),
+        600 * 1024,
+        3600, // 1 hour TTL so only LRU is active
+        0.50, // 50% recovery watermark = 300 KB
+    );
+
+    assert_eq!(config.target_watermark_bytes(), 300 * 1024);
+    assert!(config.is_quota_exceeded(1000 * 1024));
+    assert!(!config.is_quota_exceeded(500 * 1024));
+
+    // 4. Execute recursive detailed cache sweep
+    let start = Instant::now();
+    let metrics = DiskCacheSupervisor::sweep_cache_detailed(&config)
+        .await
+        .expect("Detailed cache sweep failed");
+    let sweep_duration = start.elapsed();
+
+    // Verification of detailed telemetry
+    assert_eq!(metrics.total_files_scanned, 10);
+    assert_eq!(metrics.total_bytes_before, 10 * 100 * 1024);
+    assert!(metrics.quota_breached, "1000 KB must trigger quota breach");
+    assert_eq!(metrics.ttl_evicted_count, 0, "No files are older than 1h TTL");
+
+    // Quota breach: to drop from 1000 KB to <= 300 KB requires evicting 7 files (700 KB)
+    assert_eq!(metrics.lru_evicted_count, 7);
+    assert_eq!(metrics.lru_evicted_bytes, 7 * 100 * 1024);
+    assert!(metrics.total_bytes_after <= 300 * 1024);
+    assert_eq!(metrics.total_evicted_count(), 7);
+    assert_eq!(metrics.total_reclaimed_bytes(), 700 * 1024);
+
+    // 5. Verify strict FIFO / LRU eviction order
+    // Oldest segments 0, 1, 2 in matrix must be evicted
+    for i in 0..3 {
+        assert!(
+            !dir_matrix.join(format!("matrix_{:05}.ts", i)).exists(),
+            "Oldest matrix segment {} must be evicted",
+            i
+        );
+    }
+    // Segments 3, 4, 5 in inception must be evicted
+    for i in 3..6 {
+        assert!(
+            !dir_inception.join(format!("inception_{:05}.ts", i)).exists(),
+            "Intermediate inception segment {} must be evicted",
+            i
+        );
+    }
+    // Segment 6 in shows must be evicted (7th evicted file)
+    assert!(
+        !dir_shows.join("shows_00006.ts").exists(),
+        "Shows segment 6 must be evicted as 7th LRU file"
+    );
+
+    // Newest segments 7, 8, 9 in shows MUST be preserved!
+    for i in 7..10 {
+        assert!(
+            dir_shows.join(format!("shows_{:05}.ts", i)).exists(),
+            "Newest shows segment {} must be preserved under target watermark",
+            i
+        );
+    }
+
+    // 6. Verify empty directory pruning
+    // dir_matrix and dir_inception are now completely empty, as is dir_empty -> all must be removed
+    assert!(!dir_matrix.exists(), "Fully evicted directory dir_matrix must be pruned");
+    assert!(!dir_inception.exists(), "Fully evicted directory dir_inception must be pruned");
+    assert!(!dir_empty.exists(), "Orphaned empty directory dir_empty must be pruned");
+    // dir_shows still has segments 7, 8, 9 -> must NOT be removed
+    assert!(dir_shows.exists(), "Active directory dir_shows must be preserved");
+    assert!(metrics.empty_dirs_removed >= 3, "At least 3 empty directories must be pruned");
+
+    // 7. Verify TTL purge pass
+    let ttl_purge_config = DiskCacheConfig::new(
+        scratch_root.clone(),
+        10 * 1024 * 1024,
+        0, // 0-second TTL forces immediate purge of all surviving files
+        0.80,
+    );
+    tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+    let ttl_metrics = DiskCacheSupervisor::sweep_cache_detailed(&ttl_purge_config)
+        .await
+        .expect("TTL purge sweep failed");
+    assert_eq!(ttl_metrics.ttl_evicted_count, 3, "All 3 surviving segments must be TTL purged");
+    assert_eq!(ttl_metrics.total_bytes_after, 0, "Cache must be completely empty after TTL purge");
+    assert!(!dir_shows.exists(), "dir_shows must be pruned after TTL purge");
+
+    // 8. Background Supervisor spawn and graceful abort verification
+    let supervisor_config = DiskCacheConfig::new(scratch_root.clone(), 1024 * 1024, 60, 0.80);
+    let supervisor_handle = DiskCacheSupervisor::spawn_supervisor(
+        supervisor_config,
+        std::time::Duration::from_millis(50),
+    );
+    tokio::time::sleep(tokio::time::Duration::from_millis(120)).await;
+    supervisor_handle.abort();
+    assert!(supervisor_handle.await.unwrap_err().is_cancelled());
+
+    println!(
+        "[BENCHMARK] Detailed cache sweep completed in {:.2}ms (internal timer: {:.2}ms)",
+        sweep_duration.as_secs_f64() * 1000.0,
+        metrics.duration_ms
+    );
+    println!("[TASK-9.3.3 VERIFIED] Autonomous LRU cache cleaner worker maintaining segment storage under disk budget verified.");
+}
