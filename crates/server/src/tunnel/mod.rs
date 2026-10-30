@@ -2,6 +2,7 @@ pub mod binary_manager;
 pub mod edge_router;
 pub mod heartbeat;
 pub mod mdns;
+pub mod pairing;
 pub mod qr;
 pub mod status_api;
 pub mod supervisor;
@@ -23,6 +24,10 @@ pub use mdns::{
     build_mdns_response, decode_dns_name, detect_local_ip, encode_dns_name, parse_mdns_query,
     DnsQuestion, DnsRecord, MdnsError, MdnsPublisher, MdnsServiceConfig, MDNS_IPV4_MULTICAST,
     MDNS_PORT,
+};
+pub use pairing::{
+    tunnel_pairing_router, CreateInvitationRequest, CreateInvitationResponse, DevicePairingAuthority,
+    DevicePairingRequest, DevicePairingResponse, PairedDevice, PairingError, PasskeyRecord,
 };
 pub use qr::{
     format_boot_qr_banner, generate_ascii_qr, generate_png_qr, generate_svg_qr, tunnel_qr_handler,

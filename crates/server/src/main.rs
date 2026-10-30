@@ -181,6 +181,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tunnel_routes = tunnel::tunnel_status_router(tunnel_api_state.clone())
         .merge(tunnel::tunnel_qr_router(tunnel_api_state));
 
+    let pairing_auth = Arc::new(
+        tunnel::DevicePairingAuthority::new(
+            &config.hmac_secret,
+            Some(config.scratch_dir.join("pairing.db")),
+        )
+        .expect("Failed to initialize pairing authority"),
+    );
+    let pairing_routes = tunnel::tunnel_pairing_router(pairing_auth);
+
     // Assemble Axum Router
     let mut app = Router::new()
         .route("/api/v1/health", get(health_handler))
@@ -219,6 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(storage_routes)
         .merge(share_routes)
         .merge(tunnel_routes)
+        .merge(pairing_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 

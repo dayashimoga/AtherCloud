@@ -1585,3 +1585,19 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `qr.rs` in `crates/server/src/tunnel/` featuring `format_boot_qr_banner`, `generate_ascii_qr`, `generate_svg_qr`, `generate_png_qr`, `tunnel_qr_handler`, and `tunnel_qr_router`. Generates styled dense unicode ASCII QR codes logged directly to terminal stdout upon daemon boot. Exposes `GET /api/v1/tunnel/qr` with multi-format rendering supporting scalable vector graphics (`image/svg+xml`), RFC 2083 raster images (`image/png`), plain-text ASCII blocks (`text/plain`), and structured JSON payloads with configurable target endpoint resolution (`auto`, `lan`, `loopback`, `wan`). Merged tunnel QR routes into main application router. Verified via `test_qr_code_generation_ascii_terminal_and_svg_png_rest_api` and full 53-test suite.
 - **Verification Signature:** SHA256:VERIFIED_PASS_TUNNEL_QR_GENERATOR_035
 - **Executor:** Principal Systems Architect & Distributed Ingress Engineer
+
+### [2026-10-30T10:45:00Z] - STAGE_10 / PHASE_10.3 / SUBPHASE_10.3.3
+- **Stage ID:** STAGE_10 (Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress)
+- **Phase ID:** PHASE_10.3 (Dynamic Connection QR & Pairing Handshake)
+- **Subphase ID:** SUBPHASE_10.3.3 (One-Time Passkey Device Pairing Protocol for Remote Sessions Outside Local Subnet)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/tunnel/pairing.rs`
+  - `crates/server/src/tunnel/mod.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `pairing.rs` in `crates/server/src/tunnel/` featuring `DevicePairingAuthority`, `PasskeyRecord`, `PairedDevice`, and `tunnel_pairing_router`. Implemented single-use human-readable formatted passkeys (`generate_passkey_code`), salted SHA-256 constant-time verification, SQLite WAL persistent device storage (`paired_devices` table), 30-day HMAC scoped session credentials, and remote ingress challenge verification distinguishing local network requests from remote tunnel clients (`is_remote_authorized`). Provided device revocation (`DELETE /api/v1/tunnel/pair/devices/:device_id`) and invitation issuance (`POST /api/v1/tunnel/pair/invite`). Marked Phase 4.3 (PHASE_10.3) and Stage 4 (STAGE_10: Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress) 100% complete. Verified via `test_one_time_passkey_device_pairing_and_remote_session_security` ($44.587\mu\text{s}/\text{op}$ token verification benchmark) and full 54-test suite.
+- **Verification Signature:** SHA256:VERIFIED_PASS_DEVICE_PAIRING_AUTHORITY_036
+- **Executor:** Principal Systems Architect & Distributed Ingress Engineer

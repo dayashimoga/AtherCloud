@@ -6310,3 +6310,248 @@ async fn test_qr_code_generation_ascii_terminal_and_svg_png_rest_api() {
 
     println!("[TASK-10.3.2 VERIFIED] Generate ASCII QR code in server terminal log on boot and SVG/PNG QR via /api/v1/tunnel/qr verified.");
 }
+
+#[tokio::test]
+async fn test_one_time_passkey_device_pairing_and_remote_session_security() {
+    use aetherstream_server::tunnel::edge_router::{ClientNetworkContext, IngressType};
+    use aetherstream_server::tunnel::pairing::{
+        tunnel_pairing_router, CreateInvitationResponse,
+        DevicePairingAuthority, DevicePairingRequest, PairedDevice,
+    };
+    use axum::{
+        body::{to_bytes, Body},
+        http::{HeaderMap, HeaderValue, Request, StatusCode},
+    };
+    use std::net::IpAddr;
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tower::ServiceExt;
+
+    let secret = "0123456789abcdef0123456789abcdef";
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("pairing.db");
+
+    let authority = Arc::new(
+        DevicePairingAuthority::new(secret, Some(db_path.clone()))
+            .expect("Pairing authority must initialize with SQLite WAL"),
+    );
+
+    // 1. One-Time Passkey Generation
+    let (passkey1, record1) = authority.create_invitation(Some(600), Some("Apple TV 4K".to_string()));
+    assert!(passkey1.contains('-'), "Passkey must be formatted with hyphen: {}", passkey1);
+    assert_eq!(record1.client_label.as_deref(), Some("Apple TV 4K"));
+    assert!(!record1.consumed);
+    assert_eq!(record1.attempts_used, 0);
+    assert!(record1.expires_at > record1.created_at);
+
+    // 2. Successful Device Pairing Handshake
+    let pair_req = DevicePairingRequest {
+        device_id: "dev-apple-tv-001".to_string(),
+        device_name: "Living Room Apple TV".to_string(),
+        platform: "tvOS".to_string(),
+        passkey: passkey1.clone(),
+    };
+    let pair_res = authority
+        .pair_device(pair_req, Some("192.168.1.55".to_string()))
+        .expect("Pairing with valid passkey must succeed");
+
+    assert_eq!(pair_res.status, "paired");
+    assert_eq!(pair_res.device_id, "dev-apple-tv-001");
+    assert!(!pair_res.session_token.is_empty());
+    assert!(pair_res.expires_at > pair_res.paired_at);
+
+    // Verify listed in registry
+    let devices = authority.list_paired_devices();
+    assert_eq!(devices.len(), 1);
+    assert_eq!(devices[0].device_id, "dev-apple-tv-001");
+    assert_eq!(devices[0].platform, "tvOS");
+    assert!(!devices[0].is_revoked);
+
+    // 3. Single-Use Replay Defense: Second attempt with same passkey must fail
+    let replay_req = DevicePairingRequest {
+        device_id: "dev-rogue-attacker".to_string(),
+        device_name: "Attacker Laptop".to_string(),
+        platform: "Linux".to_string(),
+        passkey: passkey1,
+    };
+    let replay_res = authority.pair_device(replay_req, None);
+    assert!(
+        replay_res.is_err(),
+        "Consumed one-time passkey must be rejected on replay"
+    );
+
+    // 4. Invalid Passkey & Brute Force Attempt Tracking
+    let (_passkey2, _) = authority.create_invitation(Some(600), Some("iPad Pro".to_string()));
+    let wrong_req = DevicePairingRequest {
+        device_id: "dev-ipad-002".to_string(),
+        device_name: "User iPad".to_string(),
+        platform: "iOS".to_string(),
+        passkey: "999-999".to_string(),
+    };
+    let wrong_res = authority.pair_device(wrong_req, None);
+    assert_eq!(wrong_res.unwrap_err().status, StatusCode::UNAUTHORIZED.as_u16());
+
+    // 5. Session Token Verification & Revocation
+    let verified_device = authority
+        .verify_session_token(&pair_res.session_token)
+        .expect("Valid session token must verify cleanly");
+    assert_eq!(verified_device.device_id, "dev-apple-tv-001");
+
+    // Revoke device
+    assert!(authority.revoke_device("dev-apple-tv-001").unwrap());
+    let revoked_res = authority.verify_session_token(&pair_res.session_token);
+    assert_eq!(
+        revoked_res.unwrap_err().status,
+        StatusCode::FORBIDDEN.as_u16(),
+        "Revoked device token must return 403 Forbidden"
+    );
+
+    // 6. Persistence Verification across Re-instantiation
+    drop(authority);
+    let reloaded_authority = Arc::new(
+        DevicePairingAuthority::new(secret, Some(db_path))
+            .expect("Re-opening SQLite database must succeed"),
+    );
+    let reloaded_devices = reloaded_authority.list_paired_devices();
+    assert_eq!(
+        reloaded_devices.len(),
+        1,
+        "Paired devices must persist across restart"
+    );
+    assert_eq!(reloaded_devices[0].device_id, "dev-apple-tv-001");
+    assert!(reloaded_devices[0].is_revoked);
+
+    // 7. Remote Ingress vs Local Subnet Network Authorization
+    let loopback_ip: IpAddr = "127.0.0.1".parse().unwrap();
+    let wan_ip: IpAddr = "203.0.113.88".parse().unwrap();
+
+    let local_ctx = ClientNetworkContext {
+        peer_ip: loopback_ip,
+        real_client_ip: loopback_ip,
+        ingress_type: IngressType::Lan,
+        host: Some("192.168.1.100:8080".to_string()),
+        cf_ray: None,
+        forwarded_proto: None,
+        is_tls: false,
+    };
+    let remote_ctx = ClientNetworkContext {
+        peer_ip: loopback_ip,
+        real_client_ip: wan_ip,
+        ingress_type: IngressType::Tunnel,
+        host: Some("swift-stream.trycloudflare.com".to_string()),
+        cf_ray: Some("8819ab234c-FRA".to_string()),
+        forwarded_proto: Some("https".to_string()),
+        is_tls: true,
+    };
+
+    let empty_headers = HeaderMap::new();
+
+    // Local client: authorized automatically without pairing token
+    let local_auth = reloaded_authority.is_remote_authorized(&empty_headers, &local_ctx);
+    assert!(local_auth.is_ok());
+    assert!(local_auth.unwrap().is_none());
+
+    // Remote tunnel client without token: 401 Unauthorized
+    let remote_unauth = reloaded_authority.is_remote_authorized(&empty_headers, &remote_ctx);
+    assert_eq!(
+        remote_unauth.unwrap_err().status,
+        StatusCode::UNAUTHORIZED.as_u16(),
+        "Remote sessions without pairing token must be challenged"
+    );
+
+    // Pair a new remote device
+    let (passkey_remote, _) = reloaded_authority.create_invitation(Some(600), None);
+    let remote_pair_res = reloaded_authority
+        .pair_device(
+            DevicePairingRequest {
+                device_id: "dev-iphone-remote".to_string(),
+                device_name: "Remote iPhone".to_string(),
+                platform: "iOS".to_string(),
+                passkey: passkey_remote,
+            },
+            Some("203.0.113.88".to_string()),
+        )
+        .unwrap();
+
+    // Remote client with valid Bearer token: 200 Authorized
+    let mut authed_headers = HeaderMap::new();
+    authed_headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", remote_pair_res.session_token)).unwrap(),
+    );
+    let remote_auth_ok = reloaded_authority.is_remote_authorized(&authed_headers, &remote_ctx);
+    assert!(remote_auth_ok.is_ok());
+    assert_eq!(
+        remote_auth_ok.unwrap().unwrap().device_id,
+        "dev-iphone-remote"
+    );
+
+    // 8. Axum Pairing REST API Router
+    let app = tunnel_pairing_router(reloaded_authority.clone());
+
+    // POST /api/v1/tunnel/pair/invite -> 201 Created
+    let req_invite = Request::builder()
+        .method("POST")
+        .uri("/api/v1/tunnel/pair/invite")
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"ttl_seconds": 300, "client_label": "Test Browser"}"#))
+        .unwrap();
+    let resp_invite = app.clone().oneshot(req_invite).await.unwrap();
+    assert_eq!(resp_invite.status(), StatusCode::CREATED);
+    let body_invite = to_bytes(resp_invite.into_body(), 64 * 1024).await.unwrap();
+    let inv_resp: CreateInvitationResponse = serde_json::from_slice(&body_invite).unwrap();
+    assert!(inv_resp.passkey.contains('-'));
+
+    // POST /api/v1/tunnel/pair -> 200 OK
+    let req_pair_api = Request::builder()
+        .method("POST")
+        .uri("/api/v1/tunnel/pair")
+        .header("content-type", "application/json")
+        .body(Body::from(format!(
+            r#"{{"device_id":"dev-browser-001","device_name":"Chrome on Mac","platform":"macOS","passkey":"{}"}}"#,
+            inv_resp.passkey
+        )))
+        .unwrap();
+    let resp_pair_api = app.clone().oneshot(req_pair_api).await.unwrap();
+    assert_eq!(resp_pair_api.status(), StatusCode::OK);
+
+    // GET /api/v1/tunnel/pair/devices -> 200 OK
+    let req_list = Request::builder()
+        .uri("/api/v1/tunnel/pair/devices")
+        .body(Body::empty())
+        .unwrap();
+    let resp_list = app.clone().oneshot(req_list).await.unwrap();
+    assert_eq!(resp_list.status(), StatusCode::OK);
+    let body_list = to_bytes(resp_list.into_body(), 64 * 1024).await.unwrap();
+    let dev_list: Vec<PairedDevice> = serde_json::from_slice(&body_list).unwrap();
+    assert!(dev_list.iter().any(|d| d.device_id == "dev-browser-001"));
+
+    // DELETE /api/v1/tunnel/pair/devices/:device_id -> 204 No Content
+    let req_revoke = Request::builder()
+        .method("DELETE")
+        .uri("/api/v1/tunnel/pair/devices/dev-browser-001")
+        .body(Body::empty())
+        .unwrap();
+    let resp_revoke = app.clone().oneshot(req_revoke).await.unwrap();
+    assert_eq!(resp_revoke.status(), StatusCode::NO_CONTENT);
+
+    // 9. High-Throughput Verification Benchmark
+    let start = Instant::now();
+    let iterations = 10_000;
+    for _ in 0..iterations {
+        let _ = reloaded_authority.verify_session_token(&remote_pair_res.session_token);
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] Device pairing session token verification: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 100.0,
+        "Token verification must execute under 100.0 µs/op in debug mode (measured {:.3} µs)",
+        per_op_us
+    );
+
+    println!("[TASK-10.3.3 VERIFIED] One-time passkey device pairing protocol for remote sessions outside local subnet verified.");
+}
