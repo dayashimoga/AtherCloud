@@ -23,6 +23,12 @@ pub enum SandboxError {
     SubpathForbidden(PathBuf),
 }
 
+impl axum::response::IntoResponse for SandboxError {
+    fn into_response(self) -> axum::response::Response {
+        super::ProblemDetails::from_sandbox_error(&self, None).into_response()
+    }
+}
+
 pub struct PathSandbox;
 
 impl PathSandbox {

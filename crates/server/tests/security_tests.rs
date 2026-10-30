@@ -2571,3 +2571,129 @@ async fn test_whitelist_subpath_validation_and_syscall_interception() {
 
     println!("[TASK-8.2.2 VERIFIED] Complete subpath whitelist validation and file read/metadata syscall interception verified.");
 }
+
+#[tokio::test]
+async fn test_rfc7807_problem_details_payloads_and_information_leakage_defenses() {
+    use aetherstream_server::security::hmac_auth::AuthError;
+    use aetherstream_server::security::problem::ProblemDetails;
+    use aetherstream_server::security::sandbox::SandboxError;
+    use aetherstream_server::storage::mount_manager::RouteAuthError;
+    use aetherstream_server::storage::mounts::MountError;
+    use axum::body::to_bytes;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    use std::path::PathBuf;
+
+    // 1. Direct ProblemDetails construction and MIME verification
+    let problem = ProblemDetails::forbidden_subpath("private/keys/id_rsa", Some("/api/v1/stream/vault/private/keys/id_rsa"));
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.problem_type, "https://aetherstream.dev/errors/subpath-forbidden");
+    assert_eq!(problem.title, "Subpath Whitelist Violation");
+    assert_eq!(problem.code.as_deref(), Some("SUBPATH_WHITELIST_VIOLATION"));
+    assert_eq!(problem.invalid_subpath.as_deref(), Some("private/keys/id_rsa"));
+    assert_eq!(problem.instance.as_deref(), Some("/api/v1/stream/vault/private/keys/id_rsa"));
+
+    let resp = problem.into_response();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "application/problem+json"
+    );
+
+    let bytes = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["type"], "https://aetherstream.dev/errors/subpath-forbidden");
+    assert_eq!(json["status"], 403);
+    assert_eq!(json["invalid_subpath"], "private/keys/id_rsa");
+
+    // 2. Information Leakage Shielding Verification
+    // A. Symlink Escape: must NOT leak target absolute host path or root path
+    let symlink_err = SandboxError::SymlinkEscape(
+        PathBuf::from("C:\\Windows\\System32\\config\\SAM"),
+        PathBuf::from("D:\\AetherStream\\Mounts\\Root"),
+    );
+    let symlink_resp = symlink_err.into_response();
+    assert_eq!(symlink_resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        symlink_resp.headers().get("content-type").unwrap(),
+        "application/problem+json"
+    );
+    let symlink_bytes = to_bytes(symlink_resp.into_body(), 1024 * 1024).await.unwrap();
+    let symlink_json: serde_json::Value = serde_json::from_slice(&symlink_bytes).unwrap();
+    let symlink_str = symlink_json.to_string();
+    assert!(!symlink_str.contains("Windows"), "Response must NOT leak Windows host directory");
+    assert!(!symlink_str.contains("System32"), "Response must NOT leak System32 host directory");
+    assert!(!symlink_str.contains("SAM"), "Response must NOT leak SAM internal filename");
+    assert!(!symlink_str.contains("AetherStream"), "Response must NOT leak host folder hierarchy");
+    assert!(!symlink_str.contains("D:\\"), "Response must NOT leak host drive letter");
+    assert_eq!(symlink_json["code"], "SYMLINK_ESCAPE_DETECTED");
+
+    // B. OS Quarantine: must NOT leak quarantined physical host paths
+    let quarantine_err = SandboxError::QuarantinedPath(PathBuf::from("/etc/shadow"));
+    let q_resp = quarantine_err.into_response();
+    assert_eq!(q_resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        q_resp.headers().get("content-type").unwrap(),
+        "application/problem+json"
+    );
+    let q_bytes = to_bytes(q_resp.into_body(), 1024 * 1024).await.unwrap();
+    let q_json: serde_json::Value = serde_json::from_slice(&q_bytes).unwrap();
+    let q_str = q_json.to_string();
+    assert!(!q_str.contains("/etc/shadow"), "Response must NOT leak /etc/shadow host path");
+    assert_eq!(q_json["code"], "PATH_QUARANTINED");
+
+    // C. UNC Bypass: must NOT leak internal network servers or IPs
+    let unc_err = SandboxError::UncDeviceBypass("\\\\192.168.1.150\\c$\\financial_records".into());
+    let unc_resp = unc_err.into_response();
+    assert_eq!(unc_resp.status(), StatusCode::FORBIDDEN);
+    let unc_bytes = to_bytes(unc_resp.into_body(), 1024 * 1024).await.unwrap();
+    let unc_json: serde_json::Value = serde_json::from_slice(&unc_bytes).unwrap();
+    let unc_str = unc_json.to_string();
+    assert!(!unc_str.contains("192.168.1.150"), "Response must NOT leak internal IP address");
+    assert!(!unc_str.contains("financial_records"), "Response must NOT leak share target name");
+    assert_eq!(unc_json["code"], "DEVICE_NAMESPACE_BYPASS");
+
+    // D. Traversal Attack: must return standard 403 problem details
+    let trav_err = SandboxError::DirectoryTraversal("../../../boot.ini".into());
+    let trav_resp = trav_err.into_response();
+    assert_eq!(trav_resp.status(), StatusCode::FORBIDDEN);
+    let trav_bytes = to_bytes(trav_resp.into_body(), 1024 * 1024).await.unwrap();
+    let trav_json: serde_json::Value = serde_json::from_slice(&trav_bytes).unwrap();
+    assert_eq!(trav_json["type"], "https://aetherstream.dev/errors/path-traversal");
+    assert_eq!(trav_json["code"], "PATH_TRAVERSAL_DETECTED");
+
+    // 3. MountError RFC 7807 Conversion & Status Integrity
+    let mount_not_found = MountError::MountNotFound("secret_drive".into()).into_response();
+    assert_eq!(mount_not_found.status(), StatusCode::NOT_FOUND);
+    assert_eq!(mount_not_found.headers().get("content-type").unwrap(), "application/problem+json");
+    let mnf_bytes = to_bytes(mount_not_found.into_body(), 1024 * 1024).await.unwrap();
+    let mnf_json: serde_json::Value = serde_json::from_slice(&mnf_bytes).unwrap();
+    assert_eq!(mnf_json["code"], "MOUNT_NOT_FOUND");
+    assert_eq!(mnf_json["status"], 404);
+
+    let ro_err = MountError::ReadOnlyMount("read_only_vault".into()).into_response();
+    assert_eq!(ro_err.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(ro_err.headers().get("content-type").unwrap(), "application/problem+json");
+    let ro_bytes = to_bytes(ro_err.into_body(), 1024 * 1024).await.unwrap();
+    let ro_json: serde_json::Value = serde_json::from_slice(&ro_bytes).unwrap();
+    assert_eq!(ro_json["code"], "MOUNT_READ_ONLY");
+    assert_eq!(ro_json["status"], 405);
+
+    // 4. RouteAuthError & AuthError RFC 7807 Conversion
+    let exp_err = RouteAuthError::Expired(1700000000).into_response();
+    assert_eq!(exp_err.status(), StatusCode::FORBIDDEN);
+    assert_eq!(exp_err.headers().get("content-type").unwrap(), "application/problem+json");
+    let exp_bytes = to_bytes(exp_err.into_body(), 1024 * 1024).await.unwrap();
+    let exp_json: serde_json::Value = serde_json::from_slice(&exp_bytes).unwrap();
+    assert_eq!(exp_json["code"], "MOUNT_EXPIRED");
+
+    let auth_err = AuthError::MissingToken.into_response();
+    assert_eq!(auth_err.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(auth_err.headers().get("content-type").unwrap(), "application/problem+json");
+    let auth_bytes = to_bytes(auth_err.into_body(), 1024 * 1024).await.unwrap();
+    let auth_json: serde_json::Value = serde_json::from_slice(&auth_bytes).unwrap();
+    assert_eq!(auth_json["code"], "MISSING_TOKEN");
+    assert_eq!(auth_json["status"], 401);
+
+    println!("[RFC 7807 VERIFIED] Standardized Problem Details payloads validated with complete host information leakage shielding.");
+}

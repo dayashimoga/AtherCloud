@@ -831,3 +831,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Security Architect & Systems Engineer
 - **Execution Trace:** cargo test --test security_tests test_whitelist_subpath_validation_and_syscall_interception
 - **Validation Proof:** Engineered pure in-memory validate_subpath_whitelist and safe read/metadata/open syscall interception wrappers in PathSandbox. Integrated subpath whitelist validation into MountRegistry::resolve_safe_path, list_directory, and MountManager::authorize_path, guaranteeing unwhitelisted file reads and directory listings are intercepted with HTTP 403 Forbidden before executing any filesystem syscall. All 32 integration tests passed.
+
+### [2026-10-30T08:00:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-8.2.3
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Security Architect & Systems Engineer
+- **Execution Trace:** cargo test --test security_tests test_rfc7807_problem_details_payloads_and_information_leakage_defenses
+- **Validation Proof:** Engineered RFC 7807 ProblemDetails in crates/server/src/security/problem.rs with standard MIME application/problem+json. Wired IntoResponse implementations for SandboxError, MountError, RouteAuthError, and AuthError, eliminating information leakage of host paths, partition layouts, Windows drive letters, symlink escape targets, UNC networks, and OS quarantine paths. Marked Phase 2.2 complete. All 33 integration tests passed.

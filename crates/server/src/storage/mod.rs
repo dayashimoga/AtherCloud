@@ -17,7 +17,7 @@ pub use mount_manager::{
     CachedMountRoute, CachedRouteAuthorization, MountManager, MountManagerError, PermissionMode,
     RouteAuthError, ShareRuleRecord, VirtualMountRecord, WalCheckpointMode,
 };
-pub use mounts::MountRegistry;
+pub use mounts::{MountError, MountRegistry};
 pub use quarantine::PathQuarantine;
 pub use stream::{
     RangeRequestEngine, ACTIVE_STREAM_COUNT, STREAM_RING_BUFFER_CAPACITY, TOTAL_STREAMED_BYTES,

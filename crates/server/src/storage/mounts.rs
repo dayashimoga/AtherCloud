@@ -23,18 +23,7 @@ pub enum MountError {
 
 impl axum::response::IntoResponse for MountError {
     fn into_response(self) -> axum::response::Response {
-        use axum::http::StatusCode;
-        use axum::Json;
-        let (status, msg) = match self {
-            MountError::MountNotFound(m) => (StatusCode::NOT_FOUND, format!("Mount '{}' not registered", m)),
-            MountError::PathTraversalAttempt => (StatusCode::FORBIDDEN, "Security violation: Path traversal forbidden".to_string()),
-            MountError::SubpathForbidden(p) => (StatusCode::FORBIDDEN, format!("Security violation: Subpath '{}' forbidden by whitelist policy", p)),
-            MountError::NotFound(p) => (StatusCode::NOT_FOUND, format!("Resource not found: {}", p)),
-            MountError::ReadOnlyMount(m) => (StatusCode::METHOD_NOT_ALLOWED, format!("Mount '{}' is read-only", m)),
-            MountError::QuarantinedPath(p) => (StatusCode::FORBIDDEN, format!("Security violation: OS-critical path quarantined ({})", p)),
-            MountError::IoError(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Filesystem I/O error: {}", e)),
-        };
-        (status, Json(serde_json::json!({ "error": msg }))).into_response()
+        crate::security::ProblemDetails::from_mount_error(&self, None).into_response()
     }
 }
 

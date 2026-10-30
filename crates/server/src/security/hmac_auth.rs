@@ -33,13 +33,15 @@ pub enum AuthError {
 
 impl axum::response::IntoResponse for AuthError {
     fn into_response(self) -> axum::response::Response {
-        use axum::http::StatusCode;
-        use axum::Json;
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": self.to_string() })),
-        )
-            .into_response()
+        let (detail, code) = match &self {
+            AuthError::MissingToken => ("Missing authorization token in query or Authorization header.", "MISSING_TOKEN"),
+            AuthError::MalformedToken(_) => ("Authorization token is malformed.", "MALFORMED_TOKEN"),
+            AuthError::ExpiredToken(_) => ("Authorization token has expired.", "TOKEN_EXPIRED"),
+            AuthError::InvalidSignature => ("Cryptographic HMAC-SHA256 signature verification failed.", "INVALID_SIGNATURE"),
+            AuthError::PathOutOfScope(_, _) => ("Requested subpath is outside authorized token scope.", "PATH_OUT_OF_SCOPE"),
+            AuthError::MountMismatch(_, _) => ("Token scope does not match requested virtual mount.", "MOUNT_MISMATCH"),
+        };
+        super::ProblemDetails::unauthorized("Token Authorization Failure", detail, code, None).into_response()
     }
 }
 

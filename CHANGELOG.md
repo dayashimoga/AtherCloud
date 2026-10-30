@@ -1239,3 +1239,25 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered pure in-memory `validate_subpath_whitelist` and safe file read/metadata/open syscall interception wrappers in `PathSandbox` (`resolve_sandboxed_path_with_whitelist`, `sandboxed_metadata_with_whitelist`, `open_sandboxed_file_with_whitelist`, `read_sandboxed_file_with_whitelist`). Integrated subpath whitelist policy enforcement into `MountRegistry::resolve_safe_path`, `list_directory`, and `MountManager::authorize_path`, guaranteeing that unwhitelisted subpaths are intercepted with HTTP 403 Forbidden before executing any file metadata or read syscalls. Enforced privacy filtering in directory listings so unwhitelisted sibling directories are hidden. Verified via `test_whitelist_subpath_validation_and_syscall_interception`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_WHITELIST_VALIDATION_014
 - **Executor:** Principal Security Architect & Systems Engineer
+
+### [2026-10-30T08:00:00Z] - STAGE_8 / PHASE_8.2 / SUBPHASE_8.2.3
+- **Stage ID:** STAGE_8 (Granular Security Sandbox, Scoped RBAC & Virtual Mount Configuration)
+- **Phase ID:** PHASE_8.2 (Canonical Path Sandboxing & Traversal Defenses)
+- **Subphase ID:** SUBPHASE_8.2.3 (Standardized RFC 7807 Problem Details Payloads & Host Leakage Defenses)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/security/problem.rs` [CREATED]
+  - `crates/server/src/security/mod.rs`
+  - `crates/server/src/security/sandbox.rs`
+  - `crates/server/src/security/hmac_auth.rs`
+  - `crates/server/src/storage/mounts.rs`
+  - `crates/server/src/storage/mount_manager.rs`
+  - `crates/server/src/storage/mod.rs`
+  - `crates/server/src/storage/stream.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered RFC 7807 Problem Details engine in `crates/server/src/security/problem.rs` emitting `Content-Type: application/problem+json` with members: `type`, `title`, `status`, `detail`, `instance`, `code`, `invalid_subpath`, and backwards-compatible `error`. Wired standardized `IntoResponse` for `SandboxError`, `MountError`, `RouteAuthError`, and `AuthError`, guaranteeing absolute host filesystem paths (Windows drive roots, Unix root paths, symlink escape targets, UNC server IPs, OS quarantine locations) are sanitized and shielded against information disclosure attacks. Marked Phase 2.2 complete. Verified via `test_rfc7807_problem_details_payloads_and_information_leakage_defenses`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_RFC7807_PROBLEM_DETAILS_015
+- **Executor:** Principal Security Architect & Systems Engineer

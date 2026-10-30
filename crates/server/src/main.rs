@@ -25,6 +25,7 @@ mod transcode;
 
 use config::ServerConfig;
 use security::hmac_auth::HmacTokenValidator;
+use security::ProblemDetails;
 use storage::disk_watcher::DiskWatcher;
 use storage::mounts::MountRegistry;
 use storage::stream::RangeRequestEngine;
@@ -334,11 +335,14 @@ async fn init_upload_handler(
             })),
         )
             .into_response(),
-        Err(e) => (
+        Err(e) => ProblemDetails::new(
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("{:?}", e) })),
+            "https://aetherstream.dev/errors/upload-init-failed",
+            "Upload Initialization Failed",
+            format!("{:?}", e),
         )
-            .into_response(),
+        .with_code("UPLOAD_INIT_FAILED")
+        .into_response(),
     }
 }
 
@@ -376,11 +380,14 @@ async fn upload_chunk_handler(
             })),
         )
             .into_response(),
-        Err(e) => (
+        Err(e) => ProblemDetails::new(
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("{:?}", e) })),
+            "https://aetherstream.dev/errors/upload-chunk-failed",
+            "Upload Chunk Failed",
+            format!("{:?}", e),
         )
-            .into_response(),
+        .with_code("UPLOAD_CHUNK_FAILED")
+        .into_response(),
     }
 }
 
@@ -413,11 +420,14 @@ async fn upload_status_handler(
             )
                 .into_response()
         }
-        None => (
+        None => ProblemDetails::new(
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "Upload session not found" })),
+            "https://aetherstream.dev/errors/upload-not-found",
+            "Upload Session Not Found",
+            "The requested upload session ID does not exist or has expired.",
         )
-            .into_response(),
+        .with_code("UPLOAD_SESSION_NOT_FOUND")
+        .into_response(),
     }
 }
 
@@ -450,11 +460,14 @@ async fn complete_upload_handler(
             })),
         )
             .into_response(),
-        Err(e) => (
+        Err(e) => ProblemDetails::new(
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("{:?}", e) })),
+            "https://aetherstream.dev/errors/upload-complete-failed",
+            "Upload Completion Failed",
+            format!("{:?}", e),
         )
-            .into_response(),
+        .with_code("UPLOAD_COMPLETE_FAILED")
+        .into_response(),
     }
 }
 

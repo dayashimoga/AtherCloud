@@ -57,21 +57,26 @@ pub enum RouteAuthError {
 
 impl axum::response::IntoResponse for RouteAuthError {
     fn into_response(self) -> axum::response::Response {
-        use axum::http::StatusCode;
-        use axum::Json;
-        let (status, msg) = match &self {
-            RouteAuthError::MountNotFound(m) => (StatusCode::NOT_FOUND, format!("Mount '{}' not registered", m)),
-            RouteAuthError::Expired(ts) => (StatusCode::FORBIDDEN, format!("Virtual mount access expired at timestamp {}", ts)),
-            RouteAuthError::SubpathForbidden(p) => (StatusCode::FORBIDDEN, format!("Subpath '{}' is forbidden by access policy", p)),
-            RouteAuthError::PathTraversal(p) => (StatusCode::FORBIDDEN, format!("Security violation: Path traversal forbidden ({})", p)),
-            RouteAuthError::WriteDenied(mode) => (StatusCode::METHOD_NOT_ALLOWED, format!("Write denied on mount with mode {:?}", mode)),
+        let problem = match &self {
+            RouteAuthError::MountNotFound(m) => crate::security::ProblemDetails::mount_not_found(m, None),
+            RouteAuthError::Expired(_) => crate::security::ProblemDetails::new(
+                axum::http::StatusCode::FORBIDDEN,
+                "https://aetherstream.dev/errors/mount-expired",
+                "Mount Access Expired",
+                "Virtual mount authorization has expired.",
+            )
+            .with_code("MOUNT_EXPIRED"),
+            RouteAuthError::SubpathForbidden(p) => crate::security::ProblemDetails::forbidden_subpath(p, None),
+            RouteAuthError::PathTraversal(_) => crate::security::ProblemDetails::path_traversal(None),
+            RouteAuthError::WriteDenied(mode) => crate::security::ProblemDetails::new(
+                axum::http::StatusCode::METHOD_NOT_ALLOWED,
+                "https://aetherstream.dev/errors/write-denied",
+                "Write Operation Denied",
+                format!("Write operations are forbidden for virtual mount mode {:?}.", mode),
+            )
+            .with_code("WRITE_DENIED"),
         };
-        (status, Json(serde_json::json!({
-            "type": "https://aetherstream.dev/errors/authorization",
-            "title": "Route Authorization Violation",
-            "status": status.as_u16(),
-            "detail": msg
-        }))).into_response()
+        problem.into_response()
     }
 }
 

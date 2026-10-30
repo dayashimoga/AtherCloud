@@ -27,8 +27,8 @@ impl RangeRequestEngine {
         let meta = match tokio::fs::metadata(file_path).await {
             Ok(m) => m,
             Err(e) => {
-                error!("Unable to retrieve metadata for {:?}: {}", file_path, e);
-                return (StatusCode::NOT_FOUND, "File not found").into_response();
+                error!("Unable to retrieve metadata for file: {}", e);
+                return crate::security::ProblemDetails::resource_not_found(None).into_response();
             }
         };
 
@@ -49,8 +49,8 @@ impl RangeRequestEngine {
         let mut file = match File::open(file_path).await {
             Ok(f) => f,
             Err(e) => {
-                error!("Failed to open file {:?}: {}", file_path, e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, "I/O read failure").into_response();
+                error!("Failed to open file: {}", e);
+                return crate::security::ProblemDetails::internal_io_error(None).into_response();
             }
         };
 
