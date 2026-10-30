@@ -66,9 +66,31 @@ export class VideoPlayerComponent {
   // Double-tap gestures & ripple feedback
   private seekRippleLeft: HTMLElement | null = null;
   private seekRippleRight: HTMLElement | null = null;
-  private lastTapTime = 0;
   private controlsHideTimer: number | null = null;
   private isSeeking = false;
+
+  // Responsive Touch Gestures State (Swipe to seek, double-tap, pinch-to-zoom)
+  private touchStartX = 0;
+  private touchStartY = 0;
+  private touchStartTime = 0;
+  private lastTapTime = 0;
+  private isSwipingToSeek = false;
+  private swipeSeekBaseTime = 0;
+  private swipeTargetTime = 0;
+
+  // Pinch to Zoom State
+  private isPinching = false;
+  private initialPinchDistance = 0;
+  private currentZoomScale = 1.0;
+  private initialPinchScale = 1.0;
+  private pinchHideTimer: number | null = null;
+
+  // Touch Indicators
+  private touchSeekIndicator: HTMLElement | null = null;
+  private touchSeekDiff: HTMLElement | null = null;
+  private touchSeekTarget: HTMLElement | null = null;
+  private pinchZoomIndicator: HTMLElement | null = null;
+  private pinchZoomText: HTMLElement | null = null;
 
   // Resolution and rendition state
   private isManualResolution = false;
@@ -122,8 +144,14 @@ export class VideoPlayerComponent {
     this.theaterBtn = document.getElementById("player-theater-btn") as HTMLButtonElement | null;
     this.fullscreenBtn = document.getElementById("player-fullscreen-btn") as HTMLButtonElement | null;
 
+    // Gesture ripples and indicators
     this.seekRippleLeft = document.getElementById("seek-ripple-left");
     this.seekRippleRight = document.getElementById("seek-ripple-right");
+    this.touchSeekIndicator = document.getElementById("touch-seek-indicator");
+    this.touchSeekDiff = document.getElementById("touch-seek-diff");
+    this.touchSeekTarget = document.getElementById("touch-seek-target");
+    this.pinchZoomIndicator = document.getElementById("pinch-zoom-indicator");
+    this.pinchZoomText = document.getElementById("pinch-zoom-text");
 
     this.applyStoredSettings();
     this.bindControls();
@@ -230,7 +258,6 @@ export class VideoPlayerComponent {
       if (this.seekRange) {
         this.seekRange.value = "0";
       }
-      // Re-apply rate on metadata load in case browser resets
       this.videoElement.playbackRate = this.settingsManager.getPlaybackRate();
     };
 
@@ -355,10 +382,13 @@ export class VideoPlayerComponent {
       };
     }
 
-    // 12. Mobile Touch Double-Tap Gestures & Inactivity Timer
+    // 12. Responsive Mobile Touch Gestures (Swipe to seek, double-tap, pinch to zoom)
     if (this.videoWrapper) {
       this.videoWrapper.onmousemove = () => this.handleUserActivity();
-      this.videoWrapper.ontouchstart = (e) => this.handleTouch(e);
+      this.videoWrapper.ontouchstart = (e) => this.handleTouchStart(e);
+      this.videoWrapper.ontouchmove = (e) => this.handleTouchMove(e);
+      this.videoWrapper.ontouchend = (e) => this.handleTouchEnd(e);
+      this.videoWrapper.ontouchcancel = () => this.handleTouchCancel();
     }
 
     // 13. Keyboard Navigation
@@ -409,6 +439,185 @@ export class VideoPlayerComponent {
     });
   }
 
+  /* -------------------------------------------------------------------------- */
+  /* Touch Gestures Implementation                                              */
+  /* -------------------------------------------------------------------------- */
+
+  private getTouchDistance(t1: Touch, t2: Touch): number {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  private handleTouchStart(e: TouchEvent) {
+    if (e.touches.length === 2) {
+      // Pinch to Zoom start
+      this.isPinching = true;
+      this.isSwipingToSeek = false;
+      this.hideTouchSeekIndicator();
+      this.initialPinchDistance = this.getTouchDistance(e.touches[0], e.touches[1]);
+      this.initialPinchScale = this.currentZoomScale;
+      return;
+    }
+
+    if (e.touches.length === 1) {
+      this.isPinching = false;
+      this.isSwipingToSeek = false;
+      this.touchStartX = e.touches[0].clientX;
+      this.touchStartY = e.touches[0].clientY;
+      this.touchStartTime = Date.now();
+      this.swipeSeekBaseTime = this.videoElement.currentTime;
+      this.swipeTargetTime = this.swipeSeekBaseTime;
+    }
+  }
+
+  private handleTouchMove(e: TouchEvent) {
+    // 1. Pinch to Zoom
+    if (this.isPinching && e.touches.length === 2) {
+      e.preventDefault();
+      const currentDist = this.getTouchDistance(e.touches[0], e.touches[1]);
+      if (this.initialPinchDistance > 0) {
+        const factor = currentDist / this.initialPinchDistance;
+        const targetScale = Math.max(1.0, Math.min(3.0, this.initialPinchScale * factor));
+        this.setZoomScale(targetScale);
+      }
+      return;
+    }
+
+    // 2. Swipe to Seek
+    if (!this.isPinching && e.touches.length === 1) {
+      const touchX = e.touches[0].clientX;
+      const touchY = e.touches[0].clientY;
+      const deltaX = touchX - this.touchStartX;
+      const deltaY = touchY - this.touchStartY;
+
+      if (!this.isSwipingToSeek && Math.abs(deltaX) > 15 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
+        this.isSwipingToSeek = true;
+      }
+
+      if (this.isSwipingToSeek) {
+        e.preventDefault();
+        const rect = this.videoWrapper?.getBoundingClientRect();
+        const width = rect?.width || 360;
+        const dur = this.videoElement.duration || 60;
+
+        // Proportional seek delta: across full viewport width scrubs up to 120s or 20% of duration
+        const maxRange = Math.max(45, Math.min(180, dur * 0.2));
+        const seekDelta = (deltaX / width) * maxRange;
+        this.swipeTargetTime = Math.max(0, Math.min(this.swipeSeekBaseTime + seekDelta, dur));
+
+        this.showTouchSeekIndicator(seekDelta, this.swipeTargetTime, dur);
+      }
+    }
+  }
+
+  private handleTouchEnd(e: TouchEvent) {
+    if (this.isPinching) {
+      if (e.touches.length < 2) {
+        this.isPinching = false;
+        if (this.currentZoomScale < 1.08) {
+          this.resetZoom();
+        }
+        this.scheduleHidePinchIndicator();
+      }
+      return;
+    }
+
+    if (this.isSwipingToSeek) {
+      e.preventDefault();
+      this.isSwipingToSeek = false;
+      this.hideTouchSeekIndicator();
+      this.videoElement.currentTime = this.swipeTargetTime;
+      return;
+    }
+
+    // Single Tap vs Double Tap Detection
+    if (e.changedTouches.length === 1) {
+      const touchX = e.changedTouches[0].clientX;
+      const touchY = e.changedTouches[0].clientY;
+      const moveDist = Math.hypot(touchX - this.touchStartX, touchY - this.touchStartY);
+      const tapDuration = Date.now() - this.touchStartTime;
+
+      if (moveDist < 14 && tapDuration < 350) {
+        const now = Date.now();
+        const rect = this.videoWrapper?.getBoundingClientRect();
+
+        if (rect && now - this.lastTapTime < 320) {
+          // Double Tap Detected
+          const relX = touchX - rect.left;
+          if (relX < rect.width * 0.35) {
+            this.seekRelative(-10); // Left 35%: -10s
+          } else if (relX > rect.width * 0.65) {
+            this.seekRelative(10); // Right 35%: +10s
+          } else {
+            this.togglePlay(); // Center 30%: Play/Pause
+          }
+          this.lastTapTime = 0;
+        } else {
+          // Single Tap: Toggle Controls
+          this.lastTapTime = now;
+          this.toggleControls();
+        }
+      }
+    }
+  }
+
+  private handleTouchCancel() {
+    this.isPinching = false;
+    this.isSwipingToSeek = false;
+    this.hideTouchSeekIndicator();
+    this.scheduleHidePinchIndicator();
+  }
+
+  public setZoomScale(scale: number) {
+    const clamped = Math.max(1.0, Math.min(3.0, scale));
+    this.currentZoomScale = clamped;
+    this.videoElement.style.transform = clamped > 1.001 ? `scale(${clamped.toFixed(2)})` : "none";
+
+    if (this.pinchZoomIndicator && this.pinchZoomText) {
+      this.pinchZoomText.textContent = `${clamped.toFixed(1)}x`;
+      this.pinchZoomIndicator.classList.remove("hidden");
+    }
+  }
+
+  public getZoomScale(): number {
+    return this.currentZoomScale;
+  }
+
+  public resetZoom() {
+    this.setZoomScale(1.0);
+    this.scheduleHidePinchIndicator();
+  }
+
+  public isZoomed(): boolean {
+    return this.currentZoomScale > 1.05;
+  }
+
+  private scheduleHidePinchIndicator() {
+    if (this.pinchHideTimer !== null) {
+      clearTimeout(this.pinchHideTimer);
+    }
+    this.pinchHideTimer = window.setTimeout(() => {
+      this.pinchZoomIndicator?.classList.add("hidden");
+      this.pinchHideTimer = null;
+    }, 1200);
+  }
+
+  private showTouchSeekIndicator(deltaSeconds: number, targetTime: number, totalDuration: number) {
+    if (!this.touchSeekIndicator) return;
+    const sign = deltaSeconds >= 0 ? "+" : "";
+    const diffText = `${sign}${Math.round(deltaSeconds)}s`;
+    const targetText = `${this.formatTime(targetTime)} / ${this.formatTime(totalDuration)}`;
+
+    if (this.touchSeekDiff) this.touchSeekDiff.textContent = diffText;
+    if (this.touchSeekTarget) this.touchSeekTarget.textContent = targetText;
+    this.touchSeekIndicator.classList.remove("hidden");
+  }
+
+  private hideTouchSeekIndicator() {
+    this.touchSeekIndicator?.classList.add("hidden");
+  }
+
   public toggleTelemetryHud() {
     if (this.telemetryHudEl) {
       this.telemetryHudEl.classList.toggle("hidden");
@@ -441,30 +650,6 @@ export class VideoPlayerComponent {
     setTimeout(() => {
       el.classList.add("hidden");
     }, 450);
-  }
-
-  private handleTouch(e: TouchEvent) {
-    if (e.touches.length !== 1) return;
-    const now = Date.now();
-    const touchX = e.touches[0].clientX;
-    const rect = this.videoWrapper?.getBoundingClientRect();
-
-    if (rect && now - this.lastTapTime < 300) {
-      // Double tap detected
-      const relX = touchX - rect.left;
-      if (relX < rect.width * 0.35) {
-        this.seekRelative(-10);
-      } else if (relX > rect.width * 0.65) {
-        this.seekRelative(10);
-      } else {
-        this.togglePlay();
-      }
-      this.lastTapTime = 0;
-    } else {
-      // Single tap -> toggle controls
-      this.lastTapTime = now;
-      this.toggleControls();
-    }
   }
 
   private handleUserActivity() {
@@ -1047,6 +1232,7 @@ export class VideoPlayerComponent {
 
   destroy() {
     this.stopTelemetryLoop();
+    this.resetZoom();
     if (this.controlsHideTimer !== null) {
       clearTimeout(this.controlsHideTimer);
       this.controlsHideTimer = null;
@@ -1054,6 +1240,10 @@ export class VideoPlayerComponent {
     if (this.toastTimer !== null) {
       clearTimeout(this.toastTimer);
       this.toastTimer = null;
+    }
+    if (this.pinchHideTimer !== null) {
+      clearTimeout(this.pinchHideTimer);
+      this.pinchHideTimer = null;
     }
     if (this.hls) {
       this.hls.destroy();

@@ -750,6 +750,73 @@ video {
   border-top-right-radius: var(--radius);
 }
 
+/* Touch Gesture Indicators */
+.touch-seek-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(10, 12, 16, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--accent);
+  padding: 12px 24px;
+  border-radius: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 30;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.touch-seek-indicator.hidden {
+  opacity: 0;
+  transform: translate(-50%, -45%) scale(0.95);
+  pointer-events: none;
+}
+
+.touch-seek-diff {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.touch-seek-target {
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.pinch-zoom-indicator {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  background: rgba(10, 12, 16, 0.88);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 16px;
+  pointer-events: none;
+  z-index: 30;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  transition: opacity 0.2s ease;
+}
+
+.pinch-zoom-indicator.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.video-wrapper video {
+  transition: transform 0.08s ease-out;
+  transform-origin: center center;
+}
+
 /* Stats for Nerds Telemetry HUD */
 .telemetry-hud {
   position: absolute;
