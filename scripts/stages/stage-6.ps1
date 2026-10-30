@@ -118,12 +118,31 @@ function Test-Subphase-6-2-1 {
 
 function Test-Subphase-6-2-2 {
     Write-AetherLog "INFO" "Auditing Subphase 6.2.2: Android CI Packaging (APK & AAB)..."
+    $appGradlePath = Join-Path $Script:RepoRoot "client/android/app/build.gradle"
+    if (-not (Test-Path $appGradlePath)) { throw "client/android/app/build.gradle missing!" }
+    $gradleContent = Get-Content $appGradlePath -Raw
+    if (-not ($gradleContent -match "io\.aetherstream\.app")) {
+        throw "Android application ID invalid in build.gradle!"
+    }
+    if (-not ($gradleContent -match "signingConfigs")) {
+        throw "Android signingConfigs missing in build.gradle!"
+    }
+
+    $ps1Script = Join-Path $Script:RepoRoot "scripts/build-android.ps1"
+    $shScript = Join-Path $Script:RepoRoot "scripts/build-android.sh"
+    if (-not (Test-Path $ps1Script)) { throw "scripts/build-android.ps1 missing!" }
+    if (-not (Test-Path $shScript)) { throw "scripts/build-android.sh missing!" }
+
     $wfPath = Join-Path $Script:RepoRoot ".github/workflows/build-and-release.yml"
     $content = Get-Content $wfPath -Raw
-    if (-not ($content -match "assembleDebug" -and $content -match "bundleRelease")) {
+    if (-not ($content -match "assembleDebug" -and $content -match "assembleRelease" -and $content -match "bundleRelease")) {
         throw "Android Gradle APK and AAB build steps missing in CI workflow!"
     }
-    Write-AetherLog "SUCCESS" "Android debug APK and Play Store AAB CI jobs verified."
+    if (-not ($content -match "aetherstream-android-debug-apk" -and $content -match "aetherstream-android-release-aab")) {
+        throw "Android APK and AAB artifact upload definitions missing in CI workflow!"
+    }
+
+    Write-AetherLog "SUCCESS" "Android debug APK, release APK, and Play Store AAB CI jobs verified."
     return $true
 }
 

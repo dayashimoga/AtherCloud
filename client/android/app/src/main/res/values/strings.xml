@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AetherStream</string>
+    <string name="title_activity_main">AetherStream</string>
+    <string name="package_name">io.aetherstream.app</string>
+    <string name="custom_url_scheme">io.aetherstream.app</string>
+</resources>

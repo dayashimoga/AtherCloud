@@ -1076,3 +1076,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Desktop Client Architect & Release Engineer
 - **Execution Trace:** cargo test --test security_tests test_tauri_desktop_bundler_configuration_suite
 - **Validation Proof:** Configured production Tauri desktop bundler in client/src-tauri/tauri.conf.json generating Windows .msi (WiX) and .exe (NSIS), Linux .deb (libwebkit2gtk-4.0-37, libgtk-3-0, libappindicator3-1 dependencies) and .AppImage, and macOS .dmg. Enhanced .github/workflows/build-and-release.yml with build-desktop-clients matrix job across Windows, Linux, and macOS uploading desktop installer artifacts and linked into release checksum manifest. Created scripts/build-desktop.ps1 and scripts/build-desktop.sh for localized cross-compilation and dry-run validation. Verified via test_tauri_desktop_bundler_configuration_suite with all 67 integration tests passing.
+
+### [2026-10-30T13:00:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-12.2.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Mobile Release Engineer & Android Systems Architect
+- **Execution Trace:** cargo test --test security_tests test_capacitor_android_signed_apk_and_aab_workflow_suite
+- **Validation Proof:** Configured production Capacitor Android packaging pipeline in client/android/app/build.gradle with applicationId io.aetherstream.app, v1.2.0 (versionCode 120), signingConfigs supporting release keystores, and release buildType signing attachment. Configured client/capacitor.config.json and client/capacitor.config.ts with AAB release target. Updated .github/workflows/build-and-release.yml with Gradle build steps for assembleDebug, assembleRelease, and bundleRelease uploading signed release APKs and Play Store AAB. Developed automation utilities scripts/build-android.ps1 and scripts/build-android.sh and updated scripts/stages/stage-6.ps1 audit validator. Verified via test_capacitor_android_signed_apk_and_aab_workflow_suite with all 68 integration tests passing.

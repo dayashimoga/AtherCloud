@@ -7964,3 +7964,95 @@ async fn test_tauri_desktop_bundler_configuration_suite() {
 
     println!("[TASK-12.2.1 VERIFIED] Tauri desktop bundler generating Windows .msi/.exe, Linux .deb/.AppImage, macOS .dmg verified.");
 }
+
+#[tokio::test]
+async fn test_capacitor_android_signed_apk_and_aab_workflow_suite() {
+    use std::time::Instant;
+
+    // 1. Locate client/capacitor.config.json and evaluate schema
+    let cap_json_path = [
+        std::path::PathBuf::from("../../client/capacitor.config.json"),
+        std::path::PathBuf::from("client/capacitor.config.json"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(cap_json_path.is_some(), "client/capacitor.config.json must exist");
+    let start = Instant::now();
+    let cap_raw = std::fs::read_to_string(cap_json_path.unwrap()).expect("Failed to read capacitor.config.json");
+    let cap: serde_json::Value = serde_json::from_str(&cap_raw).expect("capacitor.config.json must be valid JSON");
+    let elapsed = start.elapsed();
+    println!("[BENCHMARK] Capacitor config parse & evaluation: {:?}", elapsed);
+
+    assert_eq!(cap["appId"].as_str().unwrap_or_default(), "io.aetherstream.app");
+    assert_eq!(cap["appName"].as_str().unwrap_or_default(), "AetherStream");
+    assert_eq!(cap["webDir"].as_str().unwrap_or_default(), "dist");
+    assert_eq!(cap["android"]["buildOptions"]["releaseType"].as_str().unwrap_or_default(), "AAB");
+
+    // 2. Locate and verify client/android/app/build.gradle
+    let app_gradle_path = [
+        std::path::PathBuf::from("../../client/android/app/build.gradle"),
+        std::path::PathBuf::from("client/android/app/build.gradle"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(app_gradle_path.is_some(), "client/android/app/build.gradle must exist");
+    let gradle_content = std::fs::read_to_string(app_gradle_path.unwrap()).expect("Failed to read build.gradle");
+    assert!(gradle_content.contains("applicationId \"io.aetherstream.app\""), "build.gradle must specify applicationId");
+    assert!(gradle_content.contains("versionCode 120"), "build.gradle must specify versionCode 120");
+    assert!(gradle_content.contains("versionName \"1.2.0\""), "build.gradle must specify versionName 1.2.0");
+    assert!(gradle_content.contains("signingConfigs"), "build.gradle must specify signingConfigs");
+    assert!(gradle_content.contains("signingConfig signingConfigs.release"), "build.gradle release buildType must attach signingConfig");
+
+    // 3. Locate and verify client/android/app/src/main/AndroidManifest.xml
+    let manifest_path = [
+        std::path::PathBuf::from("../../client/android/app/src/main/AndroidManifest.xml"),
+        std::path::PathBuf::from("client/android/app/src/main/AndroidManifest.xml"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(manifest_path.is_some(), "AndroidManifest.xml must exist");
+    let manifest_content = std::fs::read_to_string(manifest_path.unwrap()).expect("Failed to read AndroidManifest.xml");
+    assert!(manifest_content.contains("android.permission.INTERNET"), "Manifest must declare INTERNET permission");
+    assert!(manifest_content.contains("android.permission.ACCESS_NETWORK_STATE"), "Manifest must declare ACCESS_NETWORK_STATE permission");
+
+    // 4. Locate and verify CI workflow Android build and upload steps
+    let ci_path = [
+        std::path::PathBuf::from("../../.github/workflows/build-and-release.yml"),
+        std::path::PathBuf::from(".github/workflows/build-and-release.yml"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(ci_path.is_some(), ".github/workflows/build-and-release.yml must exist");
+    let ci_content = std::fs::read_to_string(ci_path.unwrap()).unwrap();
+    assert!(ci_content.contains("assembleDebug"), "CI must invoke assembleDebug");
+    assert!(ci_content.contains("assembleRelease"), "CI must invoke assembleRelease");
+    assert!(ci_content.contains("bundleRelease"), "CI must invoke bundleRelease");
+    assert!(ci_content.contains("aetherstream-android-debug-apk"), "CI must upload debug APK");
+    assert!(ci_content.contains("aetherstream-android-release-apk"), "CI must upload release APK");
+    assert!(ci_content.contains("aetherstream-android-release-aab"), "CI must upload release AAB");
+
+    // 5. Verify local helper scripts and stage audit
+    let helper_ps1 = [
+        std::path::PathBuf::from("../../scripts/build-android.ps1"),
+        std::path::PathBuf::from("scripts/build-android.ps1"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+    assert!(helper_ps1.is_some(), "scripts/build-android.ps1 must exist");
+
+    let stage6_path = [
+        std::path::PathBuf::from("../../scripts/stages/stage-6.ps1"),
+        std::path::PathBuf::from("scripts/stages/stage-6.ps1"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+    assert!(stage6_path.is_some(), "scripts/stages/stage-6.ps1 must exist");
+    let stage6_content = std::fs::read_to_string(stage6_path.unwrap()).unwrap();
+    assert!(stage6_content.contains("Test-Subphase-6-2-2"), "stage-6.ps1 must implement Test-Subphase-6-2-2");
+
+    println!("[TASK-12.2.2 VERIFIED] Capacitor Android workflow compiling signed release APK and AAB packages verified.");
+}

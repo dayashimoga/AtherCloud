@@ -7,6 +7,11 @@ export interface CapacitorConfig {
     cleartext?: boolean;
     url?: string;
   };
+  android?: {
+    buildOptions?: {
+      releaseType?: string;
+    };
+  };
   plugins?: Record<string, any>;
 }
 
@@ -17,6 +22,11 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: "https",
     cleartext: true,
+  },
+  android: {
+    buildOptions: {
+      releaseType: "AAB",
+    },
   },
   plugins: {
     SplashScreen: {

@@ -6,6 +6,11 @@
     "androidScheme": "https",
     "cleartext": true
   },
+  "android": {
+    "buildOptions": {
+      "releaseType": "AAB"
+    }
+  },
   "plugins": {
     "SplashScreen": {
       "launchShowDuration": 1500,
@@ -18,4 +23,3 @@
     }
   }
 }
-

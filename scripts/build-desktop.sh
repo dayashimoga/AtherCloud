@@ -70,3 +70,4 @@ if [ -d "$BUNDLE_DIR" ]; then
 fi
 
 echo "[SUCCESS] Desktop bundling completed successfully."
+

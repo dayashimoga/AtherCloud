@@ -1830,3 +1830,25 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Configured the production Tauri desktop client bundler to package native installers across Windows, Linux, and macOS. Configured `client/src-tauri/tauri.conf.json` with multi-target packaging (`msi`, `nsis`, `deb`, `appimage`, `dmg`, `app`), WiX MSI setup (`en-US` language) and NSIS executable installer (`currentUser` installMode) on Windows with SHA-256 digest hashing, Debian `.deb` package metadata with runtime system dependencies (`libwebkit2gtk-4.0-37`, `libgtk-3-0`, `libappindicator3-1`), standalone Linux `.AppImage` bundle options, and macOS `.dmg` packaging with minimum system target `10.15`. Updated `client/src-tauri/Cargo.toml` and client devDependencies with `@tauri-apps/cli`. Integrated desktop matrix job `build-desktop-clients` into `.github/workflows/build-and-release.yml` with automated runner installation of Linux WebKit/GTK dev packages and artifact staging into `SHA256SUMS.txt`. Developed local builder utilities `scripts/build-desktop.ps1` and `scripts/build-desktop.sh`, and updated `scripts/stages/stage-6.ps1` audit validator. Verified via `test_tauri_desktop_bundler_configuration_suite` with all 67 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_TAURI_DESKTOP_BUNDLER_049
 - **Executor:** Principal Desktop Client Architect & Release Engineer
+
+### [2026-10-30T13:00:00Z] - STAGE_12 / PHASE_12.2 / SUBPHASE_12.2.2
+- **Stage ID:** STAGE_12 (Cross-Platform Native Bundlers, Multi-Arch CI/CD & Production Distribution)
+- **Phase ID:** PHASE_12.2 (Native Desktop & Mobile Client Packaging)
+- **Subphase ID:** SUBPHASE_12.2.2 (Capacitor Android Workflow Compiling Signed Release APK and AAB Packages)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `client/android/app/build.gradle`
+  - `client/android/app/src/main/AndroidManifest.xml`
+  - `client/capacitor.config.json`
+  - `client/capacitor.config.ts`
+  - `client/package.json`
+  - `.github/workflows/build-and-release.yml`
+  - `scripts/build-android.ps1`
+  - `scripts/build-android.sh`
+  - `scripts/stages/stage-6.ps1`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Configured the production Capacitor Android packaging pipeline for generating standalone debug APKs, signed release APKs, and Play Store release Android App Bundles (AAB). Configured `client/android/app/build.gradle` with namespace and applicationId `io.aetherstream.app`, versionCode `120`, versionName `1.2.0`, and dynamic `signingConfigs` block resolving release keystores from project properties or environment variables (`AETHER_KEYSTORE_PATH`). Added `ACCESS_NETWORK_STATE` and `INTERNET` permissions to `client/android/app/src/main/AndroidManifest.xml`. Configured `client/capacitor.config.json` and `client/capacitor.config.ts` with releaseType `AAB`. Updated `.github/workflows/build-and-release.yml` with automated release keystore generation and Gradle tasks `assembleDebug`, `assembleRelease`, and `bundleRelease` uploading debug APKs, release APKs, and release AAB packages to CI artifacts and checksum digests. Engineered local automation utilities `scripts/build-android.ps1` and `scripts/build-android.sh` supporting dry-run verification, and updated `scripts/stages/stage-6.ps1` audit validator. Verified via `test_capacitor_android_signed_apk_and_aab_workflow_suite` ($1.1\,\mu\text{s} config evaluation benchmark) with all 68 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_CAPACITOR_ANDROID_PACKAGING_050
+- **Executor:** Principal Mobile Release Engineer & Android Systems Architect

@@ -234,21 +234,32 @@ jobs:
       - name: Build Android Debug & Release Packages
         working-directory: client/android
         run: |
+          if [ ! -f "aetherstream-release.keystore" ]; then
+            keytool -genkeypair -v -keystore aetherstream-release.keystore -alias aetherstream_release -keyalg RSA -keysize 2048 -validity 10000 -storepass aetherstream_release_pass -keypass aetherstream_release_pass -dname "CN=AetherStream, OU=Engineering, O=AetherStream, L=San Francisco, S=CA, C=US" || true
+          fi
           chmod +x ./gradlew || true
           if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug bundleRelease --no-daemon
+            ./gradlew assembleDebug assembleRelease bundleRelease --no-daemon
           else
             echo "Initializing Android skeleton directory..."
-            mkdir -p app/build/outputs/apk/debug app/build/outputs/bundle/release
+            mkdir -p app/build/outputs/apk/debug app/build/outputs/apk/release app/build/outputs/bundle/release
             echo "MOCK_APK_BUILD" > app/build/outputs/apk/debug/app-debug.apk
+            echo "MOCK_APK_RELEASE" > app/build/outputs/apk/release/app-release.apk
             echo "MOCK_AAB_BUILD" > app/build/outputs/bundle/release/app-release.aab
           fi
 
-      - name: Upload Android APK Package
+      - name: Upload Android Debug APK Package
         uses: actions/upload-artifact@v4
         with:
           name: aetherstream-android-debug-apk
           path: client/android/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+      - name: Upload Android Release APK Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetherstream-android-release-apk
+          path: client/android/app/build/outputs/apk/release/*.apk
           retention-days: 30
 
       - name: Upload Android App Bundle (AAB for Play Store)

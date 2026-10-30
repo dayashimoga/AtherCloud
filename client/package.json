@@ -1,7 +1,7 @@
 {
   "name": "aetherstream-client",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,14 +10,19 @@
     "cap:sync": "cap sync",
     "cap:android": "cap open android",
     "cap:ios": "cap open ios",
+    "android:sync": "cap sync android",
+    "android:build": "cd android && ./gradlew assembleDebug assembleRelease bundleRelease",
     "tauri": "tauri",
     "tauri:build": "tauri build",
     "tauri:dev": "tauri dev"
   },
   "dependencies": {
+    "@capacitor/core": "^5.7.8",
     "hls.js": "^1.5.8"
   },
   "devDependencies": {
+    "@capacitor/android": "^5.7.8",
+    "@capacitor/cli": "^5.7.8",
     "@tauri-apps/cli": "^1.6.3",
     "typescript": "^5.4.5",
     "vite": "^5.2.11"
