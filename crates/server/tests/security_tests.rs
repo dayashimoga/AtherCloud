@@ -1527,3 +1527,100 @@ async fn test_hotplug_broadcast_channel_and_dispatcher() {
 
     dispatcher_handle.abort();
 }
+
+#[tokio::test]
+async fn test_rfc7233_if_range_and_bounded_ring_buffer() {
+    use aetherstream_server::storage::{
+        RangeRequestEngine, ACTIVE_STREAM_COUNT, STREAM_RING_BUFFER_CAPACITY, TOTAL_STREAMED_BYTES,
+    };
+    use axum::body::to_bytes;
+    use axum::http::{header, HeaderMap, StatusCode};
+    use futures_util::StreamExt;
+    use std::sync::atomic::Ordering;
+    use tokio::fs::File;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_file = temp_dir.path().join("rfc7233_test_stream.bin");
+
+    // Write 300 KiB of test data
+    let total_size: usize = 300 * 1024;
+    let mut data = Vec::with_capacity(total_size);
+    for i in 0..total_size {
+        data.push((i % 251) as u8);
+    }
+    tokio::fs::write(&test_file, &data).await.unwrap();
+
+    let init_active = ACTIVE_STREAM_COUNT.load(Ordering::Relaxed);
+    let init_bytes = TOTAL_STREAMED_BYTES.load(Ordering::Relaxed);
+
+    // 1. Standard RFC 7233 Range Request
+    let mut headers = HeaderMap::new();
+    headers.insert(header::RANGE, "bytes=0-131071".parse().unwrap()); // 128 KiB
+    let resp = RangeRequestEngine::stream_file(&test_file, &headers).await;
+    assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_RANGE).unwrap(),
+        &format!("bytes 0-131071/{}", total_size)
+    );
+    assert_eq!(resp.headers().get(header::CONTENT_LENGTH).unwrap(), "131072");
+    let etag_val = resp.headers().get(header::ETAG).unwrap().to_str().unwrap().to_string();
+    assert!(etag_val.starts_with("W/\""));
+
+    let body_bytes = to_bytes(resp.into_body(), total_size).await.unwrap();
+    assert_eq!(body_bytes.len(), 131072);
+    assert_eq!(&body_bytes[..], &data[0..=131071]);
+
+    // 2. RFC 7233 If-Range matching validator -> returns 206 Partial Content
+    let mut if_range_headers = HeaderMap::new();
+    if_range_headers.insert(header::RANGE, "bytes=100-199".parse().unwrap());
+    if_range_headers.insert("if-range", etag_val.parse().unwrap());
+    let resp_matched = RangeRequestEngine::stream_file(&test_file, &if_range_headers).await;
+    assert_eq!(resp_matched.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(resp_matched.headers().get(header::CONTENT_LENGTH).unwrap(), "100");
+
+    // 3. RFC 7233 If-Range mismatched validator -> fallback to 200 OK (full representation)
+    let mut if_range_mismatch = HeaderMap::new();
+    if_range_mismatch.insert(header::RANGE, "bytes=100-199".parse().unwrap());
+    if_range_mismatch.insert("if-range", "W/\"mismatched-etag-value\"".parse().unwrap());
+    let resp_mismatched = RangeRequestEngine::stream_file(&test_file, &if_range_mismatch).await;
+    assert_eq!(resp_mismatched.status(), StatusCode::OK);
+    assert_eq!(
+        resp_mismatched.headers().get(header::CONTENT_LENGTH).unwrap(),
+        total_size.to_string().as_str()
+    );
+
+    // 4. Test create_bounded_range_stream helper with bounded 64 KiB ring buffer
+    let file = File::open(&test_file).await.unwrap();
+    let (mut bounded_stream, stream_len) =
+        RangeRequestEngine::create_bounded_range_stream(file, 65536, 131072)
+            .await
+            .expect("Bounded range stream creation");
+    assert_eq!(stream_len, 131072);
+
+    let mut chunks_received = 0;
+    let mut bytes_received = 0;
+    while let Some(chunk_res) = bounded_stream.next().await {
+        let chunk = chunk_res.expect("Valid stream chunk");
+        assert!(
+            chunk.len() <= STREAM_RING_BUFFER_CAPACITY,
+            "Chunk size {} exceeded bounded ring buffer capacity {}",
+            chunk.len(),
+            STREAM_RING_BUFFER_CAPACITY
+        );
+        bytes_received += chunk.len();
+        chunks_received += 1;
+    }
+    assert_eq!(bytes_received, 131072);
+    assert_eq!(chunks_received, 2); // 128 KiB / 64 KiB = 2 bounded chunks
+
+    // 5. Verify telemetry counters incremented
+    let final_active = ACTIVE_STREAM_COUNT.load(Ordering::Relaxed);
+    let final_bytes = TOTAL_STREAMED_BYTES.load(Ordering::Relaxed);
+    assert!(final_active > init_active, "Active stream count must increment");
+    assert!(final_bytes > init_bytes, "Total streamed bytes must increment");
+    println!(
+        "[RFC 7233 VERIFIED] Stream telemetry: active_count delta={}, bytes delta={}",
+        final_active - init_active,
+        final_bytes - init_bytes
+    );
+}

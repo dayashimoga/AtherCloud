@@ -13,6 +13,8 @@ pub use disk_watcher::{
 pub use indexer::FileTreeIndexer;
 pub use mounts::MountRegistry;
 pub use quarantine::PathQuarantine;
-pub use stream::RangeRequestEngine;
+pub use stream::{
+    RangeRequestEngine, ACTIVE_STREAM_COUNT, STREAM_RING_BUFFER_CAPACITY, TOTAL_STREAMED_BYTES,
+};
 pub use upload::ResumableUploadManager;
 pub use volume_info::{DiskMediaType, VolumeInfo, VolumeInspector};
