@@ -1,4 +1,5 @@
 import { AetherApi, CreateShareLinkOptions, PublicShareDetailsResponse } from "../services/api";
+import { ShareService } from "../services/shareService";
 
 export class ShareModalComponent {
   private modalEl: HTMLElement;
@@ -157,25 +158,16 @@ export class ShareModalComponent {
       this.wireCopyButton(this.copyDownloadBtn, this.downloadUrlInput);
     }
 
-    // Web Share API native sheet integration
+    // Web Share API native sheet integration with fallback
     if (this.webShareBtn) {
-      if (typeof navigator.share === "function") {
-        this.webShareBtn.addEventListener("click", async () => {
-          try {
-            await navigator.share({
-              title: `AetherStream: ${this.activePath || "Shared Media"}`,
-              text: `Stream or download media from AetherStream`,
-              url: this.urlInput.value,
-            });
-          } catch (err: any) {
-            if (err.name !== "AbortError") {
-              console.warn("[WebShare] Native share failed:", err);
-            }
-          }
+      this.webShareBtn.addEventListener("click", async () => {
+        if (!this.urlInput.value) return;
+        await ShareService.getInstance().share({
+          title: `AetherStream: ${this.activePath || "Shared Media"}`,
+          text: `Stream or download media from AetherStream`,
+          url: this.urlInput.value,
         });
-      } else {
-        this.webShareBtn.style.display = "none";
-      }
+      });
     }
 
     // QR Code toggle
@@ -195,9 +187,10 @@ export class ShareModalComponent {
   }
 
   private wireCopyButton(btn: HTMLButtonElement, input: HTMLInputElement) {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!input.value) return;
-      navigator.clipboard.writeText(input.value).then(() => {
+      const res = await ShareService.getInstance().copyToClipboard(input.value);
+      if (res.success) {
         const orig = btn.innerHTML;
         btn.innerHTML = "&#10003; Copied!";
         btn.classList.add("copied-pulse");
@@ -205,7 +198,7 @@ export class ShareModalComponent {
           btn.innerHTML = orig;
           btn.classList.remove("copied-pulse");
         }, 2000);
-      });
+      }
     });
   }
 

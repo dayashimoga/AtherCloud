@@ -271,6 +271,9 @@
                   <!-- Diagnostics HUD Toggle Button -->
                   <button id="player-stats-btn" class="ctrl-btn" title="Toggle Live Telemetry HUD (D)">&#128202;</button>
 
+                  <!-- 1-Tap Quick Share Button -->
+                  <button id="player-share-btn" class="ctrl-btn" title="Quick Share Link (S)">&#128279;</button>
+
                   <!-- Picture-in-Picture Button -->
                   <button id="player-pip-btn" class="ctrl-btn" title="Picture-in-Picture (P)">&#128471;</button>
 
@@ -607,6 +610,9 @@
           </div>
         </div>
       </div>
+
+      <!-- Global Toast Notification for 1-Tap Share & Clipboard -->
+      <div id="global-toast" class="global-toast hidden"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

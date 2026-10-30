@@ -1,4 +1,5 @@
 import { AetherApi, DiscoveredDriveItem, FileItem, MountItem } from "../services/api";
+import { ShareService } from "../services/shareService";
 
 export type ViewMode = "grid" | "list";
 
@@ -647,6 +648,17 @@ export class FileExplorerComponent {
           this.onShareItem?.(this.currentMount!, filePath);
         };
         actions.appendChild(shareBtn);
+
+        const quickShareBtn = document.createElement("button");
+        quickShareBtn.className = "btn btn-secondary btn-sm btn-quick-share";
+        quickShareBtn.title = "1-Tap Quick Share Link";
+        quickShareBtn.innerHTML = "&#128279;";
+        quickShareBtn.onclick = (e) => {
+          e.stopPropagation();
+          const filePath = this.currentPath ? `${this.currentPath}/${item.name}` : item.name;
+          this.quickShareFile(this.currentMount!, filePath, item.name);
+        };
+        actions.appendChild(quickShareBtn);
       }
 
       card.appendChild(icon);
@@ -765,6 +777,17 @@ export class FileExplorerComponent {
           this.onShareItem?.(this.currentMount!, filePath);
         };
         actions.appendChild(shareBtn);
+
+        const quickShareBtn = document.createElement("button");
+        quickShareBtn.className = "btn btn-secondary btn-sm btn-quick-share";
+        quickShareBtn.title = "1-Tap Quick Share Link";
+        quickShareBtn.innerHTML = "&#128279;";
+        quickShareBtn.onclick = (e) => {
+          e.stopPropagation();
+          const filePath = this.currentPath ? `${this.currentPath}/${item.name}` : item.name;
+          this.quickShareFile(this.currentMount!, filePath, item.name);
+        };
+        actions.appendChild(quickShareBtn);
       }
 
       row.appendChild(icon);
@@ -779,6 +802,22 @@ export class FileExplorerComponent {
 
   private isVideoFile(fileName: string): boolean {
     return /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(fileName);
+  }
+
+  private async quickShareFile(mount: string, path: string, fileName: string) {
+    const isVideo = this.isVideoFile(fileName);
+    const streamUrl = isVideo
+      ? AetherApi.getHlsMasterUrl(mount, path)
+      : AetherApi.getStreamUrl(mount, path);
+    const fullUrl = streamUrl.startsWith("http")
+      ? streamUrl
+      : `${window.location.origin}${streamUrl}`;
+
+    await ShareService.getInstance().share({
+      title: `AetherStream: ${fileName}`,
+      text: `Stream or download ${fileName} from AetherStream`,
+      url: fullUrl,
+    });
   }
 
   private getMediaIcon(fileName: string): string {

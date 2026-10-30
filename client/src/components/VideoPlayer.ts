@@ -1,6 +1,7 @@
 import Hls from "hls.js";
 import { PlaybackSettingsManager } from "../services/playbackSettings";
 import { AetherApi } from "../services/api";
+import { ShareService } from "../services/shareService";
 
 export interface RenditionInfo {
   index: number;
@@ -59,9 +60,14 @@ export class VideoPlayerComponent {
   private subtitlesBtn: HTMLButtonElement | null = null;
   private subtitlesSelect: HTMLSelectElement | null = null;
   private statsBtn: HTMLButtonElement | null = null;
+  private shareBtn: HTMLButtonElement | null = null;
   private pipBtn: HTMLButtonElement | null = null;
   private theaterBtn: HTMLButtonElement | null = null;
   private fullscreenBtn: HTMLButtonElement | null = null;
+
+  // Active Stream Source Tracking for 1-Tap Sharing
+  private currentSourceUrl: string | null = null;
+  private isCurrentHls = false;
 
   // Double-tap gestures & ripple feedback
   private seekRippleLeft: HTMLElement | null = null;
@@ -140,6 +146,7 @@ export class VideoPlayerComponent {
     this.subtitlesBtn = document.getElementById("player-subtitles-btn") as HTMLButtonElement | null;
     this.subtitlesSelect = document.getElementById("player-subtitles-select") as HTMLSelectElement | null;
     this.statsBtn = document.getElementById("player-stats-btn") as HTMLButtonElement | null;
+    this.shareBtn = document.getElementById("player-share-btn") as HTMLButtonElement | null;
     this.pipBtn = document.getElementById("player-pip-btn") as HTMLButtonElement | null;
     this.theaterBtn = document.getElementById("player-theater-btn") as HTMLButtonElement | null;
     this.fullscreenBtn = document.getElementById("player-fullscreen-btn") as HTMLButtonElement | null;
@@ -364,6 +371,11 @@ export class VideoPlayerComponent {
       };
     }
 
+    // 9b. 1-Tap Quick Share Link
+    if (this.shareBtn) {
+      this.shareBtn.onclick = () => this.handleQuickShare();
+    }
+
     // 10. Theater Mode Toggle
     if (this.theaterBtn) {
       this.theaterBtn.onclick = () => {
@@ -434,6 +446,11 @@ export class VideoPlayerComponent {
         case "m":
         case "M":
           this.muteBtn?.click();
+          break;
+        case "s":
+        case "S":
+          e.preventDefault();
+          this.shareBtn?.click();
           break;
       }
     });
@@ -722,6 +739,8 @@ export class VideoPlayerComponent {
 
   loadSource(url: string, isHls = false) {
     this.destroy();
+    this.currentSourceUrl = url;
+    this.isCurrentHls = isHls;
 
     // Reset controls UI state
     this.abrShiftCount = 0;
@@ -846,6 +865,27 @@ export class VideoPlayerComponent {
     });
 
     this.startTelemetryLoop();
+  }
+
+  public async handleQuickShare() {
+    if (!this.currentSourceUrl) return;
+    const fullUrl = this.currentSourceUrl.startsWith("http")
+      ? this.currentSourceUrl
+      : `${window.location.origin}${this.currentSourceUrl}`;
+    const videoTitle = document.getElementById("video-title")?.textContent || "AetherStream Video";
+
+    const shareText = this.isCurrentHls
+      ? `Stream ${videoTitle} in adaptive HLS on AetherStream`
+      : `Stream ${videoTitle} on AetherStream`;
+
+    const res = await ShareService.getInstance().share({
+      title: videoTitle,
+      text: shareText,
+      url: fullUrl,
+    });
+    if (res.success) {
+      this.showQualityToast(res.method === "web_share" ? "Shared Link!" : "Link Copied!");
+    }
   }
 
   private parseLevels(): RenditionInfo[] {
