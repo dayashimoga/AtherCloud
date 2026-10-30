@@ -2,10 +2,10 @@
     "project_name": "AetherStream",
     "schema_version": "2.0.0",
     "created_at": "2026-10-29T15:52:00Z",
-    "updated_at": "2026-10-30T06:30:00Z",
+    "updated_at": "2026-10-30T06:45:00Z",
     "current_stage": 8,
     "current_phase": "8.1",
-    "current_subphase": "8.1.1",
+    "current_subphase": "8.1.2",
     "stages": [
         {
             "id": "STAGE_1",
@@ -747,21 +747,21 @@
             "id": "STAGE_8",
             "number": 8,
             "title": "Granular Security Sandbox, Scoped RBAC & Virtual Mount Configuration",
-            "status": "PENDING",
+            "status": "IN_PROGRESS",
             "phases": [
                 {
                     "id": "PHASE_8.1",
                     "title": "SQLite WAL Mount Registry & Storage Schema",
-                    "status": "PENDING",
+                    "status": "IN_PROGRESS",
                     "subphases": [
                         {
                             "id": "SUBPHASE_8.1.1",
                             "task_id": "TASK-8.1.1",
                             "title": "Design and run SQLite migrations creating mounts and share_rules tables",
-                            "status": "PENDING",
-                            "completed_at": null,
-                            "validator_command": null,
-                            "verification_proof": null
+                            "status": "COMPLETED",
+                            "completed_at": "2026-10-30T06:45:00Z",
+                            "validator_command": "cargo test --test security_tests test_sqlite_wal_migrations_and_mount_registry_schema",
+                            "verification_proof": "Engineered SQLite schema migration engine in crates/server/src/storage/mount_manager.rs creating mounts and share_rules tables with WAL journal mode, permission_mode constraints, allowed_subpaths JSON arrays, and CRUD operations. Verified via test suite."
                         },
                         {
                             "id": "SUBPHASE_8.1.2",

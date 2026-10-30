@@ -1850,3 +1850,90 @@ async fn test_storage_telemetry_latency_and_bus_utilization() {
         snap_final.disk_bus_utilization_pct
     );
 }
+
+#[test]
+fn test_sqlite_wal_migrations_and_mount_registry_schema() {
+    use aetherstream_server::storage::mount_manager::{
+        MountManager, PermissionMode, ShareRuleRecord, VirtualMountRecord,
+    };
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("aetherstream_mounts.db");
+
+    // 1. Initialize SQLite database and execute schema migrations
+    let manager = MountManager::new(&db_path).expect("Initialize SQLite MountManager");
+
+    // Verify WAL mode was enabled
+    let journal_mode: String = rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .query_row("PRAGMA journal_mode;", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(journal_mode.to_lowercase(), "wal", "SQLite must operate in WAL journal mode");
+
+    // Verify idempotency of migrations
+    assert!(manager.run_migrations().is_ok(), "Re-running migrations must be idempotent");
+
+    // 2. Insert VirtualMountRecord with full column attributes
+    let mount_1 = VirtualMountRecord {
+        id: "mount-101-uuid".to_string(),
+        name: "movies".to_string(),
+        drive_serial: Some("WD-BLUE-778899".to_string()),
+        physical_path: "/data/storage/movies".to_string(),
+        permission_mode: PermissionMode::ReadOnly,
+        allowed_subpaths: vec!["action".to_string(), "sci-fi/classics".to_string()],
+        password_hash: Some("sha256$hashedpass123".to_string()),
+        expiration_ts: Some(1893456000),
+        created_at: "2026-10-30T10:00:00Z".to_string(),
+    };
+
+    manager.upsert_mount(&mount_1).expect("Insert mount record");
+
+    // 3. Query VirtualMountRecord by ID and by Name
+    let retrieved_by_id = manager.get_mount("mount-101-uuid").expect("Get mount by ID").unwrap();
+    assert_eq!(retrieved_by_id.id, "mount-101-uuid");
+    assert_eq!(retrieved_by_id.name, "movies");
+    assert_eq!(retrieved_by_id.drive_serial, Some("WD-BLUE-778899".to_string()));
+    assert_eq!(retrieved_by_id.physical_path, "/data/storage/movies");
+    assert_eq!(retrieved_by_id.permission_mode, PermissionMode::ReadOnly);
+    assert_eq!(retrieved_by_id.allowed_subpaths, vec!["action", "sci-fi/classics"]);
+    assert_eq!(retrieved_by_id.password_hash, Some("sha256$hashedpass123".to_string()));
+    assert_eq!(retrieved_by_id.expiration_ts, Some(1893456000));
+
+    let retrieved_by_name = manager.get_mount_by_name("movies").expect("Get mount by name").unwrap();
+    assert_eq!(retrieved_by_name.id, "mount-101-uuid");
+
+    // 4. Insert ShareRuleRecord into share_rules table
+    let share_1 = ShareRuleRecord {
+        id: "share-999-uuid".to_string(),
+        name: "guest_sci_fi_share".to_string(),
+        drive_serial: Some("WD-BLUE-778899".to_string()),
+        physical_path: "/data/storage/movies/sci-fi/classics".to_string(),
+        permission_mode: PermissionMode::StreamOnly,
+        allowed_subpaths: vec!["matrix_1080p.mp4".to_string()],
+        password_hash: None,
+        expiration_ts: Some(1893460000),
+        created_at: "2026-10-30T10:30:00Z".to_string(),
+    };
+
+    manager.upsert_share_rule(&share_1).expect("Insert share rule");
+
+    let retrieved_share = manager.get_share_rule("share-999-uuid").expect("Get share rule").unwrap();
+    assert_eq!(retrieved_share.name, "guest_sci_fi_share");
+    assert_eq!(retrieved_share.permission_mode, PermissionMode::StreamOnly);
+    assert_eq!(retrieved_share.allowed_subpaths, vec!["matrix_1080p.mp4"]);
+
+    // 5. Verify listings and deletion
+    let all_mounts = manager.list_mounts().expect("List mounts");
+    assert_eq!(all_mounts.len(), 1);
+
+    let all_shares = manager.list_share_rules().expect("List share rules");
+    assert_eq!(all_shares.len(), 1);
+
+    assert!(manager.delete_mount("mount-101-uuid").expect("Delete mount"));
+    assert_eq!(manager.list_mounts().unwrap().len(), 0);
+
+    assert!(manager.delete_share_rule("share-999-uuid").expect("Delete share rule"));
+    assert_eq!(manager.list_share_rules().unwrap().len(), 0);
+
+    println!("[SQLITE WAL SCHEMA VERIFIED] Successfully validated mounts and share_rules migrations and CRUD operations.");
+}

@@ -1160,3 +1160,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `StorageTelemetryEngine` in `crates/server/src/storage/telemetry.rs` instrumenting end-to-end I/O metrics: tracking active reading client streams via RAII `StreamLease` guards, recording individual and cumulative read/write latency in microseconds, and computing real-time disk bus bandwidth throughput rates (B/s) and bus utilization percentage. Wired telemetry recording into `RangeRequestEngine` and `ResumableUploadManager`. Exposed Axum REST telemetry endpoint `GET /api/v1/storage/telemetry`. Marked Stage 1 (Stage 7) complete. Verified via `test_storage_telemetry_latency_and_bus_utilization`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_STORAGE_TELEMETRY_009
 - **Executor:** Principal Systems & Rust Distributed Storage Engineer
+
+### [2026-10-30T06:45:00Z] - STAGE_8 / PHASE_8.1 / SUBPHASE_8.1.1
+- **Stage ID:** STAGE_8 (Granular Security Sandbox, Scoped RBAC & Virtual Mount Configuration)
+- **Phase ID:** PHASE_8.1 (SQLite WAL Mount Registry & Storage Schema)
+- **Subphase ID:** SUBPHASE_8.1.1 (SQLite Migrations for Mounts & Share Rules Schema)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `Cargo.lock`
+  - `crates/server/Cargo.toml`
+  - `crates/server/src/storage/mount_manager.rs` [CREATED]
+  - `crates/server/src/storage/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered SQLite database and schema migration engine `MountManager` in `crates/server/src/storage/mount_manager.rs`. Configured WAL mode (`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;`) and implemented migration 001 creating `mounts` and `share_rules` tables with columns: `id`, `name`, `drive_serial`, `physical_path`, `permission_mode` ('stream_only', 'read_only', 'read_write'), `allowed_subpaths` (JSON array), `password_hash`, `expiration_ts`, `created_at`, and `updated_at`. Implemented CRUD operations and validated via `test_sqlite_wal_migrations_and_mount_registry_schema`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_SQLITE_MIGRATION_010
+- **Executor:** Principal Security Architect & Systems Engineer

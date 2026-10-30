@@ -1,5 +1,6 @@
 pub mod disk_watcher;
 pub mod indexer;
+pub mod mount_manager;
 pub mod mounts;
 pub mod quarantine;
 pub mod stream;
@@ -12,6 +13,9 @@ pub use disk_watcher::{
     StorageDeviceEvent,
 };
 pub use indexer::FileTreeIndexer;
+pub use mount_manager::{
+    MountManager, MountManagerError, PermissionMode, ShareRuleRecord, VirtualMountRecord,
+};
 pub use mounts::MountRegistry;
 pub use quarantine::PathQuarantine;
 pub use stream::{

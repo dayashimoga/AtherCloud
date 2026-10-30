@@ -796,3 +796,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Systems & Rust Distributed Storage Engineer
 - **Execution Trace:** cargo test --test security_tests test_storage_telemetry_latency_and_bus_utilization
 - **Validation Proof:** Engineered StorageTelemetryEngine in crates/server/src/storage/telemetry.rs recording I/O read/write latency in microseconds, tracking active client stream leases, calculating disk bus throughput rates and utilization percentage against physical bandwidth ceilings. Exposed Axum REST telemetry endpoint /api/v1/storage/telemetry. Marked Stage 1 (Stage 7) complete. All 27 integration tests passed.
+
+### [2026-10-30T06:45:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-8.1.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Security Architect & Systems Engineer
+- **Execution Trace:** cargo test --test security_tests test_sqlite_wal_migrations_and_mount_registry_schema
+- **Validation Proof:** Engineered SQLite database and schema migration engine in crates/server/src/storage/mount_manager.rs. Created mounts and share_rules tables with WAL journal mode, strict permission_mode check constraints ('stream_only', 'read_only', 'read_write'), JSON allowed_subpaths array, drive serial numbers, expiration timestamps, and full CRUD query operations. All 28 integration tests passed.
