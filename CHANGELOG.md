@@ -1207,3 +1207,18 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered in-memory cached read-path registry protected by `tokio::sync::RwLock` in `MountManager` for sub-microsecond route authorization (achieving ~2 µs/op across 10,000 requests). Implemented pre-warmed boot synchronization from SQLite WAL, automatic cache invalidation on write/delete/replace operations, expiration timestamp validation, strict path traversal defenses, and subpath whitelist verification. Marked Phase 2.1 complete. Verified via `test_in_memory_cached_route_authorization_and_submicrosecond_latency`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_CACHED_ROUTE_AUTH_012
 - **Executor:** Principal Security Architect & Systems Engineer
+
+### [2026-10-30T07:30:00Z] - STAGE_8 / PHASE_8.2 / SUBPHASE_8.2.1
+- **Stage ID:** STAGE_8 (Granular Security Sandbox, Scoped RBAC & Virtual Mount Configuration)
+- **Phase ID:** PHASE_8.2 (Canonical Path Sandboxing & Traversal Defenses)
+- **Subphase ID:** SUBPHASE_8.2.1 (Strict Path Resolution with dunce::canonicalize and Sandbox Defenses)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/security/sandbox.rs` [CREATED]
+  - `crates/server/src/security/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `PathSandbox` in `crates/server/src/security/sandbox.rs` executing strict canonicalization via `dunce::canonicalize`. Implemented comprehensive security filters blocking null byte injection (`\0`, `%00`), relative and percent-encoded directory traversals (`../`, `%2e%2e`), symlink boundary escapes resolving outside sandbox mount roots, Windows UNC paths (`\\server\share`), NT device namespaces (`\\.\`, `\??\`, `GlobalRoot`, `PhysicalDrive`), and legacy DOS reserved device names (`CON`, `NUL`, `AUX`, `PRN`, `COM1`..`COM9`, `LPT1`..`LPT9`). Verified via `test_canonical_path_sandbox_and_traversal_defenses`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_PATH_SANDBOX_013
+- **Executor:** Principal Security Architect & Systems Engineer

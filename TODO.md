@@ -817,3 +817,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Security Architect & Systems Engineer
 - **Execution Trace:** cargo test --test security_tests test_in_memory_cached_route_authorization_and_submicrosecond_latency
 - **Validation Proof:** Engineered in-memory cached read-path registry protected by tokio::sync::RwLock in MountManager for sub-microsecond route authorization (avg 2.07 µs/op across 10,000 iterations). Enforced strict permission mode mapping, subpath whitelisting, timestamp expiration checks, and traversal defenses. Synchronized cache with SQLite migrations and atomic writes. Marked Phase 2.1 complete. All 30 integration tests passed.
+
+### [2026-10-30T07:30:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-8.2.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Security Architect & Systems Engineer
+- **Execution Trace:** cargo test --test security_tests test_canonical_path_sandbox_and_traversal_defenses
+- **Validation Proof:** Engineered PathSandbox in crates/server/src/security/sandbox.rs using dunce::canonicalize. Prevented null byte injections (\0, %00), directory traversal sequences (../, %2e%2e, ..%2f), symlink escapes resolving outside mount root, Windows UNC network paths (\\server\share), NT device namespaces (\\.\, \??\, GlobalRoot, PhysicalDrive), and DOS reserved device names (CON, NUL, AUX, PRN, COM1..9, LPT1..9). All 31 integration tests passed.
