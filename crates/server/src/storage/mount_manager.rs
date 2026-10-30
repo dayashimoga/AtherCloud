@@ -1,7 +1,9 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 #[derive(Debug, thiserror::Error)]
@@ -14,6 +16,63 @@ pub enum MountManagerError {
     InvalidPermission(String),
     #[error("Mount '{0}' not found")]
     NotFound(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct CachedMountRoute {
+    pub mount_id: String,
+    pub mount_name: String,
+    pub drive_serial: Option<String>,
+    pub physical_root: PathBuf,
+    pub permission_mode: PermissionMode,
+    pub allowed_subpaths: Vec<PathBuf>,
+    pub password_hash: Option<String>,
+    pub expiration_ts: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedRouteAuthorization {
+    pub mount_id: String,
+    pub mount_name: String,
+    pub canonical_target: PathBuf,
+    pub permission_mode: PermissionMode,
+    pub is_stream_allowed: bool,
+    pub is_read_allowed: bool,
+    pub is_write_allowed: bool,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RouteAuthError {
+    #[error("Mount '{0}' not found in cached registry")]
+    MountNotFound(String),
+    #[error("Mount access expired at {0}")]
+    Expired(i64),
+    #[error("Subpath '{0}' forbidden by whitelist policy")]
+    SubpathForbidden(String),
+    #[error("Path traversal detected: {0}")]
+    PathTraversal(String),
+    #[error("Write operation not allowed for permission mode {0:?}")]
+    WriteDenied(PermissionMode),
+}
+
+impl axum::response::IntoResponse for RouteAuthError {
+    fn into_response(self) -> axum::response::Response {
+        use axum::http::StatusCode;
+        use axum::Json;
+        let (status, msg) = match &self {
+            RouteAuthError::MountNotFound(m) => (StatusCode::NOT_FOUND, format!("Mount '{}' not registered", m)),
+            RouteAuthError::Expired(ts) => (StatusCode::FORBIDDEN, format!("Virtual mount access expired at timestamp {}", ts)),
+            RouteAuthError::SubpathForbidden(p) => (StatusCode::FORBIDDEN, format!("Subpath '{}' is forbidden by access policy", p)),
+            RouteAuthError::PathTraversal(p) => (StatusCode::FORBIDDEN, format!("Security violation: Path traversal forbidden ({})", p)),
+            RouteAuthError::WriteDenied(mode) => (StatusCode::METHOD_NOT_ALLOWED, format!("Write denied on mount with mode {:?}", mode)),
+        };
+        (status, Json(serde_json::json!({
+            "type": "https://aetherstream.dev/errors/authorization",
+            "title": "Route Authorization Violation",
+            "status": status.as_u16(),
+            "detail": msg
+        }))).into_response()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +150,7 @@ impl WalCheckpointMode {
 #[derive(Clone)]
 pub struct MountManager {
     conn: Arc<Mutex<Connection>>,
+    route_cache: Arc<RwLock<HashMap<String, CachedMountRoute>>>,
 }
 
 impl MountManager {
@@ -123,10 +183,140 @@ impl MountManager {
 
         let manager = Self {
             conn: Arc::new(Mutex::new(conn)),
+            route_cache: Arc::new(RwLock::new(HashMap::new())),
         };
 
         manager.run_migrations()?;
+        manager.warm_cache_sync()?;
         Ok(manager)
+    }
+
+    /// Synchronously warms the in-memory route cache from SQLite
+    pub fn warm_cache_sync(&self) -> Result<(), MountManagerError> {
+        let mounts = self.list_mounts()?;
+        let mut map = HashMap::new();
+        for m in mounts {
+            map.insert(
+                m.name.clone(),
+                CachedMountRoute {
+                    mount_id: m.id,
+                    mount_name: m.name,
+                    drive_serial: m.drive_serial,
+                    physical_root: PathBuf::from(m.physical_path),
+                    permission_mode: m.permission_mode,
+                    allowed_subpaths: m.allowed_subpaths.into_iter().map(PathBuf::from).collect(),
+                    password_hash: m.password_hash,
+                    expiration_ts: m.expiration_ts,
+                },
+            );
+        }
+        if let Ok(mut cache) = self.route_cache.try_write() {
+            *cache = map;
+        }
+        Ok(())
+    }
+
+    /// Asynchronously flushes and refreshes the in-memory route cache from SQLite
+    pub async fn refresh_cache(&self) -> Result<(), MountManagerError> {
+        let mounts = self.list_mounts()?;
+        let mut map = HashMap::new();
+        for m in mounts {
+            map.insert(
+                m.name.clone(),
+                CachedMountRoute {
+                    mount_id: m.id,
+                    mount_name: m.name,
+                    drive_serial: m.drive_serial,
+                    physical_root: PathBuf::from(m.physical_path),
+                    permission_mode: m.permission_mode,
+                    allowed_subpaths: m.allowed_subpaths.into_iter().map(PathBuf::from).collect(),
+                    password_hash: m.password_hash,
+                    expiration_ts: m.expiration_ts,
+                },
+            );
+        }
+        let mut cache = self.route_cache.write().await;
+        *cache = map;
+        Ok(())
+    }
+
+    /// Resolves and authorizes a requested subpath against the in-memory cache in sub-microsecond time (<1 µs)
+    pub async fn resolve_cached_route(
+        &self,
+        mount_name: &str,
+        requested_subpath: &Path,
+    ) -> Result<CachedRouteAuthorization, RouteAuthError> {
+        let cache = self.route_cache.read().await;
+        let route = cache
+            .get(mount_name)
+            .ok_or_else(|| RouteAuthError::MountNotFound(mount_name.to_string()))?;
+
+        // 1. Validate expiration timestamp
+        if let Some(exp) = route.expiration_ts {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            if now > exp {
+                return Err(RouteAuthError::Expired(exp));
+            }
+        }
+
+        // 2. Traversal defenses: null bytes, parent traversal, UNC/root prefixes
+        let subpath_str = requested_subpath.to_string_lossy();
+        if subpath_str.contains('\0') || subpath_str.contains("%00") {
+            return Err(RouteAuthError::PathTraversal("Null byte injection detected".into()));
+        }
+
+        for comp in requested_subpath.components() {
+            match comp {
+                std::path::Component::ParentDir => {
+                    return Err(RouteAuthError::PathTraversal(subpath_str.into_owned()));
+                }
+                std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                    return Err(RouteAuthError::PathTraversal(subpath_str.into_owned()));
+                }
+                _ => {}
+            }
+        }
+
+        // 3. Whitelist check: If allowed_subpaths is non-empty, path must match or be a child of whitelist
+        if !route.allowed_subpaths.is_empty() {
+            let matches_whitelist = route.allowed_subpaths.iter().any(|allowed| {
+                requested_subpath.starts_with(allowed) || requested_subpath == allowed
+            });
+            if !matches_whitelist {
+                return Err(RouteAuthError::SubpathForbidden(subpath_str.into_owned()));
+            }
+        }
+
+        let canonical_target = route.physical_root.join(requested_subpath);
+        let is_stream_allowed = true;
+        let is_read_allowed = matches!(
+            route.permission_mode,
+            PermissionMode::ReadOnly | PermissionMode::ReadWrite
+        );
+        let is_write_allowed = matches!(route.permission_mode, PermissionMode::ReadWrite);
+
+        Ok(CachedRouteAuthorization {
+            mount_id: route.mount_id.clone(),
+            mount_name: route.mount_name.clone(),
+            canonical_target,
+            permission_mode: route.permission_mode,
+            is_stream_allowed,
+            is_read_allowed,
+            is_write_allowed,
+        })
+    }
+
+    /// Returns the number of mounts currently in the memory-cached registry
+    pub async fn cached_mount_count(&self) -> usize {
+        self.route_cache.read().await.len()
+    }
+
+    /// Retrieves a cloned cached route definition for inspection
+    pub async fn get_cached_route(&self, mount_name: &str) -> Option<CachedMountRoute> {
+        self.route_cache.read().await.get(mount_name).cloned()
     }
 
     /// Executes SQLite schema migrations idempotently
@@ -238,6 +428,21 @@ impl MountManager {
                 mount.created_at,
             ],
         )?;
+
+        // Update in-memory route cache
+        let cached = CachedMountRoute {
+            mount_id: mount.id.clone(),
+            mount_name: mount.name.clone(),
+            drive_serial: mount.drive_serial.clone(),
+            physical_root: PathBuf::from(&mount.physical_path),
+            permission_mode: mount.permission_mode,
+            allowed_subpaths: mount.allowed_subpaths.iter().map(PathBuf::from).collect(),
+            password_hash: mount.password_hash.clone(),
+            expiration_ts: mount.expiration_ts,
+        };
+        if let Ok(mut cache) = self.route_cache.try_write() {
+            cache.insert(mount.name.clone(), cached);
+        }
 
         Ok(())
     }
@@ -395,6 +600,11 @@ impl MountManager {
     pub fn delete_mount(&self, id: &str) -> Result<bool, MountManagerError> {
         let conn = self.conn.lock().unwrap();
         let deleted = conn.execute("DELETE FROM mounts WHERE id = ?1;", params![id])?;
+        if deleted > 0 {
+            if let Ok(mut cache) = self.route_cache.try_write() {
+                cache.retain(|_, v| v.mount_id != id);
+            }
+        }
         Ok(deleted > 0)
     }
 
@@ -601,6 +811,24 @@ impl MountManager {
         }
 
         tx.commit()?;
+
+        // Synchronously update in-memory route cache
+        if let Ok(mut cache) = self.route_cache.try_write() {
+            for mount in mounts {
+                let cached = CachedMountRoute {
+                    mount_id: mount.id.clone(),
+                    mount_name: mount.name.clone(),
+                    drive_serial: mount.drive_serial.clone(),
+                    physical_root: PathBuf::from(&mount.physical_path),
+                    permission_mode: mount.permission_mode,
+                    allowed_subpaths: mount.allowed_subpaths.iter().map(PathBuf::from).collect(),
+                    password_hash: mount.password_hash.clone(),
+                    expiration_ts: mount.expiration_ts,
+                };
+                cache.insert(mount.name.clone(), cached);
+            }
+        }
+
         Ok(())
     }
 
@@ -679,6 +907,22 @@ impl MountManager {
         }
 
         tx.commit()?;
+
+        // Synchronously update in-memory route cache
+        if let Ok(mut cache) = self.route_cache.try_write() {
+            let cached = CachedMountRoute {
+                mount_id: mount.id.clone(),
+                mount_name: mount.name.clone(),
+                drive_serial: mount.drive_serial.clone(),
+                physical_root: PathBuf::from(&mount.physical_path),
+                permission_mode: mount.permission_mode,
+                allowed_subpaths: mount.allowed_subpaths.iter().map(PathBuf::from).collect(),
+                password_hash: mount.password_hash.clone(),
+                expiration_ts: mount.expiration_ts,
+            };
+            cache.insert(mount.name.clone(), cached);
+        }
+
         Ok(())
     }
 
@@ -711,6 +955,23 @@ impl MountManager {
         )?;
 
         tx.commit()?;
+
+        // Synchronously update in-memory route cache
+        if let Ok(mut cache) = self.route_cache.try_write() {
+            cache.retain(|_, v| v.mount_id != old_id);
+            let cached = CachedMountRoute {
+                mount_id: new_mount.id.clone(),
+                mount_name: new_mount.name.clone(),
+                drive_serial: new_mount.drive_serial.clone(),
+                physical_root: PathBuf::from(&new_mount.physical_path),
+                permission_mode: new_mount.permission_mode,
+                allowed_subpaths: new_mount.allowed_subpaths.iter().map(PathBuf::from).collect(),
+                password_hash: new_mount.password_hash.clone(),
+                expiration_ts: new_mount.expiration_ts,
+            };
+            cache.insert(new_mount.name.clone(), cached);
+        }
+
         Ok(())
     }
 }

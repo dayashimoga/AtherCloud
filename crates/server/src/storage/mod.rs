@@ -14,8 +14,8 @@ pub use disk_watcher::{
 };
 pub use indexer::FileTreeIndexer;
 pub use mount_manager::{
-    MountManager, MountManagerError, PermissionMode, ShareRuleRecord, VirtualMountRecord,
-    WalCheckpointMode,
+    CachedMountRoute, CachedRouteAuthorization, MountManager, MountManagerError, PermissionMode,
+    RouteAuthError, ShareRuleRecord, VirtualMountRecord, WalCheckpointMode,
 };
 pub use mounts::MountRegistry;
 pub use quarantine::PathQuarantine;

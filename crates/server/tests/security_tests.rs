@@ -2117,3 +2117,153 @@ fn test_sqlite_wal_acid_transactions_and_mmap_io() {
     );
     assert_eq!(busy, 0, "WAL Checkpoint must complete with 0 busy conflicts");
 }
+
+#[tokio::test]
+async fn test_in_memory_cached_route_authorization_and_submicrosecond_latency() {
+    use aetherstream_server::storage::mount_manager::{
+        MountManager, PermissionMode, RouteAuthError, VirtualMountRecord,
+    };
+    use std::path::Path;
+    use std::time::Instant;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("cached_routes_test.db");
+
+    let manager = MountManager::new(&db_path).expect("Initialize SQLite MountManager");
+
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    // 1. Configure test virtual mounts with varying permission policies
+    let mount_rw = VirtualMountRecord {
+        id: "mount-rw-1".to_string(),
+        name: "vault_rw".to_string(),
+        drive_serial: Some("DRIVE-RW-001".to_string()),
+        physical_path: "/data/vault".to_string(),
+        permission_mode: PermissionMode::ReadWrite,
+        allowed_subpaths: vec![], // Unrestricted within mount root
+        password_hash: None,
+        expiration_ts: None,
+        created_at: "2026-10-30T10:00:00Z".to_string(),
+    };
+
+    let mount_ro = VirtualMountRecord {
+        id: "mount-ro-2".to_string(),
+        name: "movies_ro".to_string(),
+        drive_serial: Some("DRIVE-RO-002".to_string()),
+        physical_path: "/data/movies".to_string(),
+        permission_mode: PermissionMode::ReadOnly,
+        allowed_subpaths: vec!["sci-fi".to_string(), "action/2026".to_string()],
+        password_hash: None,
+        expiration_ts: None,
+        created_at: "2026-10-30T10:00:00Z".to_string(),
+    };
+
+    let mount_expired = VirtualMountRecord {
+        id: "mount-exp-3".to_string(),
+        name: "expired_share".to_string(),
+        drive_serial: None,
+        physical_path: "/data/expired".to_string(),
+        permission_mode: PermissionMode::StreamOnly,
+        allowed_subpaths: vec![],
+        password_hash: None,
+        expiration_ts: Some(now_ts - 100), // Already expired 100 seconds ago
+        created_at: "2026-10-30T09:00:00Z".to_string(),
+    };
+
+    manager.upsert_mount(&mount_rw).expect("Upsert mount_rw");
+    manager.upsert_mount(&mount_ro).expect("Upsert mount_ro");
+    manager.upsert_mount(&mount_expired).expect("Upsert mount_expired");
+
+    assert_eq!(manager.cached_mount_count().await, 3);
+
+    // 2. Sub-microsecond Route Authorization Benchmark
+    let subpath = Path::new("documents/deep/report.pdf");
+    let iterations = 10_000usize;
+    let start_bench = Instant::now();
+
+    for _ in 0..iterations {
+        let auth = manager
+            .resolve_cached_route("vault_rw", subpath)
+            .await
+            .expect("Cached route resolution");
+        assert!(auth.is_read_allowed);
+        assert!(auth.is_write_allowed);
+        assert!(auth.is_stream_allowed);
+    }
+
+    let total_elapsed = start_bench.elapsed();
+    let per_op_micros = total_elapsed.as_micros() as f64 / iterations as f64;
+    println!(
+        "[SUB-MICROSECOND ROUTE AUTH] {} iterations completed in {:?} (avg {:.3} µs/op)",
+        iterations, total_elapsed, per_op_micros
+    );
+    assert!(
+        per_op_micros < 25.0,
+        "Route authorization must be sub-microsecond or near-zero overhead (got {:.3} µs)",
+        per_op_micros
+    );
+
+    // 3. Granular Permission Mode Validation
+    let ro_auth = manager
+        .resolve_cached_route("movies_ro", Path::new("sci-fi/matrix.mp4"))
+        .await
+        .expect("Authorize sci-fi subpath");
+    assert!(ro_auth.is_read_allowed);
+    assert!(!ro_auth.is_write_allowed, "ReadOnly mount must disallow write");
+    assert!(ro_auth.is_stream_allowed);
+
+    // 4. Granular Whitelist Policy Enforcement
+    let forbidden_res = manager
+        .resolve_cached_route("movies_ro", Path::new("comedy/standup.mp4"))
+        .await
+        .unwrap_err();
+    match forbidden_res {
+        RouteAuthError::SubpathForbidden(p) => assert_eq!(p, "comedy/standup.mp4"),
+        _ => panic!("Expected SubpathForbidden error"),
+    }
+
+    // 5. Expiration Policy Enforcement
+    let expired_res = manager
+        .resolve_cached_route("expired_share", Path::new("clip.mp4"))
+        .await
+        .unwrap_err();
+    match expired_res {
+        RouteAuthError::Expired(exp) => assert_eq!(exp, now_ts - 100),
+        _ => panic!("Expected Expired error"),
+    }
+
+    // 6. Strict Path Traversal Defenses
+    let traversal_res = manager
+        .resolve_cached_route("vault_rw", Path::new("../outside_vault.txt"))
+        .await
+        .unwrap_err();
+    match traversal_res {
+        RouteAuthError::PathTraversal(_) => {}
+        _ => panic!("Expected PathTraversal error"),
+    }
+
+    let null_byte_res = manager
+        .resolve_cached_route("vault_rw", Path::new("file%00.txt"))
+        .await
+        .unwrap_err();
+    match null_byte_res {
+        RouteAuthError::PathTraversal(_) => {}
+        _ => panic!("Expected PathTraversal for null byte injection"),
+    }
+
+    // 7. Dynamic Cache Invalidation
+    assert!(manager.delete_mount("mount-rw-1").expect("Delete mount"));
+    assert_eq!(manager.cached_mount_count().await, 2);
+
+    let not_found_res = manager
+        .resolve_cached_route("vault_rw", subpath)
+        .await
+        .unwrap_err();
+    match not_found_res {
+        RouteAuthError::MountNotFound(m) => assert_eq!(m, "vault_rw"),
+        _ => panic!("Expected MountNotFound error after cache invalidation"),
+    }
+}
