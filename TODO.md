@@ -873,3 +873,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
 - **Execution Trace:** cargo test --test security_tests test_encoder_initialization_one_frame_dry_run_and_clean_failover
 - **Validation Proof:** Engineered 1-frame transcode dry-run validation with clean ladder failover in GpuProbeEngine (validate_ladder_with_executor, validate_ladder, probe_and_validate_system). Implemented synthetic lavfi testsrc dry-run execution, failure diagnostics, dynamic candidate disqualification, clean failover down to QuickSync, VideoToolbox, VA-API, and Software CPU fallback. Integrated startup dry-run into TranscodePipeline and main.rs with thread-safe memory caching. Verified 38/38 integration tests passing.
+
+### [2026-10-30T08:22:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-9.1.3
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
+- **Execution Trace:** cargo test --test security_tests test_transcode_status_rest_api_and_telemetry_hud
+- **Validation Proof:** Engineered TranscodeStatusResponse and GET /api/v1/transcode/status endpoint in crates/server/src/transcode/status_api.rs wired into Axum daemon router. Exposed real-time frontend telemetry HUD state covering active GPU/CPU accelerator, primary H.264/HEVC/AV1 encoders, hardware acceleration boolean, extra FFmpeg hardware switches, dry-run latency diagnostics, and failover status. Marked Phase 3.1 100% complete. Verified 39/39 integration tests passing.

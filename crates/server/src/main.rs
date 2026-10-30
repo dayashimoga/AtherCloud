@@ -183,6 +183,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/api/v1/upload/:mount/complete", post(complete_upload_handler))
         .route(
+            "/api/v1/transcode/status",
+            get(transcode::transcode_status_handler),
+        )
+        .route(
             "/api/v1/transcode/hls/:mount/*path",
             get(hls_master_manifest_handler),
         );

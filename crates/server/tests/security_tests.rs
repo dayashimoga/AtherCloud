@@ -3727,3 +3727,200 @@ Encoders:
 
     println!("[TASK-9.1.2 VERIFIED] 1-frame transcode dry-run encoder validation and clean ladder failover verified.");
 }
+
+#[tokio::test]
+async fn test_transcode_status_rest_api_and_telemetry_hud() {
+    use aetherstream_server::transcode::gpu_probe::{
+        set_validated_ladder, DryRunResult, ValidatedEncoderLadder,
+    };
+    use aetherstream_server::transcode::pipeline::HardwareAccel;
+    use aetherstream_server::transcode::status_api::{
+        transcode_status_router, TranscodeStatusResponse,
+    };
+    use axum::body::to_bytes;
+    use axum::http::{header, Request, StatusCode};
+    use std::time::Instant;
+    use tower::ServiceExt;
+
+    let app = transcode_status_router();
+
+    // 1. Initial State: Query GET /api/v1/transcode/status
+    let req = Request::builder()
+        .uri("/api/v1/transcode/status")
+        .header(header::ACCEPT, "application/json")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "application/json"
+    );
+
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let initial_status: TranscodeStatusResponse = serde_json::from_slice(&body_bytes).unwrap();
+    assert!(!initial_status.active_encoder.is_empty());
+    assert!(!initial_status.description.is_empty());
+    assert!(!initial_status.os_platform.is_empty());
+
+    // 2. Hardware Acceleration Optimal Telemetry State: NVENC Active, No Failover
+    let nvenc_ladder = ValidatedEncoderLadder {
+        active_accel: HardwareAccel::Nvenc,
+        active_h264_encoder: "h264_nvenc".to_string(),
+        active_hevc_encoder: Some("hevc_nvenc".to_string()),
+        active_av1_encoder: Some("av1_nvenc".to_string()),
+        dry_run_history: vec![DryRunResult {
+            encoder: "h264_nvenc".to_string(),
+            accel: HardwareAccel::Nvenc,
+            success: true,
+            exit_code: Some(0),
+            error_message: None,
+            duration_ms: 12,
+        }],
+        failover_occurred: false,
+        validation_timestamp: "1730280000".to_string(),
+    };
+    set_validated_ladder(nvenc_ladder);
+
+    let req = Request::builder()
+        .uri("/api/v1/transcode/status")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let nvenc_status: TranscodeStatusResponse = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(nvenc_status.active_accel, HardwareAccel::Nvenc);
+    assert_eq!(nvenc_status.active_encoder, "h264_nvenc");
+    assert_eq!(nvenc_status.active_hevc_encoder.as_deref(), Some("hevc_nvenc"));
+    assert_eq!(nvenc_status.active_av1_encoder.as_deref(), Some("av1_nvenc"));
+    assert!(nvenc_status.is_hardware_accelerated);
+    assert!(!nvenc_status.failover_occurred);
+    assert_eq!(nvenc_status.status, "optimal");
+    assert!(nvenc_status.description.contains("NVIDIA NVENC"));
+    assert!(nvenc_status.extra_ffmpeg_flags.contains(&"-hwaccel".to_string()));
+    assert_eq!(nvenc_status.dry_run_history.len(), 1);
+    assert!(nvenc_status.dry_run_history[0].success);
+
+    // 3. Failover Telemetry State: NVENC dry-run failed -> QuickSync Active
+    let failover_ladder = ValidatedEncoderLadder {
+        active_accel: HardwareAccel::QuickSync,
+        active_h264_encoder: "h264_qsv".to_string(),
+        active_hevc_encoder: Some("hevc_qsv".to_string()),
+        active_av1_encoder: Some("av1_qsv".to_string()),
+        dry_run_history: vec![
+            DryRunResult {
+                encoder: "h264_nvenc".to_string(),
+                accel: HardwareAccel::Nvenc,
+                success: false,
+                exit_code: Some(1),
+                error_message: Some("CUDA driver mismatch".to_string()),
+                duration_ms: 45,
+            },
+            DryRunResult {
+                encoder: "h264_qsv".to_string(),
+                accel: HardwareAccel::QuickSync,
+                success: true,
+                exit_code: Some(0),
+                error_message: None,
+                duration_ms: 18,
+            },
+        ],
+        failover_occurred: true,
+        validation_timestamp: "1730280100".to_string(),
+    };
+    set_validated_ladder(failover_ladder);
+
+    let req = Request::builder()
+        .uri("/api/v1/transcode/status")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let qsv_status: TranscodeStatusResponse = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(qsv_status.active_accel, HardwareAccel::QuickSync);
+    assert_eq!(qsv_status.active_encoder, "h264_qsv");
+    assert!(qsv_status.is_hardware_accelerated);
+    assert!(qsv_status.failover_occurred);
+    assert_eq!(qsv_status.status, "operational_with_failover");
+    assert_eq!(qsv_status.dry_run_history.len(), 2);
+    assert!(!qsv_status.dry_run_history[0].success);
+    assert!(qsv_status.dry_run_history[1].success);
+
+    // 4. Degraded CPU Fallback Telemetry State
+    let cpu_ladder = ValidatedEncoderLadder {
+        active_accel: HardwareAccel::SoftwareCpu,
+        active_h264_encoder: "libx264".to_string(),
+        active_hevc_encoder: Some("libx265".to_string()),
+        active_av1_encoder: None,
+        dry_run_history: vec![
+            DryRunResult {
+                encoder: "h264_nvenc".to_string(),
+                accel: HardwareAccel::Nvenc,
+                success: false,
+                exit_code: Some(1),
+                error_message: Some("No NVENC available".to_string()),
+                duration_ms: 20,
+            },
+            DryRunResult {
+                encoder: "libx264".to_string(),
+                accel: HardwareAccel::SoftwareCpu,
+                success: true,
+                exit_code: Some(0),
+                error_message: None,
+                duration_ms: 8,
+            },
+        ],
+        failover_occurred: true,
+        validation_timestamp: "1730280200".to_string(),
+    };
+    set_validated_ladder(cpu_ladder);
+
+    let req = Request::builder()
+        .uri("/api/v1/transcode/status")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let cpu_status: TranscodeStatusResponse = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(cpu_status.active_accel, HardwareAccel::SoftwareCpu);
+    assert_eq!(cpu_status.active_encoder, "libx264");
+    assert!(!cpu_status.is_hardware_accelerated);
+    assert!(cpu_status.failover_occurred);
+    assert_eq!(cpu_status.status, "degraded_cpu_fallback");
+
+    // 5. High-Throughput HUD Polling Benchmark
+    let poll_iterations = 2_000;
+    let poll_start = Instant::now();
+    for _ in 0..poll_iterations {
+        let req = Request::builder()
+            .uri("/api/v1/transcode/status")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+    let poll_elapsed = poll_start.elapsed();
+    let per_poll_micros = (poll_elapsed.as_secs_f64() * 1_000_000.0) / (poll_iterations as f64);
+    println!(
+        "[TRANSCODE STATUS HUD BENCHMARK] {} HTTP requests in {:?} (avg {:.2} µs/req)",
+        poll_iterations, poll_elapsed, per_poll_micros
+    );
+    assert!(
+        per_poll_micros < 500.0,
+        "Frontend telemetry HUD polling must execute under 500µs/req (got {:.2} µs)",
+        per_poll_micros
+    );
+
+    println!("[TASK-9.1.3 VERIFIED] /api/v1/transcode/status telemetry endpoint and HUD payload verified.");
+}
