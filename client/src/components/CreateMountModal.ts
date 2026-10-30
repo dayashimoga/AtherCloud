@@ -347,3 +347,4 @@ export class CreateMountModalComponent {
     this.errorBanner.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
+

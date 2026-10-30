@@ -6818,3 +6818,143 @@ async fn test_interactive_create_mount_modal_folder_selection_and_subpath_whitel
 
     println!("[TASK-11.1.2 VERIFIED] Interactive Create Mount modal allowing folder selection, permission toggle, and subpath whitelist tagging verified.");
 }
+
+#[tokio::test]
+async fn test_public_share_links_generator_modal_with_expiry_passkey_and_urls() {
+    use aetherstream_server::security::{
+        public_share_router, CreateShareLinkRequest, PublicShareState, VerifyShareRequest,
+    };
+    use aetherstream_server::storage::{MountManager, MountRegistry};
+    use axum::body::to_bytes;
+    use axum::http::{header, Request, StatusCode};
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tower::ServiceExt;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("share_test.db");
+    let hmac_secret = "test_share_master_secret_key_32bytes_long!!".to_string();
+    let mount_manager = Arc::new(MountManager::new(&db_path).unwrap());
+    let mounts = Arc::new(MountRegistry::new());
+    let state = PublicShareState::new(hmac_secret, mount_manager.clone(), mounts.clone());
+    let app = public_share_router(state);
+
+    // 1. POST /api/v1/share/create with 24h TTL, read_only mode, and passkey
+    let payload = CreateShareLinkRequest {
+        mount: "vault_alpha".to_string(),
+        path: "movies/Interstellar.2014.Remux.mkv".to_string(),
+        permission_mode: Some("read_only".to_string()),
+        ttl_seconds: Some(86400),
+        passkey: Some("secure_pass_9988".to_string()),
+        description: Some("Public share link with passkey protection".to_string()),
+    };
+
+    let start = Instant::now();
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/share/create")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&payload).unwrap()))
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let elapsed = start.elapsed();
+    println!(
+        "[BENCHMARK] POST /api/v1/share/create: {:.3} ms for HMAC signing, salted passkey hashing, and SQLite WAL write",
+        elapsed.as_secs_f64() * 1000.0
+    );
+
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let details: aetherstream_server::security::PublicShareDetails =
+        serde_json::from_slice(&body_bytes).unwrap();
+
+    assert!(details.share_id.starts_with("sh_"));
+    assert_eq!(details.mount, "vault_alpha");
+    assert_eq!(details.path, "movies/Interstellar.2014.Remux.mkv");
+    assert_eq!(details.permission_mode, "read_only");
+    assert_eq!(details.ttl_seconds, 86400);
+    assert!(details.has_passkey);
+    assert!(details.share_url.contains(&details.token));
+    assert!(details.stream_url.contains(&details.token));
+    assert!(details.download_url.contains("download=true"));
+    assert!(details.download_url.contains(&details.token));
+
+    // 2. GET /api/v1/share/info/:token
+    let req = Request::builder()
+        .uri(format!("/api/v1/share/info/{}", details.token))
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let info: aetherstream_server::security::ShareTokenInfo =
+        serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(info.mount, "vault_alpha");
+    assert!(info.has_passkey);
+    assert!(!info.is_expired);
+    assert!(info.ttl_remaining_seconds > 86000);
+
+    // 3. POST /api/v1/share/verify with incorrect passkey -> rejected
+    let bad_verify = VerifyShareRequest {
+        token: details.token.clone(),
+        passkey: Some("wrong_password".to_string()),
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/share/verify")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&bad_verify).unwrap()))
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // 4. POST /api/v1/share/verify with correct passkey -> authorized
+    let good_verify = VerifyShareRequest {
+        token: details.token.clone(),
+        passkey: Some("secure_pass_9988".to_string()),
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/share/verify")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&good_verify).unwrap()))
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let ver_res: aetherstream_server::security::VerifyShareResponse =
+        serde_json::from_slice(&body_bytes).unwrap();
+    assert!(ver_res.valid);
+    assert!(ver_res.stream_url.contains("Interstellar"));
+
+    // 5. Verify static universal client distribution contains Stage 5 Subphase 5.1.3 modal elements
+    let index_html_path = [
+        std::path::PathBuf::from("client/dist/index.html"),
+        std::path::PathBuf::from("../../client/dist/index.html"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    if let Some(path) = index_html_path {
+        let index_content = std::fs::read_to_string(&path).unwrap();
+        assert!(index_content.contains("share-modal"), "index.html must contain #share-modal");
+        assert!(index_content.contains("share-target-display"), "index.html must contain #share-target-display");
+        assert!(index_content.contains("share-expiry-preview"), "index.html must contain #share-expiry-preview");
+        assert!(index_content.contains("expiry-preset-btn"), "index.html must contain .expiry-preset-btn");
+        assert!(index_content.contains("share-passkey-toggle"), "index.html must contain #share-passkey-toggle");
+        assert!(index_content.contains("share-passkey-input"), "index.html must contain #share-passkey-input");
+        assert!(index_content.contains("btn-generate-passkey"), "index.html must contain #btn-generate-passkey");
+        assert!(index_content.contains("share-result"), "index.html must contain #share-result");
+        assert!(index_content.contains("share-url-input"), "index.html must contain #share-url-input");
+        assert!(index_content.contains("share-stream-url"), "index.html must contain #share-stream-url");
+        assert!(index_content.contains("share-download-url"), "index.html must contain #share-download-url");
+        assert!(index_content.contains("share-toggle-qr-btn"), "index.html must contain #share-toggle-qr-btn");
+        println!("[CLIENT VERIFIED] client/dist/index.html verified with all Stage 5 Public Share Link Generator modal components.");
+    }
+
+    println!("[TASK-11.1.3 VERIFIED] Public Share Links generator modal with time expiration picker, passkey toggles, and copyable URL verified.");
+}

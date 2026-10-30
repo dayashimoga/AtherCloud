@@ -1639,3 +1639,21 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `CreateMountModalComponent` in `client/src/components/CreateMountModal.ts` delivering an interactive virtual mount management dialog. Features single-click physical host path pre-population from detected volumes (`mount-quick-drives`), folder append shortcut presets (Media, Movies, Videos, Downloads), 3-state permission scope selector (`read_only`, `read_write`, `stream_only`), dynamic subpath whitelist tagging input with preset suggestions (`+movies`, `+series`, `+4k`, `+anime`), live OS-critical system path quarantine detection and warning, and collapsible advanced security parameters (optional passkey secret, expiration duration picker). Wired modal invocation to sidebar '+ Add Mount' trigger and DrivesDashboard '+ Create Virtual Mount' action with automatic view transition and list refresh. Added `createMount` to `AetherApi` in `client/src/services/api.ts`. Verified via `test_interactive_create_mount_modal_folder_selection_and_subpath_whitelist` ($2.407\,\text{ms}$ dispatch & WAL persistence) with all 56 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_CREATE_MOUNT_MODAL_038
 - **Executor:** Principal Frontend Architect & Security Storage Engineer
+
+### [2026-10-30T11:15:00Z] - STAGE_11 / PHASE_11.1 / SUBPHASE_11.1.3
+- **Stage ID:** STAGE_11 (Universal Web UI, Mount Manager Modal, ABR Player & PWA)
+- **Phase ID:** PHASE_11.1 (Enterprise Storage & Mount Management Dashboard)
+- **Subphase ID:** SUBPHASE_11.1.3 (Public Share Links Generator Modal with Time Expiration Picker, Passkey Toggles, and Copyable URL)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `client/src/services/api.ts`
+  - `client/src/components/ShareModal.ts`
+  - `client/src/components/CreateMountModal.ts`
+  - `client/index.html`
+  - `client/src/app.css`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `ShareModalComponent` in `client/src/components/ShareModal.ts` delivering a public share links generator dialog. Features interactive expiration window selection (`1h`, `6h`, `24h`, `7d`, `30d`, and `custom` hours/days duration with dynamic live deadline readout), 3-state permission scope selector (`read_only`, `stream_only`, `read_write`), passkey protection toggle with random passkey generator (`🎲`) and visibility toggle (`👁️`), multi-format copyable URLs (Universal Stream & Web Landing URL, Direct Stream URL for VLC/Infuse, and Direct Download URL), mobile QR code connection toggle (`#share-toggle-qr-btn`) with vector SVG QR rendering from `/api/v1/tunnel/qr`, and native Web Share API integration (`navigator.share`). Upgraded `createShareLink` in `client/src/services/api.ts` with `CreateShareLinkOptions` and `PublicShareDetailsResponse`. Concluded Phase 5.1 (PHASE_11.1: Enterprise Storage & Mount Management Dashboard) with 100% completion. Verified via `test_public_share_links_generator_modal_with_expiry_passkey_and_urls` with all 57 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_SHARE_MODAL_039
+- **Executor:** Principal Frontend Architect & Security Ingress Engineer

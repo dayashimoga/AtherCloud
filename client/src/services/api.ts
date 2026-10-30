@@ -47,6 +47,32 @@ export interface CreateMountPayload {
   password?: string;
 }
 
+export interface CreateShareLinkOptions {
+  mount: string;
+  path: string;
+  ttl_seconds?: number;
+  permission_mode?: "stream_only" | "read_only" | "read_write";
+  passkey?: string;
+  description?: string;
+  allow_write?: boolean;
+}
+
+export interface PublicShareDetailsResponse {
+  share_id: string;
+  token: string;
+  mount: string;
+  path: string;
+  permission_mode: string;
+  issued_at: number;
+  expires_at: number;
+  ttl_seconds: number;
+  has_passkey: boolean;
+  share_url: string;
+  stream_url: string;
+  download_url: string;
+  browse_url: string;
+}
+
 export interface FileItem {
   name: string;
   is_dir: boolean;
@@ -173,22 +199,47 @@ export class AetherApi {
   }
 
   static async createShareLink(
-    mount: string,
-    path: string,
+    mountOrOpts: string | CreateShareLinkOptions,
+    path?: string,
     ttlSeconds = 86400,
-    allowWrite = false
-  ) {
+    allowWrite = false,
+    passkey?: string,
+    permMode?: "stream_only" | "read_only" | "read_write"
+  ): Promise<PublicShareDetailsResponse> {
+    let payload: Record<string, any>;
+
+    if (typeof mountOrOpts === "object") {
+      payload = {
+        mount: mountOrOpts.mount,
+        path: mountOrOpts.path,
+        ttl_seconds: mountOrOpts.ttl_seconds ?? 86400,
+        permission_mode:
+          mountOrOpts.permission_mode ||
+          (mountOrOpts.allow_write ? "read_write" : "read_only"),
+        passkey: mountOrOpts.passkey || undefined,
+        description: mountOrOpts.description,
+      };
+    } else {
+      payload = {
+        mount: mountOrOpts,
+        path: path || "",
+        ttl_seconds: ttlSeconds,
+        permission_mode: permMode || (allowWrite ? "read_write" : "read_only"),
+        passkey: passkey || undefined,
+      };
+    }
+
     const res = await fetch(`${this.baseUrl}/api/v1/share/create`, {
       method: "POST",
       headers: this.getHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({
-        mount,
-        path,
-        ttl_seconds: ttlSeconds,
-        allow_write: allowWrite,
-      }),
+      body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("Failed to create share link");
+    if (!res.ok) {
+      const err = await res
+        .json()
+        .catch(() => ({ title: "Failed to create share link", detail: res.statusText }));
+      throw new Error(err.detail || err.title || "Failed to create share link");
+    }
     return res.json();
   }
 

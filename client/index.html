@@ -358,45 +358,156 @@
         </div>
       </div>
 
-      <!-- Share Link Modal -->
+      <!-- Public Share Links Generator Modal -->
       <div id="share-modal" class="modal hidden">
         <div class="modal-backdrop"></div>
-        <div class="modal-content share-card">
-          <h4>Create Scoped Share Link</h4>
-          <p id="share-target-display" class="share-subtitle"></p>
-          <div class="form-group">
-            <label>Link Expiration:</label>
-            <select id="share-expiry">
-              <option value="3600">1 Hour</option>
-              <option value="86400" selected>24 Hours</option>
-              <option value="604800">7 Days</option>
-              <option value="2592000">30 Days</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Permission:</label>
-            <select id="share-perm">
-              <option value="false" selected>Read Only (Stream & Download)</option>
-              <option value="true">Read & Write</option>
-            </select>
-          </div>
-          <div class="form-actions">
-            <button id="generate-share-btn" class="btn btn-primary">Generate HMAC Token</button>
-            <button id="close-share-btn" class="btn btn-secondary">Cancel</button>
-          </div>
-          <div id="share-result" class="share-result hidden">
-            <div class="share-url-block">
-              <label>Stream URL (Token Authorized):</label>
-              <div class="input-with-action">
-                <input type="text" id="share-url-input" readonly />
-                <button id="copy-share-btn" class="btn btn-sm">Copy</button>
+        <div class="modal-content share-modal-card">
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <span class="modal-icon">&#128279;</span>
+              <div>
+                <h4>Public Share Link Generator</h4>
+                <p id="share-target-display" class="modal-subtitle">Target: Loading media item...</p>
               </div>
             </div>
-            <div class="share-url-block" style="margin-top: 8px;">
+            <button id="close-share-btn" class="btn btn-close" type="button">&times;</button>
+          </div>
+
+          <div id="share-error-banner" class="alert-banner danger hidden"></div>
+
+          <div class="share-form">
+            <!-- Expiration Picker -->
+            <div class="form-group">
+              <div class="label-with-actions">
+                <label>Link Expiration Window</label>
+                <span id="share-expiry-preview" class="expiry-preview-badge">Expires in 24 Hours</span>
+              </div>
+              <div class="expiry-presets-row">
+                <button type="button" class="expiry-preset-btn" data-ttl="3600">1 Hour</button>
+                <button type="button" class="expiry-preset-btn" data-ttl="21600">6 Hours</button>
+                <button type="button" class="expiry-preset-btn active" data-ttl="86400">24 Hours</button>
+                <button type="button" class="expiry-preset-btn" data-ttl="604800">7 Days</button>
+                <button type="button" class="expiry-preset-btn" data-ttl="2592000">30 Days</button>
+                <button type="button" class="expiry-preset-btn" data-ttl="custom">Custom...</button>
+              </div>
+              <div id="custom-expiry-container" class="custom-expiry-row hidden">
+                <input type="number" id="custom-expiry-value" min="1" max="365" value="12" placeholder="Duration" />
+                <select id="custom-expiry-unit">
+                  <option value="hours" selected>Hours</option>
+                  <option value="days">Days</option>
+                </select>
+                <button type="button" id="apply-custom-expiry-btn" class="btn btn-secondary btn-sm">Set</button>
+              </div>
+              <input type="hidden" id="share-expiry" value="86400" />
+            </div>
+
+            <!-- Permission Scope Toggle -->
+            <div class="form-group">
+              <label>Permission Scope</label>
+              <div class="share-perm-toggle-group">
+                <button type="button" class="share-perm-btn active" data-perm="read_only">
+                  <span class="perm-icon">&#128270;</span>
+                  <div class="perm-info">
+                    <strong>Stream & Download</strong>
+                    <span>Standard streaming and file downloading</span>
+                  </div>
+                </button>
+                <button type="button" class="share-perm-btn" data-perm="stream_only">
+                  <span class="perm-icon">&#9654;</span>
+                  <div class="perm-info">
+                    <strong>Stream-Only</strong>
+                    <span>Adaptive HLS playback; downloads blocked</span>
+                  </div>
+                </button>
+                <button type="button" class="share-perm-btn" data-perm="read_write">
+                  <span class="perm-icon">&#9997;</span>
+                  <div class="perm-info">
+                    <strong>Read & Write</strong>
+                    <span>Bi-directional streaming and uploads</span>
+                  </div>
+                </button>
+              </div>
+              <input type="hidden" id="share-perm" value="read_only" />
+            </div>
+
+            <!-- Passkey Protection Toggle & Input -->
+            <div class="form-group passkey-section">
+              <div class="passkey-header-row">
+                <label class="toggle-checkbox-label">
+                  <input type="checkbox" id="share-passkey-toggle" />
+                  <span class="toggle-switch"></span>
+                  <strong>Require Passkey Protection</strong>
+                </label>
+                <span class="security-badge">&#128274; Constant-Time Salted Hash</span>
+              </div>
+              <div id="share-passkey-container" class="passkey-input-row hidden">
+                <div class="input-with-action">
+                  <input type="password" id="share-passkey-input" placeholder="Enter secret passkey..." autocomplete="new-password" />
+                  <button type="button" id="btn-toggle-passkey-vis" class="btn btn-sm btn-icon" title="Toggle visibility">&#128065;</button>
+                  <button type="button" id="btn-generate-passkey" class="btn btn-sm btn-secondary" title="Generate random passkey">&#127922; Random</button>
+                </div>
+                <span class="form-hint">Clients accessing this share link will be prompted to enter this passkey before streaming or downloading.</span>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" id="generate-share-btn" class="btn btn-primary">
+                <span class="btn-icon">&#128279;</span> Generate Signed Share Link
+              </button>
+              <button type="button" id="cancel-share-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Share Result Section -->
+          <div id="share-result" class="share-result hidden">
+            <div class="result-banner">
+              <div class="result-status">
+                <span class="result-check">&#10003;</span>
+                <strong>Public Share Link Ready</strong>
+              </div>
+              <div class="result-badges" id="share-result-badges">
+                <span class="badge" id="res-badge-expiry">24h Expiry</span>
+                <span class="badge" id="res-badge-passkey">Open Access</span>
+                <span class="badge" id="res-badge-perm">Read-Only</span>
+              </div>
+            </div>
+
+            <!-- Primary Web Share URL -->
+            <div class="share-url-block">
+              <label>Universal Stream & Web Landing URL:</label>
+              <div class="input-with-action">
+                <input type="text" id="share-url-input" readonly />
+                <button type="button" id="copy-share-btn" class="btn btn-sm btn-primary">Copy</button>
+                <button type="button" id="web-share-btn" class="btn btn-sm btn-secondary" title="Share via Native OS Share Sheet">&#128242; Share</button>
+              </div>
+            </div>
+
+            <!-- Direct Stream URL -->
+            <div class="share-url-block">
+              <label>Direct Stream URL (VLC / Infuse / MPV / Kodi):</label>
+              <div class="input-with-action">
+                <input type="text" id="share-stream-url" readonly />
+                <button type="button" id="copy-stream-btn" class="btn btn-sm">Copy</button>
+              </div>
+            </div>
+
+            <!-- Direct Download URL -->
+            <div class="share-url-block">
               <label>Direct Download URL:</label>
               <div class="input-with-action">
                 <input type="text" id="share-download-url" readonly />
-                <button id="copy-download-btn" class="btn btn-sm">Copy</button>
+                <button type="button" id="copy-download-btn" class="btn btn-sm">Copy</button>
+              </div>
+            </div>
+
+            <!-- QR Code Section -->
+            <div class="share-qr-section">
+              <button type="button" id="share-toggle-qr-btn" class="btn btn-secondary btn-sm">
+                <span>&#128247;</span> Show Connection QR Code
+              </button>
+              <div id="share-qr-container" class="qr-display-box hidden">
+                <div id="share-qr-visual" class="qr-visual"></div>
+                <span class="qr-hint">Scan with mobile camera for instant playback</span>
               </div>
             </div>
           </div>
