@@ -6172,3 +6172,141 @@ async fn test_tunnel_status_rest_api_endpoint_and_telemetry() {
     server_task.abort();
     println!("[TASK-10.3.1 VERIFIED] Expose /api/v1/tunnel/status returning active tunnel status, public URL, uptime, and latency verified.");
 }
+
+#[tokio::test]
+async fn test_qr_code_generation_ascii_terminal_and_svg_png_rest_api() {
+    use aetherstream_server::tunnel::qr::{
+        format_boot_qr_banner, generate_ascii_qr, generate_png_qr, generate_svg_qr,
+        tunnel_qr_router, QrJsonResponse,
+    };
+    use aetherstream_server::tunnel::status_api::TunnelApiState;
+    use aetherstream_server::tunnel::supervisor::{CloudflaredSupervisor, TunnelSupervisorConfig};
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Request, StatusCode},
+    };
+    use std::time::Instant;
+    use tower::ServiceExt;
+
+    let test_url = "http://192.168.1.100:8080";
+
+    // 1. ASCII Terminal QR Code Generation
+    let ascii_qr = generate_ascii_qr(test_url).expect("ASCII QR generation must succeed");
+    assert!(ascii_qr.contains('█'), "ASCII QR must contain block characters");
+    assert!(ascii_qr.lines().count() >= 21, "QR version 1 has at least 21 modules");
+
+    let boot_banner = format_boot_qr_banner(test_url, "AetherStream Local Connect QR");
+    assert!(boot_banner.contains("Direct Connect URL"));
+    assert!(boot_banner.contains("AetherStream Local Connect QR"));
+    assert!(boot_banner.contains(test_url));
+    assert!(boot_banner.contains('█'));
+
+    // 2. SVG QR Code Generation
+    let svg_qr = generate_svg_qr(test_url, Some(300), Some(4)).expect("SVG QR generation must succeed");
+    assert!(svg_qr.contains("<svg"), "SVG QR must contain <svg tag");
+    assert!(svg_qr.contains("</svg>"), "SVG QR must contain </svg> tag");
+    assert!(svg_qr.contains("xmlns=\"http://www.w3.org/2000/svg\""));
+
+    // 3. PNG Raster QR Code Generation
+    let png_qr = generate_png_qr(test_url, Some(256), Some(2)).expect("PNG QR generation must succeed");
+    let png_magic = &[137, 80, 78, 71, 13, 10, 26, 10]; // \x89PNG\r\n\x1a\n
+    assert!(
+        png_qr.starts_with(png_magic),
+        "PNG QR must start with RFC 2083 PNG signature"
+    );
+    assert!(png_qr.len() > 200, "PNG binary payload must have substantial image data");
+
+    // 4. REST API Endpoint (/api/v1/tunnel/qr)
+    let sup_config = TunnelSupervisorConfig {
+        command_override: Some(vec!["cargo".to_string(), "--version".to_string()]),
+        ..Default::default()
+    };
+    let supervisor = CloudflaredSupervisor::new(sup_config);
+    let api_state = TunnelApiState::new(supervisor.clone(), 8080);
+    let app = tunnel_qr_router(api_state);
+
+    // Case A: Default SVG format with loopback target
+    let req_svg = Request::builder()
+        .uri("/api/v1/tunnel/qr?target=loopback")
+        .body(Body::empty())
+        .unwrap();
+    let resp_svg = app.clone().oneshot(req_svg).await.unwrap();
+    assert_eq!(resp_svg.status(), StatusCode::OK);
+    assert_eq!(
+        resp_svg.headers().get("content-type").unwrap(),
+        "image/svg+xml"
+    );
+    let svg_bytes = to_bytes(resp_svg.into_body(), 64 * 1024).await.unwrap();
+    let svg_text = String::from_utf8(svg_bytes.to_vec()).unwrap();
+    assert!(svg_text.contains("<svg"));
+
+    // Case B: PNG binary format
+    let req_png = Request::builder()
+        .uri("/api/v1/tunnel/qr?format=png&target=loopback&size=200")
+        .body(Body::empty())
+        .unwrap();
+    let resp_png = app.clone().oneshot(req_png).await.unwrap();
+    assert_eq!(resp_png.status(), StatusCode::OK);
+    assert_eq!(
+        resp_png.headers().get("content-type").unwrap(),
+        "image/png"
+    );
+    let png_resp_bytes = to_bytes(resp_png.into_body(), 64 * 1024).await.unwrap();
+    assert!(png_resp_bytes.starts_with(png_magic));
+
+    // Case C: Plain ASCII text format
+    let req_ascii = Request::builder()
+        .uri("/api/v1/tunnel/qr?format=ascii&target=loopback")
+        .body(Body::empty())
+        .unwrap();
+    let resp_ascii = app.clone().oneshot(req_ascii).await.unwrap();
+    assert_eq!(resp_ascii.status(), StatusCode::OK);
+    assert_eq!(
+        resp_ascii.headers().get("content-type").unwrap(),
+        "text/plain; charset=utf-8"
+    );
+    let ascii_resp_bytes = to_bytes(resp_ascii.into_body(), 64 * 1024).await.unwrap();
+    let ascii_text = String::from_utf8(ascii_resp_bytes.to_vec()).unwrap();
+    assert!(ascii_text.contains('█'));
+
+    // Case D: JSON format with both SVG and ASCII embedded
+    let req_json = Request::builder()
+        .uri("/api/v1/tunnel/qr?format=json&target=loopback")
+        .body(Body::empty())
+        .unwrap();
+    let resp_json = app.clone().oneshot(req_json).await.unwrap();
+    assert_eq!(resp_json.status(), StatusCode::OK);
+    let json_bytes = to_bytes(resp_json.into_body(), 64 * 1024).await.unwrap();
+    let qr_json: QrJsonResponse = serde_json::from_slice(&json_bytes).unwrap();
+    assert_eq!(qr_json.target_url, "http://127.0.0.1:8080");
+    assert!(qr_json.svg.is_some());
+    assert!(qr_json.ascii.is_some());
+
+    // Case E: Target WAN when no public URL assigned -> 503 SERVICE_UNAVAILABLE
+    let req_wan_unassigned = Request::builder()
+        .uri("/api/v1/tunnel/qr?target=wan")
+        .body(Body::empty())
+        .unwrap();
+    let resp_wan = app.clone().oneshot(req_wan_unassigned).await.unwrap();
+    assert_eq!(resp_wan.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    // 5. High-Throughput QR Code Generation Benchmark
+    let start = Instant::now();
+    let iterations = 200;
+    for _ in 0..iterations {
+        let _ = generate_svg_qr(test_url, Some(256), Some(2)).unwrap();
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] SVG QR Code generation: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 10_000.0,
+        "SVG QR generation must execute under 10.0 ms/op in debug mode (measured {:.3} µs)",
+        per_op_us
+    );
+
+    println!("[TASK-10.3.2 VERIFIED] Generate ASCII QR code in server terminal log on boot and SVG/PNG QR via /api/v1/tunnel/qr verified.");
+}

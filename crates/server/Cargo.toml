@@ -37,6 +37,8 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 subtle = "2.5"
 base64 = "0.22"
 reqwest = { version = "0.12", features = ["json"] }
+qrcode = "0.14.1"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = [

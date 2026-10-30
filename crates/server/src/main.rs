@@ -178,7 +178,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let tunnel_supervisor = tunnel::CloudflaredSupervisor::new(tunnel_sup_config);
     let tunnel_api_state = tunnel::TunnelApiState::new(tunnel_supervisor, config.port);
-    let tunnel_routes = tunnel::tunnel_status_router(tunnel_api_state);
+    let tunnel_routes = tunnel::tunnel_status_router(tunnel_api_state.clone())
+        .merge(tunnel::tunnel_qr_router(tunnel_api_state));
 
     // Assemble Axum Router
     let mut app = Router::new()
@@ -223,6 +224,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bind_addr: SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
     info!("AetherStream Server listening on http://{}", bind_addr);
+    let boot_url = format!("http://{}:{}", tunnel::detect_local_ip(), config.port);
+    info!("{}", tunnel::format_boot_qr_banner(&boot_url, "AetherStream Local Connect QR"));
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     axum::serve(listener, app).await?;

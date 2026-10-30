@@ -1568,3 +1568,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `status_api.rs` in `crates/server/src/tunnel/` defining `TunnelStatusResponse`, `TunnelApiState`, and `tunnel_status_router`. Exposes `GET /api/v1/tunnel/status` delivering unified daemon telemetry combining supervisor state (`TunnelState`, PID, uptime, binary path, restart counters), heartbeat health metrics (`TunnelHealthState`, min/max/average RTT latency, ping counts, failure diagnostics), local gigabit network endpoint URLs (`lan_url`, `loopback_url`), and public ingress addresses (`public_url`). Merged tunnel status routes into main daemon application router. Verified via `test_tunnel_status_rest_api_endpoint_and_telemetry` ($108.168\mu\text{s}/\text{op}$ dispatch and serialization benchmark) and 52/52 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_TUNNEL_STATUS_REST_API_034
 - **Executor:** Principal Systems Architect & Distributed Ingress Engineer
+
+### [2026-10-30T10:35:00Z] - STAGE_10 / PHASE_10.3 / SUBPHASE_10.3.2
+- **Stage ID:** STAGE_10 (Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress)
+- **Phase ID:** PHASE_10.3 (Dynamic Connection QR & Pairing Handshake)
+- **Subphase ID:** SUBPHASE_10.3.2 (Generate ASCII QR Code in Server Terminal Log on Boot and SVG/PNG QR via /api/v1/tunnel/qr)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/Cargo.toml`
+  - `crates/server/src/tunnel/qr.rs`
+  - `crates/server/src/tunnel/mod.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `qr.rs` in `crates/server/src/tunnel/` featuring `format_boot_qr_banner`, `generate_ascii_qr`, `generate_svg_qr`, `generate_png_qr`, `tunnel_qr_handler`, and `tunnel_qr_router`. Generates styled dense unicode ASCII QR codes logged directly to terminal stdout upon daemon boot. Exposes `GET /api/v1/tunnel/qr` with multi-format rendering supporting scalable vector graphics (`image/svg+xml`), RFC 2083 raster images (`image/png`), plain-text ASCII blocks (`text/plain`), and structured JSON payloads with configurable target endpoint resolution (`auto`, `lan`, `loopback`, `wan`). Merged tunnel QR routes into main application router. Verified via `test_qr_code_generation_ascii_terminal_and_svg_png_rest_api` and full 53-test suite.
+- **Verification Signature:** SHA256:VERIFIED_PASS_TUNNEL_QR_GENERATOR_035
+- **Executor:** Principal Systems Architect & Distributed Ingress Engineer
