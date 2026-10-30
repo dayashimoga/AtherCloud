@@ -130,6 +130,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/share/create", post(create_share_link_handler))
         .route("/api/v1/upload/:mount/init", post(init_upload_handler))
         .route("/api/v1/upload/:mount/chunk", post(upload_chunk_handler))
+        .route(
+            "/api/v1/upload/:mount/status/:upload_id",
+            get(upload_status_handler),
+        )
         .route("/api/v1/upload/:mount/complete", post(complete_upload_handler))
         .route(
             "/api/v1/transcode/hls/:mount/*path",
@@ -374,6 +378,43 @@ async fn upload_chunk_handler(
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": format!("{:?}", e) })),
+        )
+            .into_response(),
+    }
+}
+
+async fn upload_status_handler(
+    AxPath((mount, upload_id)): AxPath<(String, String)>,
+    State(state): State<AppState>,
+) -> Response {
+    if let Err(e) = state.mounts.check_write_permission(&mount) {
+        return e.into_response();
+    }
+
+    match state.upload_manager.get_session(&upload_id).await {
+        Some(session) => {
+            let missing = state
+                .upload_manager
+                .get_missing_chunks(&upload_id)
+                .await
+                .unwrap_or_default();
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "upload_id": session.upload_id,
+                    "total_chunks": session.total_chunks,
+                    "completed_chunks": session.completed_chunks,
+                    "missing_chunks": missing,
+                    "received_bytes": session.received_bytes,
+                    "total_size": session.total_size,
+                    "is_completed": session.is_completed,
+                })),
+            )
+                .into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Upload session not found" })),
         )
             .into_response(),
     }

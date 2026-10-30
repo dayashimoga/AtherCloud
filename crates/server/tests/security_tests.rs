@@ -1624,3 +1624,142 @@ async fn test_rfc7233_if_range_and_bounded_ring_buffer() {
         final_bytes - init_bytes
     );
 }
+
+#[tokio::test]
+async fn test_concurrent_multipart_resumable_upload_and_atomic_assembly() {
+    use aetherstream_server::storage::upload::UploadError;
+    use aetherstream_server::storage::ResumableUploadManager;
+    use sha2::{Digest, Sha256};
+    use std::sync::Arc;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let target_file = temp_dir.path().join("assembled_concurrent_video.mp4");
+
+    let manager = Arc::new(ResumableUploadManager::new());
+    let upload_id = "concurrent_multipart_upload_987";
+
+    let num_chunks = 8usize;
+    let chunk_size = 64 * 1024u64; // 64 KiB slice per chunk
+    let total_size = (num_chunks as u64) * chunk_size; // 512 KiB total
+
+    // Generate chunk slices with deterministic pseudo-random bytes
+    let mut chunks_data = Vec::with_capacity(num_chunks);
+    let mut chunks_hashes = Vec::with_capacity(num_chunks);
+    let mut full_payload = Vec::with_capacity(total_size as usize);
+
+    for chunk_idx in 0..num_chunks {
+        let mut slice = vec![0u8; chunk_size as usize];
+        for (i, byte) in slice.iter_mut().enumerate() {
+            *byte = ((chunk_idx * 31 + i) % 256) as u8;
+        }
+
+        let mut hasher = Sha256::new();
+        hasher.update(&slice);
+        let hash = hex::encode(hasher.finalize());
+
+        full_payload.extend_from_slice(&slice);
+        chunks_data.push(slice);
+        chunks_hashes.push(hash);
+    }
+
+    // Compute expected full file SHA-256
+    let mut full_hasher = Sha256::new();
+    full_hasher.update(&full_payload);
+    let full_expected_hash = hex::encode(full_hasher.finalize());
+
+    // 1. Initialize resumable session & verify pre-allocation
+    let session = manager
+        .init_session(upload_id, target_file.clone(), total_size, chunk_size)
+        .await
+        .expect("Initialize upload session");
+
+    assert_eq!(session.total_chunks, num_chunks);
+    assert_eq!(session.total_size, total_size);
+
+    // Verify disk pre-allocation
+    let pre_allocated_len = tokio::fs::metadata(&session.temp_path).await.unwrap().len();
+    assert_eq!(
+        pre_allocated_len, total_size,
+        "Temporary part file must be pre-allocated to full size"
+    );
+
+    // 2. Query missing chunks before any upload begins
+    let missing_init = manager.get_missing_chunks(upload_id).await.unwrap();
+    assert_eq!(missing_init.len(), num_chunks);
+
+    // 3. Early completion attempt must fail with IncompleteUpload
+    let premature_comp = manager.complete_session(upload_id, None).await;
+    match premature_comp {
+        Err(UploadError::IncompleteUpload(count, missing)) => {
+            assert_eq!(count, num_chunks);
+            assert_eq!(missing.len(), num_chunks);
+        }
+        _ => panic!("Expected IncompleteUpload error on uncompleted session"),
+    }
+
+    // 4. Launch concurrent tasks uploading chunks in out-of-order parallel slices
+    let mut tasks = Vec::new();
+    // Intentionally launch tasks in reverse/shuffled order to stress test out-of-order writes
+    let upload_order: Vec<usize> = vec![7, 3, 0, 5, 2, 6, 1, 4];
+
+    for idx in upload_order {
+        let mgr = manager.clone();
+        let uid = upload_id.to_string();
+        let chunk_bytes = chunks_data[idx].clone();
+        let chunk_hash = chunks_hashes[idx].clone();
+
+        let handle = tokio::spawn(async move {
+            mgr.write_session_chunk(&uid, idx, &chunk_hash, &chunk_bytes)
+                .await
+        });
+        tasks.push(handle);
+    }
+
+    // Await all concurrent chunk slice writers
+    let results = futures_util::future::join_all(tasks).await;
+    for res in results {
+        let write_res = res.expect("Task join error");
+        assert!(write_res.is_ok(), "Concurrent chunk slice write failed");
+    }
+
+    // 5. Verify all chunks are marked completed and missing is empty
+    let missing_after = manager.get_missing_chunks(upload_id).await.unwrap();
+    assert_eq!(
+        missing_after.len(),
+        0,
+        "No chunks should be missing after all concurrent uploads finish"
+    );
+
+    let progress = manager.get_session(upload_id).await.unwrap();
+    assert_eq!(progress.completed_chunks.len(), num_chunks);
+    assert_eq!(progress.received_bytes, total_size);
+
+    // 6. Complete session with cryptographic whole-file SHA-256 verification and atomic assembly
+    let final_path = manager
+        .complete_session(upload_id, Some(&full_expected_hash))
+        .await
+        .expect("Atomic session completion and SHA-256 assembly verification");
+
+    assert_eq!(final_path, target_file);
+    assert!(
+        target_file.exists(),
+        "Finalized file must exist at target canonical path"
+    );
+    assert!(
+        !session.temp_path.exists(),
+        "Temporary part file must be atomically renamed and cleared"
+    );
+
+    // 7. Verify byte-for-byte integrity on disk
+    let on_disk_bytes = tokio::fs::read(&target_file).await.unwrap();
+    assert_eq!(on_disk_bytes.len(), total_size as usize);
+    assert_eq!(
+        on_disk_bytes, full_payload,
+        "Assembled file content must match full multi-part payload"
+    );
+
+    println!(
+        "[RESUMABLE CONCURRENT UPLOAD VERIFIED] Successfully assembled {} bytes across {} concurrent slices with full SHA-256 match ({})",
+        total_size, num_chunks, full_expected_hash
+    );
+}
