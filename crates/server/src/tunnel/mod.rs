@@ -1,4 +1,5 @@
 pub mod binary_manager;
+pub mod edge_router;
 pub mod mdns;
 pub mod supervisor;
 pub mod url_parser;
@@ -6,6 +7,10 @@ pub mod url_parser;
 pub use binary_manager::{
     BinaryError, BinaryManagerConfig, BinarySource, CloudflaredBinaryInfo, CloudflaredBinaryManager,
     PlatformArch,
+};
+pub use edge_router::{
+    edge_routing_middleware, is_loopback_ip, is_private_lan_ip, ClientNetworkContext,
+    EdgeRoutingClassifier, EdgeRoutingConfig, IngressRouteDecision, IngressType,
 };
 pub use mdns::{
     build_mdns_response, decode_dns_name, detect_local_ip, encode_dns_name, parse_mdns_query,
@@ -20,6 +25,3 @@ pub use url_parser::{
     extract_custom_tunnel_url, extract_tunnel_url, is_valid_subdomain, probe_url_reachability,
     strip_ansi,
 };
-
-
-

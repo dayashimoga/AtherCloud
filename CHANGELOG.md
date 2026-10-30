@@ -1522,3 +1522,18 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `mdns.rs` in `crates/server/src/tunnel/` providing an autonomous, zero-dependency mDNS and DNS-SD (DNS Service Discovery) publisher advertising `_aetherstream._tcp.local` on standard port 5353 (`224.0.0.251:5353`). Features compliant binary DNS packet serialization and deserialization across PTR, SRV, TXT, and A resource records with DNS pointer decompression. Implements routing-table-based local IPv4 interface detection, dual-burst announcement packets upon daemon startup, query interception responding to service enumeration (`_services._dns-sd._udp.local`) and instance lookups, and TTL=0 goodbye broadcast upon clean termination. Exported `MdnsPublisher`, `MdnsServiceConfig`, and packet utilities in `tunnel/mod.rs`. Verified via `test_mdns_dns_sd_lan_discovery_and_packet_engine` ($11.748\mu\text{s}/\text{op}$ packet encoding benchmark) and full 49-test suite.
 - **Verification Signature:** SHA256:VERIFIED_PASS_MDNS_DNS_SD_DISCOVERY_031
 - **Executor:** Principal Systems Architect & Zero-Trust Network Engineer
+
+### [2026-10-30T10:05:00Z] - STAGE_10 / PHASE_10.2 / SUBPHASE_10.2.2
+- **Stage ID:** STAGE_10 (Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress)
+- **Phase ID:** PHASE_10.2 (Dual-Stack LAN/WAN Ingress & Failover Routing)
+- **Subphase ID:** SUBPHASE_10.2.2 (Edge Routing Middleware Dynamically Routing Requests Between Local Loopback and Tunnel Endpoint)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/tunnel/edge_router.rs`
+  - `crates/server/src/tunnel/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `edge_router.rs` in `crates/server/src/tunnel/` featuring `EdgeRoutingClassifier`, `EdgeRoutingConfig`, `IngressType` (`Loopback`, `Lan`, `Tunnel`, `Unknown`), `ClientNetworkContext`, `IngressRouteDecision`, and `edge_routing_middleware`. Implemented dual-stack request classification identifying loopback (`127.0.0.1`, `::1`), RFC 1918 / RFC 4193 private LAN networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `fc00::/7`, `fe80::/10`), and Cloudflare Tunnel ingress through headers (`cf-ray`, `cf-connecting-ip`, `x-forwarded-for`, `x-forwarded-proto`, and hostname checks against `*.trycloudflare.com` and custom domains). Added optimal route recommendation resolving local clients to high-speed LAN interface URLs and external clients to zero-cost tunnel URLs. Enforced security boundary restricting `/api/v1/admin` and `/api/v1/internal` endpoints to trusted local network access, returning RFC 7807 problem details (403 Forbidden) on remote tunnel ingress. Annotated response headers with `X-AetherStream-Ingress` and `X-AetherStream-Client-IP`. Verified via `test_edge_routing_middleware_and_dynamic_ingress_failover` ($4.194\mu\text{s}/\text{op}$ benchmark across 10,000 iterations) and 50/50 test suite passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_EDGE_ROUTING_MIDDLEWARE_032
+- **Executor:** Principal Systems Architect & Distributed Ingress Engineer

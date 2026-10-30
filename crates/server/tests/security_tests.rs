@@ -5604,3 +5604,211 @@ async fn test_mdns_dns_sd_lan_discovery_and_packet_engine() {
 
     println!("[TASK-10.2.1 VERIFIED] Implement LAN discovery using mDNS/DNS-SD publishing _aetherstream._tcp.local on port 5353 verified.");
 }
+
+#[tokio::test]
+async fn test_edge_routing_middleware_and_dynamic_ingress_failover() {
+    use aetherstream_server::tunnel::edge_router::{
+        edge_routing_middleware, is_loopback_ip, is_private_lan_ip,
+        EdgeRoutingClassifier, EdgeRoutingConfig, IngressType,
+    };
+    use axum::{
+        body::Body,
+        http::{HeaderMap, HeaderValue, Request, StatusCode},
+        middleware,
+        routing::get,
+        Router,
+    };
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tower::ServiceExt;
+
+    // 1. IP Subnet Classification
+    let loopback_v4: IpAddr = "127.0.0.1".parse().unwrap();
+    let loopback_v6: IpAddr = "::1".parse().unwrap();
+    let lan_10: IpAddr = "10.0.4.1".parse().unwrap();
+    let lan_172: IpAddr = "172.20.10.5".parse().unwrap();
+    let non_lan_172: IpAddr = "172.33.1.1".parse().unwrap();
+    let lan_192: IpAddr = "192.168.1.100".parse().unwrap();
+    let link_local: IpAddr = "169.254.42.1".parse().unwrap();
+    let wan_cf_dns: IpAddr = "1.1.1.1".parse().unwrap();
+    let ula_v6: IpAddr = "fd00::1".parse().unwrap();
+
+    assert!(is_loopback_ip(&loopback_v4));
+    assert!(is_loopback_ip(&loopback_v6));
+    assert!(!is_loopback_ip(&lan_192));
+
+    assert!(is_private_lan_ip(&lan_10));
+    assert!(is_private_lan_ip(&lan_172));
+    assert!(!is_private_lan_ip(&non_lan_172), "172.33/16 is public WAN");
+    assert!(is_private_lan_ip(&lan_192));
+    assert!(is_private_lan_ip(&link_local));
+    assert!(is_private_lan_ip(&ula_v6));
+    assert!(!is_private_lan_ip(&wan_cf_dns));
+
+    // 2. Request Header Classification
+    let config = EdgeRoutingConfig {
+        lan_ip: Some(Ipv4Addr::new(192, 168, 1, 20)),
+        daemon_port: 8080,
+        block_tunnel_admin: true,
+        custom_tunnel_domain: Some("media.aetherstream.io".to_string()),
+    };
+    let classifier = Arc::new(EdgeRoutingClassifier::new(config));
+
+    // Case A: Direct Loopback Request
+    let mut h_loop = HeaderMap::new();
+    h_loop.insert("host", HeaderValue::from_static("127.0.0.1:8080"));
+    let ctx_loop = classifier
+        .classify_headers(&h_loop, Some(SocketAddr::new(loopback_v4, 52341)));
+    assert_eq!(ctx_loop.ingress_type, IngressType::Loopback);
+    assert_eq!(ctx_loop.real_client_ip, loopback_v4);
+    assert!(ctx_loop.is_trusted_local());
+    assert!(!ctx_loop.is_tunnel());
+
+    // Case B: Private LAN Request
+    let mut h_lan = HeaderMap::new();
+    h_lan.insert("host", HeaderValue::from_static("192.168.1.20:8080"));
+    let ctx_lan = classifier
+        .classify_headers(&h_lan, Some(SocketAddr::new(lan_192, 52342)));
+    assert_eq!(ctx_lan.ingress_type, IngressType::Lan);
+    assert_eq!(ctx_lan.real_client_ip, lan_192);
+    assert!(ctx_lan.is_trusted_local());
+
+    // Case C: Cloudflare Quick Tunnel Ingress via CF-Ray & CF-Connecting-IP
+    let mut h_tunnel = HeaderMap::new();
+    h_tunnel.insert("host", HeaderValue::from_static("swift-stream-1234.trycloudflare.com"));
+    h_tunnel.insert("cf-ray", HeaderValue::from_static("8819ab234c-FRA"));
+    h_tunnel.insert("cf-connecting-ip", HeaderValue::from_static("203.0.113.88"));
+    h_tunnel.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+
+    let ctx_tunnel = classifier
+        .classify_headers(&h_tunnel, Some(SocketAddr::new(loopback_v4, 60100)));
+    assert_eq!(ctx_tunnel.ingress_type, IngressType::Tunnel);
+    assert_eq!(ctx_tunnel.real_client_ip, "203.0.113.88".parse::<IpAddr>().unwrap());
+    assert!(ctx_tunnel.is_tunnel());
+    assert!(!ctx_tunnel.is_trusted_local());
+    assert!(ctx_tunnel.is_tls);
+
+    // Case D: Custom Tunnel Domain Ingress
+    let mut h_custom = HeaderMap::new();
+    h_custom.insert("host", HeaderValue::from_static("media.aetherstream.io"));
+    h_custom.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.99, 10.0.0.1"));
+    let ctx_custom = classifier
+        .classify_headers(&h_custom, Some(SocketAddr::new(loopback_v4, 60101)));
+    assert_eq!(ctx_custom.ingress_type, IngressType::Tunnel);
+    assert_eq!(ctx_custom.real_client_ip, "198.51.100.99".parse::<IpAddr>().unwrap());
+
+    // 3. Optimal Routing Decision Resolver
+    // Local loopback client
+    let dec_loop = classifier.resolve_optimal_endpoint(loopback_v4);
+    assert_eq!(dec_loop.route_type, IngressType::Loopback);
+    assert_eq!(dec_loop.recommended_url, "http://127.0.0.1:8080");
+    assert!(dec_loop.is_direct_lan);
+
+    // LAN client
+    let dec_lan = classifier.resolve_optimal_endpoint(lan_192);
+    assert_eq!(dec_lan.route_type, IngressType::Lan);
+    assert_eq!(dec_lan.recommended_url, "http://192.168.1.20:8080");
+    assert!(dec_lan.is_direct_lan);
+
+    // WAN client without active tunnel
+    let wan_ip: IpAddr = "203.0.113.55".parse().unwrap();
+    let dec_wan_notunnel = classifier.resolve_optimal_endpoint(wan_ip);
+    assert_eq!(dec_wan_notunnel.route_type, IngressType::Unknown);
+    assert!(!dec_wan_notunnel.is_direct_lan);
+
+    // WAN client with active tunnel URL
+    classifier
+        .set_tunnel_url(Some("https://swift-stream-1234.trycloudflare.com".to_string()));
+    let dec_wan_tunnel = classifier.resolve_optimal_endpoint(wan_ip);
+    assert_eq!(dec_wan_tunnel.route_type, IngressType::Tunnel);
+    assert_eq!(
+        dec_wan_tunnel.recommended_url,
+        "https://swift-stream-1234.trycloudflare.com"
+    );
+    assert!(!dec_wan_tunnel.is_direct_lan);
+
+    // 4. Axum Edge Routing Middleware Integration
+    let c = classifier.clone();
+    let app = Router::new()
+        .route("/api/v1/content", get(|| async { "STREAM_MEDIA_PAYLOAD" }))
+        .route("/api/v1/admin/mounts", get(|| async { "ADMIN_SETTINGS" }))
+        .layer(middleware::from_fn(move |req, next| {
+            let c = c.clone();
+            async move { edge_routing_middleware(c, req, next).await }
+        }));
+
+    // Request 1: Local Loopback to content route -> 200 OK + Ingress header
+    let req_loop = Request::builder()
+        .uri("/api/v1/content")
+        .body(Body::empty())
+        .unwrap();
+    let resp_loop = app.clone().oneshot(req_loop).await.unwrap();
+    assert_eq!(resp_loop.status(), StatusCode::OK);
+    assert_eq!(
+        resp_loop.headers().get("X-AetherStream-Ingress").unwrap(),
+        "Loopback"
+    );
+
+    // Request 2: Local Loopback to admin route -> 200 OK (Trusted local access allowed)
+    let req_loop_admin = Request::builder()
+        .uri("/api/v1/admin/mounts")
+        .body(Body::empty())
+        .unwrap();
+    let resp_loop_admin = app.clone().oneshot(req_loop_admin).await.unwrap();
+    assert_eq!(resp_loop_admin.status(), StatusCode::OK);
+
+    // Request 3: Cloudflare Tunnel to content route -> 200 OK + Ingress header + Client IP header
+    let req_tunnel_content = Request::builder()
+        .uri("/api/v1/content")
+        .header("host", "swift-stream-1234.trycloudflare.com")
+        .header("cf-ray", "8829ef-DUS")
+        .header("cf-connecting-ip", "198.51.100.77")
+        .body(Body::empty())
+        .unwrap();
+    let resp_tunnel_content = app.clone().oneshot(req_tunnel_content).await.unwrap();
+    assert_eq!(resp_tunnel_content.status(), StatusCode::OK);
+    assert_eq!(
+        resp_tunnel_content.headers().get("X-AetherStream-Ingress").unwrap(),
+        "Tunnel"
+    );
+    assert_eq!(
+        resp_tunnel_content.headers().get("X-AetherStream-Client-IP").unwrap(),
+        "198.51.100.77"
+    );
+
+    // Request 4: Cloudflare Tunnel to admin route -> 403 FORBIDDEN (Security Boundary Enforced!)
+    let req_tunnel_admin = Request::builder()
+        .uri("/api/v1/admin/mounts")
+        .header("host", "swift-stream-1234.trycloudflare.com")
+        .header("cf-ray", "8829ef-DUS")
+        .header("cf-connecting-ip", "198.51.100.77")
+        .body(Body::empty())
+        .unwrap();
+    let resp_tunnel_admin = app.clone().oneshot(req_tunnel_admin).await.unwrap();
+    assert_eq!(resp_tunnel_admin.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        resp_tunnel_admin.headers().get("content-type").unwrap(),
+        "application/problem+json"
+    );
+
+    // 5. High-Throughput Request Classification Benchmark
+    let start = Instant::now();
+    let iterations = 10_000;
+    for _ in 0..iterations {
+        let _ = classifier.classify_headers(&h_tunnel, Some(SocketAddr::new(loopback_v4, 60100)));
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] Edge routing header classification: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 10.0,
+        "Header classification must execute under 10 µs/op (measured {:.3} µs)",
+        per_op_us
+    );
+
+    println!("[TASK-10.2.2 VERIFIED] Edge routing middleware dynamically routing requests between local loopback and tunnel endpoint verified.");
+}

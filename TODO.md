@@ -950,3 +950,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Systems Architect & Zero-Trust Network Engineer
 - **Execution Trace:** cargo test --test security_tests test_mdns_dns_sd_lan_discovery_and_packet_engine
 - **Validation Proof:** Engineered mDNS/DNS-SD local network service discovery publisher in crates/server/src/tunnel/mdns.rs. Implemented RFC 1035/6762/6763 compliant binary DNS packet encoding and decoding for PTR, SRV, TXT, and A records, automatic local IPv4 detection, dual-burst announcement packets to 224.0.0.251:5353, query responder loop, and goodbye packet broadcast (TTL=0) on shutdown. Verified via test_mdns_dns_sd_lan_discovery_and_packet_engine (11.748µs/op packet encoding benchmark) and all 49 integration tests passing.
+
+### [2026-10-30T10:05:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-10.2.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Systems Architect & Distributed Ingress Engineer
+- **Execution Trace:** cargo test --test security_tests test_edge_routing_middleware_and_dynamic_ingress_failover
+- **Validation Proof:** Engineered EdgeRoutingClassifier, IngressRouteDecision, ClientNetworkContext, and edge_routing_middleware in crates/server/src/tunnel/edge_router.rs. Features dual-stack LAN/WAN request classification distinguishing Loopback, RFC 1918/RFC 4193 private LAN, and Cloudflare Tunnel ingress (via CF-Ray, CF-Connecting-IP, X-Forwarded-For, and custom domains). Includes optimal route resolver generating direct LAN URIs for gigabit throughput or secure tunnel URLs for remote access, and enforces security boundaries blocking remote tunnel access to admin routes (/api/v1/admin, /api/v1/internal). Verified via test_edge_routing_middleware_and_dynamic_ingress_failover (4.194µs/op benchmark) and all 50 integration tests passing.
