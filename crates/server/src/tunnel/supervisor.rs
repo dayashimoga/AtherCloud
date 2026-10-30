@@ -17,6 +17,12 @@ pub enum TunnelSupervisorError {
     JoinError(String),
     #[error("Termination failed: {0}")]
     TerminationFailed(String),
+    #[error("Timed out waiting for tunnel URL assignment")]
+    UrlAssignmentTimeout,
+    #[error("No public URL assigned")]
+    NoPublicUrl,
+    #[error("Network probe error: {0}")]
+    NetworkProbe(#[from] reqwest::Error),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +42,10 @@ pub enum TunnelEvent {
     Running {
         pid: u32,
     },
+    UrlAssigned {
+        url: String,
+    },
+    UrlRevoked,
     UnexpectedExit {
         exit_code: Option<i32>,
         retry_count: u32,
@@ -89,6 +99,7 @@ impl Default for TunnelSupervisorConfig {
 pub struct TunnelSupervisorStatus {
     pub state: TunnelState,
     pub pid: Option<u32>,
+    pub public_url: Option<String>,
     pub uptime_secs: u64,
     pub restart_count: u32,
     pub last_exit_code: Option<i32>,
@@ -100,6 +111,7 @@ struct SupervisorInner {
     config: Arc<RwLock<TunnelSupervisorConfig>>,
     state: Arc<RwLock<TunnelState>>,
     pid: Arc<RwLock<Option<u32>>>,
+    assigned_url: Arc<RwLock<Option<String>>>,
     started_at: Arc<RwLock<Option<Instant>>>,
     restart_count: Arc<RwLock<u32>>,
     last_exit_code: Arc<RwLock<Option<i32>>>,
@@ -132,6 +144,7 @@ impl CloudflaredSupervisor {
                 config: Arc::new(RwLock::new(config)),
                 state: Arc::new(RwLock::new(TunnelState::Stopped)),
                 pid: Arc::new(RwLock::new(None)),
+                assigned_url: Arc::new(RwLock::new(None)),
                 started_at: Arc::new(RwLock::new(None)),
                 restart_count: Arc::new(RwLock::new(0)),
                 last_exit_code: Arc::new(RwLock::new(None)),
@@ -160,9 +173,57 @@ impl CloudflaredSupervisor {
         *self.inner.state.read().await == TunnelState::Running
     }
 
+    pub async fn public_url(&self) -> Option<String> {
+        self.inner.assigned_url.read().await.clone()
+    }
+
+    pub async fn wait_for_url(&self, timeout_dur: Duration) -> Result<String, TunnelSupervisorError> {
+        if let Some(url) = self.public_url().await {
+            return Ok(url);
+        }
+
+        let mut rx = self.subscribe_events();
+        let timeout_fut = tokio::time::sleep(timeout_dur);
+        tokio::pin!(timeout_fut);
+
+        loop {
+            tokio::select! {
+                _ = &mut timeout_fut => {
+                    return Err(TunnelSupervisorError::UrlAssignmentTimeout);
+                }
+                event_res = rx.recv() => {
+                    match event_res {
+                        Ok(TunnelEvent::UrlAssigned { url }) => return Ok(url),
+                        Ok(TunnelEvent::Failed { reason }) => {
+                            return Err(TunnelSupervisorError::TerminationFailed(format!("Tunnel failed before URL assignment: {reason}")));
+                        }
+                        Ok(TunnelEvent::Stopped) => {
+                            return Err(TunnelSupervisorError::TerminationFailed("Tunnel stopped before URL assignment".to_string()));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    pub async fn probe_public_url_reachability(
+        &self,
+        timeout_dur: Duration,
+    ) -> Result<bool, TunnelSupervisorError> {
+        let url = self
+            .public_url()
+            .await
+            .ok_or(TunnelSupervisorError::NoPublicUrl)?;
+        crate::tunnel::url_parser::probe_url_reachability(&url, timeout_dur)
+            .await
+            .map_err(TunnelSupervisorError::NetworkProbe)
+    }
+
     pub async fn status(&self) -> TunnelSupervisorStatus {
         let state = *self.inner.state.read().await;
         let pid = *self.inner.pid.read().await;
+        let public_url = self.inner.assigned_url.read().await.clone();
         let uptime_secs = self
             .inner
             .started_at
@@ -178,6 +239,7 @@ impl CloudflaredSupervisor {
         TunnelSupervisorStatus {
             state,
             pid,
+            public_url,
             uptime_secs,
             restart_count,
             last_exit_code,
@@ -242,6 +304,11 @@ impl CloudflaredSupervisor {
         *self.inner.state.write().await = TunnelState::Stopped;
         *self.inner.pid.write().await = None;
         *self.inner.started_at.write().await = None;
+
+        let had_url = self.inner.assigned_url.write().await.take().is_some();
+        if had_url {
+            let _ = self.inner.event_tx.send(TunnelEvent::UrlRevoked);
+        }
 
         let _ = self.inner.event_tx.send(TunnelEvent::Stopped);
         Ok(())
@@ -318,25 +385,44 @@ impl SupervisorInner {
 
             let _ = self.event_tx.send(TunnelEvent::Running { pid });
 
-            // Stream stdout and stderr
+            // Stream stdout and parse tunnel URLs in real time
             if let Some(stdout) = child.stdout.take() {
                 let out_tx = self.output_tx.clone();
+                let assigned_url_lock = self.assigned_url.clone();
+                let event_tx_clone = self.event_tx.clone();
                 tokio::spawn(async move {
                     use tokio::io::AsyncBufReadExt;
                     let mut reader = tokio::io::BufReader::new(stdout).lines();
                     while let Ok(Some(line)) = reader.next_line().await {
-                        let _ = out_tx.send(line);
+                        let _ = out_tx.send(line.clone());
+                        if let Some(url) = crate::tunnel::url_parser::extract_tunnel_url(&line) {
+                            let mut guard = assigned_url_lock.write().await;
+                            if guard.as_deref() != Some(&url) {
+                                *guard = Some(url.clone());
+                                let _ = event_tx_clone.send(TunnelEvent::UrlAssigned { url });
+                            }
+                        }
                     }
                 });
             }
 
+            // Stream stderr and parse tunnel URLs in real time
             if let Some(stderr) = child.stderr.take() {
                 let out_tx = self.output_tx.clone();
+                let assigned_url_lock = self.assigned_url.clone();
+                let event_tx_clone = self.event_tx.clone();
                 tokio::spawn(async move {
                     use tokio::io::AsyncBufReadExt;
                     let mut reader = tokio::io::BufReader::new(stderr).lines();
                     while let Ok(Some(line)) = reader.next_line().await {
-                        let _ = out_tx.send(line);
+                        let _ = out_tx.send(line.clone());
+                        if let Some(url) = crate::tunnel::url_parser::extract_tunnel_url(&line) {
+                            let mut guard = assigned_url_lock.write().await;
+                            if guard.as_deref() != Some(&url) {
+                                *guard = Some(url.clone());
+                                let _ = event_tx_clone.send(TunnelEvent::UrlAssigned { url });
+                            }
+                        }
                     }
                 });
             }
@@ -347,12 +433,20 @@ impl SupervisorInner {
                     let _ = child.wait().await;
                     *self.pid.write().await = None;
                     *self.state.write().await = TunnelState::Stopped;
+                    let had_url = self.assigned_url.write().await.take().is_some();
+                    if had_url {
+                        let _ = self.event_tx.send(TunnelEvent::UrlRevoked);
+                    }
                     break;
                 }
                 status_res = child.wait() => {
                     let exit_code = status_res.ok().and_then(|s| s.code());
                     *self.last_exit_code.write().await = exit_code;
                     *self.pid.write().await = None;
+                    let had_url = self.assigned_url.write().await.take().is_some();
+                    if had_url {
+                        let _ = self.event_tx.send(TunnelEvent::UrlRevoked);
+                    }
 
                     let uptime_secs = self
                         .started_at

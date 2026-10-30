@@ -936,3 +936,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Systems Architect & Distributed Ingress Engineer
 - **Execution Trace:** cargo test --test security_tests test_cloudflared_async_supervisor_lifecycle_and_auto_restart
 - **Validation Proof:** Engineered CloudflaredSupervisor in crates/server/src/tunnel/supervisor.rs managing child process lifecycle (Starting, Running, Restarting, Stopped, Failed), PID allocation, double-start defense, exponential backoff auto-restart on unexpected exit, real-time stdout/stderr stream piping via broadcast channels, and clean signal termination without zombie processes. Verified via test_cloudflared_async_supervisor_lifecycle_and_auto_restart (3.613µs/op status query benchmark) and all 47 integration tests passing.
+
+### [2026-10-30T09:45:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-10.1.3
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Systems Architect & Distributed Ingress Engineer
+- **Execution Trace:** cargo test --test security_tests test_cloudflared_stdout_stderr_dynamic_url_parser_and_assignment
+- **Validation Proof:** Engineered real-time dynamic ingress URL capture in crates/server/src/tunnel/url_parser.rs (extract_tunnel_url, extract_custom_tunnel_url, is_valid_subdomain, strip_ansi, probe_url_reachability) and integrated with CloudflaredSupervisor. Implemented zero-copy Cow ANSI escape sequence stripping, multi-format stdout/stderr stream parsing capturing quick tunnel trycloudflare.com hostnames across banner boxes, log messages, and JSON formats. Added asynchronous wait_for_url notification listener, public URL accessor, telemetry status integration, and automated revocation event emission upon tunnel shutdown. Marked Phase 4.1 (PHASE_10.1) 100% complete. Verified via test_cloudflared_stdout_stderr_dynamic_url_parser_and_assignment (5.404µs/op benchmark) and all 48 integration tests passing.

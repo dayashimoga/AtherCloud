@@ -5263,3 +5263,192 @@ async fn test_cloudflared_async_supervisor_lifecycle_and_auto_restart() {
 
     println!("[TASK-10.1.2 VERIFIED] Asynchronous supervisor child process managing cloudflared tunnel verified.");
 }
+
+#[tokio::test]
+async fn test_cloudflared_stdout_stderr_dynamic_url_parser_and_assignment() {
+    use aetherstream_server::tunnel::supervisor::{
+        CloudflaredSupervisor, TunnelEvent, TunnelSupervisorConfig,
+    };
+    use aetherstream_server::tunnel::url_parser::{
+        extract_custom_tunnel_url, extract_tunnel_url, is_valid_subdomain, strip_ansi,
+    };
+    use std::time::{Duration, Instant};
+
+    // 1. ANSI Escape Sequence Stripping
+    let colored_raw = "\x1b[32mhttps://colored-host-123.trycloudflare.com\x1b[0m";
+    assert_eq!(
+        strip_ansi(colored_raw),
+        "https://colored-host-123.trycloudflare.com"
+    );
+
+    let bold_banner = "\x1b[1m\x1b[34m| https://bold-cyan.trycloudflare.com |\x1b[0m";
+    assert_eq!(
+        strip_ansi(bold_banner),
+        "| https://bold-cyan.trycloudflare.com |"
+    );
+
+    // 2. Subdomain Validation
+    assert!(is_valid_subdomain("quick-rabbit-1234"));
+    assert!(is_valid_subdomain("a"));
+    assert!(is_valid_subdomain("stream42"));
+    assert!(!is_valid_subdomain(""));
+    assert!(!is_valid_subdomain("-start-hyphen"));
+    assert!(!is_valid_subdomain("end-hyphen-"));
+    assert!(!is_valid_subdomain("has_underscore"));
+    assert!(!is_valid_subdomain("has.dot"));
+    assert!(!is_valid_subdomain(&"a".repeat(64)));
+
+    // 3. Multi-Format URL Extraction
+    let test_cases = [
+        (
+            "|  https://curly-pine-1234.trycloudflare.com  |",
+            Some("https://curly-pine-1234.trycloudflare.com"),
+        ),
+        (
+            "2024-10-30T09:00:00Z INF |  https://my-subdomain-456.trycloudflare.com/  |",
+            Some("https://my-subdomain-456.trycloudflare.com"),
+        ),
+        (
+            "{\"time\":\"2024-10-30\",\"level\":\"info\",\"message\":\"https://speedy-fox-789.trycloudflare.com\"}",
+            Some("https://speedy-fox-789.trycloudflare.com"),
+        ),
+        (
+            "Visit your tunnel at: [AetherStream](https://secure-gate.trycloudflare.com) now",
+            Some("https://secure-gate.trycloudflare.com"),
+        ),
+        (
+            "<a href=\"https://html-tag-tunnel.trycloudflare.com\">link</a>",
+            Some("https://html-tag-tunnel.trycloudflare.com"),
+        ),
+        (
+            "Connection registered: 'https://quoted-name.trycloudflare.com'",
+            Some("https://quoted-name.trycloudflare.com"),
+        ),
+        (
+            "\x1b[32mhttps://ansi-styled-99.trycloudflare.com\x1b[0m",
+            Some("https://ansi-styled-99.trycloudflare.com"),
+        ),
+        (
+            "Regular log line without tunnel URL or connection information",
+            None,
+        ),
+        (
+            "https://invalid_subdomain!.trycloudflare.com",
+            None,
+        ),
+    ];
+
+    for (input, expected) in test_cases {
+        let extracted = extract_tunnel_url(input);
+        assert_eq!(
+            extracted.as_deref(),
+            expected,
+            "Failed parsing format for: {input}"
+        );
+    }
+
+    // 4. Custom Hostname / Domain Extraction
+    let custom_line = "Tunnel established: https://media.aetherstream.io/stream";
+    assert_eq!(
+        extract_custom_tunnel_url(custom_line, "aetherstream.io"),
+        Some("https://media.aetherstream.io".to_string())
+    );
+
+    // 5. Real-Time Dynamic Ingress URL Capture in Supervisor
+    #[cfg(windows)]
+    let url_emitter_cmd = vec![
+        "powershell".to_string(),
+        "-Command".to_string(),
+        "Start-Sleep -Milliseconds 100; Write-Output '+---------------------------------------------------------+'; Write-Output '|  Your quick Tunnel has been created! Visit it at:       |'; Write-Output '|  https://cosmic-stream-9000.trycloudflare.com            |'; Write-Output '+---------------------------------------------------------+'; Start-Sleep -Milliseconds 1200".to_string(),
+    ];
+    #[cfg(not(windows))]
+    let url_emitter_cmd = vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "sleep 0.1; echo '|  https://cosmic-stream-9000.trycloudflare.com  |'; sleep 1.2".to_string(),
+    ];
+
+    let supervisor = CloudflaredSupervisor::new(TunnelSupervisorConfig {
+        command_override: Some(url_emitter_cmd),
+        auto_restart: false,
+        ..Default::default()
+    });
+
+    assert_eq!(supervisor.public_url().await, None);
+
+    let mut event_rx = supervisor.subscribe_events();
+    supervisor.start().await.expect("Supervisor start failed");
+
+    // Asynchronously wait for URL assignment
+    let assigned_url = supervisor
+        .wait_for_url(Duration::from_secs(4))
+        .await
+        .expect("URL was not captured within timeout");
+
+    assert_eq!(
+        assigned_url,
+        "https://cosmic-stream-9000.trycloudflare.com"
+    );
+    assert_eq!(
+        supervisor.public_url().await.as_deref(),
+        Some("https://cosmic-stream-9000.trycloudflare.com")
+    );
+
+    // Check status record reflects captured public URL
+    let status = supervisor.status().await;
+    assert_eq!(
+        status.public_url.as_deref(),
+        Some("https://cosmic-stream-9000.trycloudflare.com")
+    );
+
+    // Verify UrlAssigned event was broadcast
+    let mut observed_url_event = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    while tokio::time::Instant::now() < deadline {
+        if let Ok(Ok(TunnelEvent::UrlAssigned { url })) =
+            tokio::time::timeout(Duration::from_millis(100), event_rx.recv()).await
+        {
+            assert_eq!(url, "https://cosmic-stream-9000.trycloudflare.com");
+            observed_url_event = true;
+            break;
+        }
+    }
+    assert!(observed_url_event, "UrlAssigned event must be emitted");
+
+    // 6. URL Revocation upon Tunnel Termination
+    supervisor.stop().await.expect("Supervisor stop failed");
+    assert_eq!(supervisor.public_url().await, None);
+
+    let mut observed_revocation = false;
+    let deadline2 = tokio::time::Instant::now() + Duration::from_millis(500);
+    while tokio::time::Instant::now() < deadline2 {
+        if let Ok(Ok(TunnelEvent::UrlRevoked)) =
+            tokio::time::timeout(Duration::from_millis(100), event_rx.recv()).await
+        {
+            observed_revocation = true;
+            break;
+        }
+    }
+    assert!(observed_revocation, "UrlRevoked event must be emitted when tunnel terminates");
+
+    // 7. High-Throughput URL Parser Benchmark
+    let sample_log = "2024-10-30T09:15:30Z INF |  https://lightning-edge-555.trycloudflare.com  |";
+    let start = Instant::now();
+    let iterations = 10_000;
+    for _ in 0..iterations {
+        let _ = extract_tunnel_url(sample_log);
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] extract_tunnel_url log parser: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 25.0,
+        "URL extraction must execute under 25 µs/op (measured {:.3} µs)",
+        per_op_us
+    );
+
+    println!("[TASK-10.1.3 VERIFIED] Parse stdout/stderr in real-time to capture assigned dynamic trycloudflare.com URL verified.");
+}

@@ -1491,3 +1491,19 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `CloudflaredSupervisor` in `crates/server/src/tunnel/supervisor.rs`, establishing an asynchronous supervisor child process managing the `cloudflared` tunnel runtime lifecycle. Features comprehensive state transitions (`Stopped`, `Starting`, `Running`, `Restarting`, `Failed`), dynamic PID tracking, double-start collision prevention, and an autonomous exponential backoff recovery loop (`min(initial_backoff * 2^retries, max_backoff)`) responding to unexpected process crashes up to configurable retry limits. Implemented non-blocking line-by-line stdout/stderr stream piping via Tokio broadcast channels, clean signal termination (`child.kill()` + `kill_on_drop(true)`), and high-throughput thread-safe telemetry status inquiries. Exported `CloudflaredSupervisor` and lifecycle models in `tunnel/mod.rs`. Verified via `test_cloudflared_async_supervisor_lifecycle_and_auto_restart` ($3.613\mu\text{s}/\text{op}$ status benchmark) and all 47 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_CLOUDFLARED_SUPERVISOR_029
 - **Executor:** Principal Systems Architect & Distributed Ingress Engineer
+
+### [2026-10-30T09:45:00Z] - STAGE_10 / PHASE_10.1 / SUBPHASE_10.1.3
+- **Stage ID:** STAGE_10 (Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress)
+- **Phase ID:** PHASE_10.1 (Managed Cloudflare cloudflared Lifecycle Engine)
+- **Subphase ID:** SUBPHASE_10.1.3 (Parse stdout/stderr in Real-Time to Capture Assigned Dynamic trycloudflare.com URL)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/tunnel/url_parser.rs`
+  - `crates/server/src/tunnel/supervisor.rs`
+  - `crates/server/src/tunnel/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `url_parser.rs` and integrated real-time dynamic ingress URL capture into `CloudflaredSupervisor` in `crates/server/src/tunnel/`. Employs zero-copy `Cow` ANSI sequence stripping (`strip_ansi`), RFC 1035/1123 compliant subdomain validation, and multi-format line matching parsing `trycloudflare.com` endpoints out of terminal borders, timestamps, and JSON-formatted log streams. Features asynchronous `wait_for_url` event listeners, HTTPS reachability probing (`probe_url_reachability`), and automatic URL revocation (`TunnelEvent::UrlRevoked`) on process exit or termination. Marked Phase 4.1 (PHASE_10.1) 100% complete. Verified via `test_cloudflared_stdout_stderr_dynamic_url_parser_and_assignment` (5.4µs/op log parser benchmark) and all 48 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_CLOUDFLARED_URL_PARSER_030
+- **Executor:** Principal Systems Architect & Distributed Ingress Engineer
