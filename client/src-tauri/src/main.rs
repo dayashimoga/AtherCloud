@@ -8,3 +8,4 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running aetherstream desktop application");
 }
+

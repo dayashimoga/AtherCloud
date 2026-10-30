@@ -31,7 +31,7 @@ function Test-Subphase-1-1-1 {
 
     # 1. Shell Environment Audit
     $psVersion = $PSVersionTable.PSVersion
-    $psEdition = $PSVersionTable.PSEdition
+    $editionStr = $PSVersionTable.PSEdition
     $isPS7Plus = $psVersion.Major -ge 7
 
     $execPolicy = Get-ExecutionPolicy
@@ -42,7 +42,7 @@ function Test-Subphase-1-1-1 {
         $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     }
 
-    Write-AetherLog "SUCCESS" "PowerShell Runtime: v$psVersion ($psEdition Edition) [PS7+ Ready: $isPS7Plus]"
+    Write-AetherLog "SUCCESS" "PowerShell Runtime: v$psVersion ($editionStr Edition) [PS7+ Ready: $isPS7Plus]"
     Write-AetherLog "INFO"    "Execution Policy: $execPolicy | Process Elevation (Admin): $isElevated"
 
     # 2. CPU & Memory Diagnostics
@@ -128,7 +128,7 @@ function Test-Subphase-1-1-1 {
         timestamp_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         shell = @{
             version = "$psVersion"
-            edition = "$psEdition"
+            edition = "$editionStr"
             is_ps7_plus = $isPS7Plus
             execution_policy = "$execPolicy"
             is_admin = $isElevated

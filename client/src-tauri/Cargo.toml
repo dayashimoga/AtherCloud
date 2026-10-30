@@ -15,3 +15,4 @@ tauri = { version = "1.5", features = ["http-all"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
+
