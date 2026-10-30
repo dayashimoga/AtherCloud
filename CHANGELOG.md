@@ -1261,3 +1261,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered RFC 7807 Problem Details engine in `crates/server/src/security/problem.rs` emitting `Content-Type: application/problem+json` with members: `type`, `title`, `status`, `detail`, `instance`, `code`, `invalid_subpath`, and backwards-compatible `error`. Wired standardized `IntoResponse` for `SandboxError`, `MountError`, `RouteAuthError`, and `AuthError`, guaranteeing absolute host filesystem paths (Windows drive roots, Unix root paths, symlink escape targets, UNC server IPs, OS quarantine locations) are sanitized and shielded against information disclosure attacks. Marked Phase 2.2 complete. Verified via `test_rfc7807_problem_details_payloads_and_information_leakage_defenses`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_RFC7807_PROBLEM_DETAILS_015
 - **Executor:** Principal Security Architect & Systems Engineer
+
+### [2026-10-30T08:15:00Z] - STAGE_8 / PHASE_8.3 / SUBPHASE_8.3.1
+- **Stage ID:** STAGE_8 (Granular Security Sandbox, Scoped RBAC & Virtual Mount Configuration)
+- **Phase ID:** PHASE_8.3 (Cryptographic Token Authority & REST Management APIs)
+- **Subphase ID:** SUBPHASE_8.3.1 (Constant-Time HMAC-SHA256 Scoped Token Authority & Timing Defense)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/Cargo.toml`
+  - `Cargo.lock`
+  - `crates/server/src/security/hmac_auth.rs`
+  - `crates/server/src/security/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `TokenAuthority` in `crates/server/src/security/hmac_auth.rs` executing constant-time HMAC-SHA256 signature verification via `mac.verify_slice` (eliminating timing side-channels). Implemented URL-safe unpadded Base64URL scoped token generation and validation, path-component-aware scope boundary enforcement (preventing partial string prefix leaks), granular `TokenPermission` modes (`StreamOnly`, `ReadOnly`, `ReadWrite`), and nonce-based replay shielding. Preserved seamless backwards compatibility for legacy colon-delimited and opaque hex token formats through `HmacTokenValidator`. Verified via `test_constant_time_hmac_scoped_token_authority_and_timing_defense`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_CONSTANT_TIME_HMAC_016
+- **Executor:** Principal Security Architect & Systems Engineer

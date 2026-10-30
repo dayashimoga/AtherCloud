@@ -2697,3 +2697,222 @@ async fn test_rfc7807_problem_details_payloads_and_information_leakage_defenses(
 
     println!("[RFC 7807 VERIFIED] Standardized Problem Details payloads validated with complete host information leakage shielding.");
 }
+
+#[tokio::test]
+async fn test_constant_time_hmac_scoped_token_authority_and_timing_defense() {
+    use aetherstream_server::security::hmac_auth::{AuthError, TokenAuthority, TokenPermission};
+    use std::time::Instant;
+
+    let secret = "production_super_secret_master_key_9876543210_abcdef";
+    let mount = "vault_media";
+    let prefix = "movies/action";
+
+    // 1. URL-Safe Base64URL Token Generation
+    let token = TokenAuthority::generate_scoped_token(
+        secret,
+        mount,
+        prefix,
+        TokenPermission::ReadOnly,
+        3600,
+        Some("nonce-session-42"),
+    );
+
+    // Validate that token is URL-safe (no standard base64 +, /, or = characters)
+    assert!(!token.contains('+'), "Token must not contain '+' in URL-safe base64");
+    assert!(!token.contains('/'), "Token must not contain '/' in URL-safe base64");
+    assert!(!token.contains('='), "Token must not contain '=' in URL-safe unpadded base64");
+
+    // 2. Valid Token Verification
+    let valid_claim = TokenAuthority::validate_scoped_token(
+        secret,
+        &token,
+        mount,
+        "movies/action/die_hard.mp4",
+        Some(TokenPermission::ReadOnly),
+    ).expect("Validate valid scoped token");
+
+    assert_eq!(valid_claim.mount_id, "vault_media");
+    assert_eq!(valid_claim.path_prefix, "movies/action");
+    assert_eq!(valid_claim.permission, TokenPermission::ReadOnly);
+    assert_eq!(valid_claim.nonce, "nonce-session-42");
+    assert!(!valid_claim.allow_write);
+
+    // 3. Granular Permission Enforcement
+    // Requesting ReadWrite using a ReadOnly token must fail with InsufficientPermission
+    let write_denied = TokenAuthority::validate_scoped_token(
+        secret,
+        &token,
+        mount,
+        "movies/action/die_hard.mp4",
+        Some(TokenPermission::ReadWrite),
+    );
+    match write_denied {
+        Err(AuthError::InsufficientPermission) => {}
+        _ => panic!("Expected InsufficientPermission when attempting write on read-only token"),
+    }
+
+    // Stream-only token validation
+    let stream_token = TokenAuthority::generate_scoped_token(
+        secret,
+        mount,
+        prefix,
+        TokenPermission::StreamOnly,
+        3600,
+        None,
+    );
+    assert!(TokenAuthority::validate_scoped_token(
+        secret,
+        &stream_token,
+        mount,
+        "movies/action/trailer.mp4",
+        Some(TokenPermission::StreamOnly),
+    ).is_ok());
+
+    let stream_read_denied = TokenAuthority::validate_scoped_token(
+        secret,
+        &stream_token,
+        mount,
+        "movies/action/trailer.mp4",
+        Some(TokenPermission::ReadOnly),
+    );
+    match stream_read_denied {
+        Err(AuthError::InsufficientPermission) => {}
+        _ => panic!("Stream-only token must not permit read access"),
+    }
+
+    // ReadWrite token permits all operations
+    let rw_token = TokenAuthority::generate_scoped_token(
+        secret,
+        mount,
+        prefix,
+        TokenPermission::ReadWrite,
+        3600,
+        None,
+    );
+    assert!(TokenAuthority::validate_scoped_token(
+        secret,
+        &rw_token,
+        mount,
+        "movies/action/upload.mp4",
+        Some(TokenPermission::ReadWrite),
+    ).is_ok());
+
+    // 4. Component-Aware Path Scope Boundary Checks
+    // Descendant path matches
+    assert!(TokenAuthority::validate_scoped_token(
+        secret,
+        &token,
+        mount,
+        "movies/action/subfolder/2026/film.mp4",
+        None,
+    ).is_ok());
+
+    // Partial string prefix without path boundary (e.g. movies/action_thriller) must fail!
+    let non_boundary_check = TokenAuthority::validate_scoped_token(
+        secret,
+        &token,
+        mount,
+        "movies/action_thriller/film.mp4",
+        None,
+    );
+    match non_boundary_check {
+        Err(AuthError::PathOutOfScope(req, pref)) => {
+            assert_eq!(req, "movies/action_thriller/film.mp4");
+            assert_eq!(pref, "movies/action");
+        }
+        _ => panic!("Expected PathOutOfScope on non-boundary prefix substring bypass attempt"),
+    }
+
+    // Unrelated path scope must fail
+    let horror_check = TokenAuthority::validate_scoped_token(
+        secret,
+        &token,
+        mount,
+        "movies/horror/halloween.mp4",
+        None,
+    );
+    match horror_check {
+        Err(AuthError::PathOutOfScope(_, _)) => {}
+        _ => panic!("Expected PathOutOfScope on out-of-scope path"),
+    }
+
+    // Wildcard mount token allows any mount
+    let wildcard_token = TokenAuthority::generate_scoped_token(
+        secret,
+        "*",
+        "",
+        TokenPermission::ReadOnly,
+        3600,
+        None,
+    );
+    assert!(TokenAuthority::validate_scoped_token(secret, &wildcard_token, "any_mount_1", "any/file.mp4", None).is_ok());
+    assert!(TokenAuthority::validate_scoped_token(secret, &wildcard_token, "any_mount_2", "other/file.mp4", None).is_ok());
+
+    // Mount mismatch fails
+    let mount_mismatch = TokenAuthority::validate_scoped_token(secret, &token, "unauthorized_mount", "movies/action/film.mp4", None);
+    match mount_mismatch {
+        Err(AuthError::MountMismatch(t_m, r_m)) => {
+            assert_eq!(t_m, "vault_media");
+            assert_eq!(r_m, "unauthorized_mount");
+        }
+        _ => panic!("Expected MountMismatch on mount mismatch"),
+    }
+
+    // 5. Nonce Distinctness & Replay Shielding
+    let token_nonce_1 = TokenAuthority::generate_scoped_token(secret, mount, prefix, TokenPermission::ReadOnly, 3600, Some("n1"));
+    let token_nonce_2 = TokenAuthority::generate_scoped_token(secret, mount, prefix, TokenPermission::ReadOnly, 3600, Some("n2"));
+    assert_ne!(token_nonce_1, token_nonce_2, "Tokens with distinct nonces must yield distinct signatures");
+
+    // 6. Constant-Time HMAC Signature Verification & Tampering Defenses
+    let payload = "v1|vault_media|movies/action|read_only|1700000000|1700003600|nonce-123";
+    let correct_sig = TokenAuthority::sign_canonical_payload(secret, payload);
+    assert_eq!(correct_sig.len(), 32);
+
+    // Exact signature succeeds
+    assert!(TokenAuthority::verify_signature_constant_time(secret, payload, &correct_sig));
+
+    // Wrong signature at byte 0 fails
+    let mut bad_sig_0 = correct_sig.clone();
+    bad_sig_0[0] ^= 0x01;
+    assert!(!TokenAuthority::verify_signature_constant_time(secret, payload, &bad_sig_0));
+
+    // Wrong signature at byte 16 fails
+    let mut bad_sig_16 = correct_sig.clone();
+    bad_sig_16[16] ^= 0x01;
+    assert!(!TokenAuthority::verify_signature_constant_time(secret, payload, &bad_sig_16));
+
+    // Wrong signature at byte 31 fails
+    let mut bad_sig_31 = correct_sig.clone();
+    bad_sig_31[31] ^= 0x01;
+    assert!(!TokenAuthority::verify_signature_constant_time(secret, payload, &bad_sig_31));
+
+    // Truncated signature fails
+    assert!(!TokenAuthority::verify_signature_constant_time(secret, payload, &correct_sig[..16]));
+
+    // Elongated signature fails
+    let mut elongated = correct_sig.clone();
+    elongated.push(0x00);
+    assert!(!TokenAuthority::verify_signature_constant_time(secret, payload, &elongated));
+
+    // 7. Microsecond Constant-Time Verification Benchmark
+    let iterations = 10_000;
+    let bench_start = Instant::now();
+    for _ in 0..iterations {
+        let ok = TokenAuthority::verify_signature_constant_time(secret, payload, &correct_sig);
+        assert!(ok);
+    }
+    let total_elapsed = bench_start.elapsed();
+    let per_op_micros = total_elapsed.as_secs_f64() * 1_000_000.0 / (iterations as f64);
+
+    println!(
+        "[CONSTANT-TIME HMAC VERIFY] {} iterations verified in {:?} (avg {:.3} µs/op)",
+        iterations, total_elapsed, per_op_micros
+    );
+    assert!(
+        per_op_micros < 100.0,
+        "Constant-time HMAC verification must run under 100 µs/op in debug test builds (got {:.3} µs)",
+        per_op_micros
+    );
+
+    println!("[TASK-8.3.1 VERIFIED] Constant-time HMAC-SHA256 scoped token generator and validator verified.");
+}

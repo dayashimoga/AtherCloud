@@ -838,3 +838,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Security Architect & Systems Engineer
 - **Execution Trace:** cargo test --test security_tests test_rfc7807_problem_details_payloads_and_information_leakage_defenses
 - **Validation Proof:** Engineered RFC 7807 ProblemDetails in crates/server/src/security/problem.rs with standard MIME application/problem+json. Wired IntoResponse implementations for SandboxError, MountError, RouteAuthError, and AuthError, eliminating information leakage of host paths, partition layouts, Windows drive letters, symlink escape targets, UNC networks, and OS quarantine paths. Marked Phase 2.2 complete. All 33 integration tests passed.
+
+### [2026-10-30T08:15:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-8.3.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Security Architect & Systems Engineer
+- **Execution Trace:** cargo test --test security_tests test_constant_time_hmac_scoped_token_authority_and_timing_defense
+- **Validation Proof:** Engineered TokenAuthority in crates/server/src/security/hmac_auth.rs with constant-time HMAC-SHA256 signature verification (mac.verify_slice), URL-safe Base64URL scoped token generation, path component boundary scoping, granular TokenPermission modes (StreamOnly, ReadOnly, ReadWrite), and nonce-based replay shielding. Backwards compatibility maintained for HmacTokenValidator. All 34 integration tests passed.

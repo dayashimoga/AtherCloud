@@ -7,6 +7,7 @@ name = "aetherstream-server"
 version = "1.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "bytes",
  "clap",
  "dunce",
@@ -20,6 +21,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "subtle",
  "sysinfo",
  "tempfile",
  "thiserror",
