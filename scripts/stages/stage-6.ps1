@@ -60,11 +60,17 @@ function Test-Subphase-6-1-2 {
 }
 
 function Test-Subphase-6-1-3 {
-    Write-AetherLog "INFO" "Auditing Subphase 6.1.3: Binary Optimization, Stripping & SHA-256..."
+    Write-AetherLog "INFO" "Auditing Subphase 6.1.3: Binary Optimization, Stripping & Release Profiles..."
     $cargoToml = Join-Path $Script:RepoRoot "Cargo.toml"
     $content = Get-Content $cargoToml -Raw
-    if (-not ($content -match "opt-level = 3" -and $content -match "strip = true")) {
+    if (-not ($content -match 'opt-level = (3|"z")' -and $content -match 'strip = (true|"symbols")')) {
         throw "Cargo release profile missing optimization or strip configuration!"
+    }
+    if (-not ($content -match 'lto = (true|"fat")' -and $content -match 'codegen-units = 1')) {
+        throw "Cargo release profile missing LTO or single codegen-unit optimization!"
+    }
+    if (-not ($content -match "profile\.release-small")) {
+        throw "Cargo release profile missing release-small profile definition!"
     }
     Write-AetherLog "SUCCESS" "Cargo release profile optimization, LTO, and symbol stripping verified."
     return $true

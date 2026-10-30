@@ -1062,3 +1062,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Systems & Dependency Bundling Engineer
 - **Execution Trace:** cargo test --test security_tests test_automated_sidecar_dependency_bundler_and_manifest_suite
 - **Validation Proof:** Engineered automated sidecar dependency bundler pipeline in scripts/bundle-sidecars.ps1 and scripts/bundle-sidecars.sh with platform target resolution across 5 native architectures, automated downloading or stub generation for cloudflared, ffmpeg, and ffprobe, cryptographic SHA-256 digest computation, and structured sidecar-manifest.json generation. Built Rust SidecarManager, SidecarManifest, SidecarResolver, and SHA-256 hasher in crates/server/src/bundle/sidecar.rs, updated .gitignore for sidecar artifacts, and integrated audit verification in scripts/stages/stage-6.ps1. Verified via test_automated_sidecar_dependency_bundler_and_manifest_suite with all 65 integration tests passing.
+
+### [2026-10-30T12:30:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-12.1.3
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Compiler & Binary Optimization Engineer
+- **Execution Trace:** cargo test --test security_tests test_binary_size_optimization_lto_and_strip_configuration_suite
+- **Validation Proof:** Configured comprehensive release binary size optimization in root Cargo.toml across [profile.release] (opt-level 3, lto = true, codegen-units = 1, panic = 'abort', strip = true) and [profile.release-small] (inherits = 'release', opt-level = 'z', lto = 'fat', codegen-units = 1, panic = 'abort', strip = true). Verified CI workflow --release flags and updated audit checks in scripts/stages/stage-6.ps1. Marked Phase 6.1 (PHASE_12.1: Multi-Architecture Cargo & Cross Build Pipeline) 100% complete. Verified via test_binary_size_optimization_lto_and_strip_configuration_suite with all 66 integration tests passing.

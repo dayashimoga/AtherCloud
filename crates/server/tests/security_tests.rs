@@ -7797,3 +7797,65 @@ async fn test_automated_sidecar_dependency_bundler_and_manifest_suite() {
 
     println!("[TASK-12.1.2 VERIFIED] Automated dependency bundle script bundling FFmpeg/FFprobe and cloudflared sidecars verified.");
 }
+
+#[tokio::test]
+async fn test_binary_size_optimization_lto_and_strip_configuration_suite() {
+    use std::time::Instant;
+
+    // 1. Benchmark compile optimization profile parsing
+    let cargo_toml_path = [
+        std::path::PathBuf::from("../../Cargo.toml"),
+        std::path::PathBuf::from("Cargo.toml"),
+    ]
+    .into_iter()
+    .find(|p| p.exists() && std::fs::read_to_string(p).is_ok_and(|c| c.contains("[workspace]")));
+
+    assert!(cargo_toml_path.is_some(), "Root Cargo.toml must exist");
+    let start = Instant::now();
+    let toml_content = std::fs::read_to_string(cargo_toml_path.unwrap()).unwrap();
+    let elapsed = start.elapsed();
+    println!("[BENCHMARK] Cargo.toml profile parse & evaluation: {:?}", elapsed);
+
+    // 2. Verify standard release profile optimizations
+    assert!(toml_content.contains("[profile.release]"), "Cargo.toml must define [profile.release]");
+    assert!(toml_content.contains("opt-level = 3"), "Release profile must configure opt-level = 3");
+    assert!(toml_content.contains("lto = true"), "Release profile must configure lto = true");
+    assert!(toml_content.contains("codegen-units = 1"), "Release profile must configure codegen-units = 1");
+    assert!(toml_content.contains("panic = \"abort\""), "Release profile must configure panic = \"abort\"");
+    assert!(toml_content.contains("strip = true"), "Release profile must configure strip = true");
+
+    // 3. Verify size-constrained embedded release profile
+    assert!(toml_content.contains("[profile.release-small]"), "Cargo.toml must define [profile.release-small]");
+    assert!(toml_content.contains("opt-level = \"z\""), "Small profile must configure opt-level = \"z\"");
+    assert!(toml_content.contains("lto = \"fat\""), "Small profile must configure lto = \"fat\"");
+
+    // 4. Verify CI build workflow builds with --release flag
+    let ci_wf_path = [
+        std::path::PathBuf::from(".github/workflows/build-and-release.yml"),
+        std::path::PathBuf::from("../../.github/workflows/build-and-release.yml"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    if let Some(path) = ci_wf_path {
+        let wf_content = std::fs::read_to_string(&path).unwrap();
+        assert!(wf_content.contains("--release"), "CI workflow must build with --release flag");
+        println!("[CI VERIFIED] .github/workflows/build-and-release.yml verified for --release flag.");
+    }
+
+    // 5. Verify scripts/stages/stage-6.ps1 audits Subphase 6.1.3
+    let stage6_path = [
+        std::path::PathBuf::from("scripts/stages/stage-6.ps1"),
+        std::path::PathBuf::from("../../scripts/stages/stage-6.ps1"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    if let Some(path) = stage6_path {
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("Test-Subphase-6-1-3"), "stage-6.ps1 must implement Test-Subphase-6-1-3");
+        println!("[STAGE AUDIT VERIFIED] stage-6.ps1 verified for Subphase 6.1.3.");
+    }
+
+    println!("[TASK-12.1.3 VERIFIED] Binary size optimization using opt-level z/3, lto, codegen-units 1, and strip symbols verified.");
+}

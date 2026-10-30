@@ -10,3 +10,12 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Profile tuned specifically for minimal binary footprint distribution
+[profile.release-small]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

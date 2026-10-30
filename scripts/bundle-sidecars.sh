@@ -137,3 +137,4 @@ cat <<EOF > "$MANIFEST_PATH"
 EOF
 
 echo "==> Sidecar manifest generated: $MANIFEST_PATH"
+
