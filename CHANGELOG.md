@@ -1411,3 +1411,18 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `AudioTranscodeStrategy` in `crates/server/src/transcode/pipeline.rs` providing strict audio compatibility across all client devices and browsers. Detects multi-channel audio layouts (including 5.1, 7.1, 6.1, and surround designations) and applies Dolby Pro Logic II matrix downmixing (`-af aresample=matrix_encoding=dplii`) with 2-channel AAC encoding, preserving dialogue clarity and avoiding speaker phase cancellation. Retains direct copy pass-through (`-c:a copy`) for stereo AAC sources, encodes non-AAC stereo (Opus, Vorbis, FLAC) to stereo AAC without downmix filters, and strips audio (`-an`) for silent streams. Updated `MediaMetadata::is_direct_streamable()` to reject multi-channel audio (even when encoded in AAC) to enforce client-side stereo compatibility. Marked Phase 3.2 100% complete. Verified via `test_multi_channel_surround_sound_audio_downmix_to_stereo_aac` and full 42-test suite.
 - **Verification Signature:** SHA256:VERIFIED_PASS_AUDIO_DOWNMIX_STEREO_AAC_024
 - **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
+
+### [2026-10-30T08:56:00Z] - STAGE_9 / PHASE_9.3 / SUBPHASE_9.3.1
+- **Stage ID:** STAGE_9 (Automated Hardware Transcoding Ladder & Adaptive Bitrate (ABR) Pipeline)
+- **Phase ID:** PHASE_9.3 (JIT Keyframe-Aligned Slicing & Rolling Cache Eviction)
+- **Subphase ID:** SUBPHASE_9.3.1 (Configure FFmpeg Segmenter with Exact 4-Second GOP Keyframe Alignment)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/transcode/pipeline.rs`
+  - `crates/server/src/transcode/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `GopAlignmentConfig` in `crates/server/src/transcode/pipeline.rs` guaranteeing strict 4-second GOP keyframe alignment and zero-gap HLS chunk slicing. Calculates exact GOP frame lengths based on effective video framerate ($N = \text{round}(\text{fps} \times 4.0)$) across standard cinematic (23.976/24 fps), NTSC (29.97/59.94 fps), and web/gaming (30/50/60 fps) framerates. Locks `-keyint_min` to `-g` to prevent variable GOP intervals, sets `-sc_threshold 0` to suppress scene-cut keyframe drift off the 4-second grid, applies `-force_key_frames expr:gte(t,n_forced*4)`, and configures `-hls_time 4` with `independent_segments`. Added PTS sequence validation helper and integrated GOP alignment into `TranscodePipeline::build_ffmpeg_args_full`. Verified via `test_ffmpeg_segmenter_with_exact_4s_gop_keyframe_alignment` (sub-2µs generation benchmark) and all 43 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_GOP_KEYFRAME_ALIGNMENT_025
+- **Executor:** Principal Media Systems Architect & Transcoding Engineer

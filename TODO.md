@@ -901,3 +901,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
 - **Execution Trace:** cargo test --test security_tests test_multi_channel_surround_sound_audio_downmix_to_stereo_aac
 - **Validation Proof:** Engineered AudioTranscodeStrategy in crates/server/src/transcode/pipeline.rs with intelligent multi-channel audio downmixing (5.1/7.1 to stereo AAC) utilizing Dolby Pro Logic II matrix encoding (-af aresample=matrix_encoding=dplii) to preserve center dialogue audibility and prevent clipping. Maintained zero-copy pass-through (-c:a copy) for stereo AAC, transcode to AAC for non-AAC stereo codecs (MP3, Opus, FLAC), and -an for silent video. Enforced direct play invalidation for 5.1 AAC in MediaMetadata::is_direct_streamable() to guarantee downmixing across web browsers and mobile clients. Verified 42/42 integration tests passing.
+
+### [2026-10-30T08:56:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-9.3.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Media Systems Architect & Transcoding Engineer
+- **Execution Trace:** cargo test --test security_tests test_ffmpeg_segmenter_with_exact_4s_gop_keyframe_alignment
+- **Validation Proof:** Engineered GopAlignmentConfig in crates/server/src/transcode/pipeline.rs enforcing exact 4-second GOP keyframe alignment across broadcast, cinematic, and web framerates (23.976, 24.0, 25.0, 29.97, 30.0, 50.0, 59.94, 60.0 fps). Locked minimum keyframe interval (-keyint_min equal to -g), disabled scene change keyframe drift (-sc_threshold 0), enforced IDR grid (-force_key_frames expr:gte(t,n_forced*4)), and validated keyframe sequences with continuous PTS boundary assertions. Integrated with TranscodePipeline::build_ffmpeg_args_full. Verified 43/43 integration tests passing.

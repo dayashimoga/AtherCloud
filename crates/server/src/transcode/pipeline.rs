@@ -203,6 +203,153 @@ impl AudioTranscodeStrategy {
     }
 }
 
+/// Configuration for exact 4-second GOP (Group of Pictures) keyframe alignment and HLS segmenting.
+/// Guarantees that every segment boundary coincides with an IDR keyframe and sequence parameter set (SPS/PPS),
+/// eliminating video stutter, dropped frames, and audio-video desync during playback and bitrate transitions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GopAlignmentConfig {
+    /// Target segment duration in seconds (standard: 4.0s)
+    pub segment_duration_secs: f32,
+    /// Effective framerate in frames-per-second (e.g. 23.976, 24.0, 25.0, 29.97, 30.0, 50.0, 59.94, 60.0)
+    pub effective_fps: f32,
+    /// Calculated exact GOP size in frames: round(effective_fps * segment_duration_secs)
+    pub gop_size: u32,
+    /// Minimum GOP keyframe distance (-keyint_min), locked equal to gop_size to prevent variable-interval keyframes
+    pub keyint_min: u32,
+    /// Scene cut threshold (-sc_threshold), locked to 0 to prevent scene changes from shifting keyframes off grid
+    pub sc_threshold: u32,
+    /// FFmpeg forced keyframes expression: "expr:gte(t,n_forced*{duration})"
+    pub force_key_frames_expr: String,
+    /// HLS playlist flags ensuring independent segment decoding and cleanup
+    pub hls_flags: String,
+    /// Rolling HLS playlist size (number of segment entries preserved in index.m3u8)
+    pub hls_list_size: u32,
+}
+
+impl Default for GopAlignmentConfig {
+    fn default() -> Self {
+        Self::new(30.0, 4.0)
+    }
+}
+
+impl GopAlignmentConfig {
+    /// Creates a new GOP alignment configuration with exact keyframe spacing
+    pub fn new(fps: f32, segment_duration_secs: f32) -> Self {
+        let fps_clamped = if fps <= 0.0 { 30.0 } else { fps };
+        let duration = if segment_duration_secs <= 0.0 { 4.0 } else { segment_duration_secs };
+        let gop_size = (fps_clamped * duration).round() as u32;
+        let force_key_frames_expr = format!("expr:gte(t,n_forced*{:.0})", duration);
+        let hls_flags = "delete_segments+independent_segments".to_string();
+
+        Self {
+            segment_duration_secs: duration,
+            effective_fps: fps_clamped,
+            gop_size,
+            keyint_min: gop_size,
+            sc_threshold: 0,
+            force_key_frames_expr,
+            hls_flags,
+            hls_list_size: 10,
+        }
+    }
+
+    /// Derives GOP alignment from a target rendition profile and source media metadata
+    pub fn for_profile_and_metadata(
+        profile: &RenditionProfile,
+        meta: Option<&MediaMetadata>,
+    ) -> Self {
+        let target_duration = if profile.segment_duration_secs > 0.0 {
+            profile.segment_duration_secs
+        } else {
+            4.0
+        };
+
+        let effective_fps = match meta.and_then(|m| m.framerate) {
+            Some(fps) if fps > 0.0 => (fps as f32).min(profile.max_fps as f32),
+            _ => profile.max_fps as f32,
+        };
+
+        Self::new(effective_fps, target_duration)
+    }
+
+    /// Computes the duration of a single video frame in milliseconds
+    pub fn frame_duration_ms(&self) -> f32 {
+        1000.0 / self.effective_fps
+    }
+
+    /// Computes the exact nominal segment duration in milliseconds
+    pub fn segment_duration_ms(&self) -> f32 {
+        self.segment_duration_secs * 1000.0
+    }
+
+    /// Computes the expected frame count in an exact-aligned segment
+    pub fn expected_frames_per_segment(&self) -> u32 {
+        self.gop_size
+    }
+
+    /// Validates whether an observed keyframe timestamp (in seconds) falls on an expected GOP boundary
+    pub fn is_exact_boundary(&self, timestamp_secs: f32, tolerance_secs: f32) -> bool {
+        if timestamp_secs < 0.0 {
+            return false;
+        }
+        let remainder = timestamp_secs % self.segment_duration_secs;
+        remainder <= tolerance_secs || (self.segment_duration_secs - remainder) <= tolerance_secs
+    }
+
+    /// Validates an array of PTS timestamps (e.g. from ffprobe frames) to ensure continuous keyframe alignment
+    pub fn validate_keyframe_sequence(&self, keyframe_pts: &[f32], tolerance_ms: f32) -> bool {
+        if keyframe_pts.is_empty() {
+            return false;
+        }
+        let tolerance_secs = tolerance_ms / 1000.0;
+        for &pts in keyframe_pts {
+            if !self.is_exact_boundary(pts, tolerance_secs) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Returns FFmpeg CLI options configuring encoder GOP and keyframe pacing
+    pub fn ffmpeg_gop_flags(&self) -> Vec<String> {
+        vec![
+            "-g".to_string(),
+            self.gop_size.to_string(),
+            "-keyint_min".to_string(),
+            self.keyint_min.to_string(),
+            "-sc_threshold".to_string(),
+            self.sc_threshold.to_string(),
+            "-force_key_frames".to_string(),
+            self.force_key_frames_expr.clone(),
+        ]
+    }
+
+    /// Returns FFmpeg CLI options configuring the HLS segmenter
+    pub fn ffmpeg_hls_flags(&self, segment_pattern: &Path, playlist_path: &Path) -> Vec<String> {
+        vec![
+            "-f".to_string(),
+            "hls".to_string(),
+            "-hls_time".to_string(),
+            format!("{:.0}", self.segment_duration_secs),
+            "-hls_list_size".to_string(),
+            self.hls_list_size.to_string(),
+            "-hls_flags".to_string(),
+            self.hls_flags.clone(),
+            "-hls_segment_filename".to_string(),
+            segment_pattern.to_string_lossy().to_string(),
+            playlist_path.to_string_lossy().to_string(),
+        ]
+    }
+
+    /// Human-readable diagnostic summary of GOP alignment
+    pub fn summary(&self) -> String {
+        format!(
+            "GOP Size: {} frames | Keyint Min: {} | SC Threshold: {} | Segment: {:.1}s | Effective FPS: {:.3} | Forced Expr: {}",
+            self.gop_size, self.keyint_min, self.sc_threshold, self.segment_duration_secs, self.effective_fps, self.force_key_frames_expr
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HardwareAccel {
     Nvenc,
@@ -735,6 +882,14 @@ impl TranscodePipeline {
         manifest
     }
 
+    /// Returns the active GopAlignmentConfig for a profile and optional source metadata
+    pub fn get_gop_alignment_config(
+        profile: &RenditionProfile,
+        meta: Option<&MediaMetadata>,
+    ) -> GopAlignmentConfig {
+        GopAlignmentConfig::for_profile_and_metadata(profile, meta)
+    }
+
     /// Builds FFmpeg command arguments for JIT HLS multi-rendition segmentation
     pub fn build_ffmpeg_args(
         input_file: &Path,
@@ -752,7 +907,7 @@ impl TranscodePipeline {
     }
 
     /// Builds FFmpeg command arguments using source MediaMetadata to automatically determine
-    /// whether audio pass-through or dynamic 5.1/7.1 stereo downmixing should be engaged.
+    /// audio pass-through or dynamic 5.1/7.1 stereo downmixing and exact GOP alignment.
     pub fn build_ffmpeg_args_with_metadata(
         input_file: &Path,
         output_dir: &Path,
@@ -761,7 +916,14 @@ impl TranscodePipeline {
         meta: &MediaMetadata,
     ) -> Vec<String> {
         let strategy = AudioTranscodeStrategy::determine(meta);
-        Self::build_ffmpeg_args_with_strategy(input_file, output_dir, accel, profile, strategy)
+        Self::build_ffmpeg_args_full(
+            input_file,
+            output_dir,
+            accel,
+            profile,
+            strategy,
+            Some(meta),
+        )
     }
 
     /// Builds FFmpeg command arguments with an explicit AudioTranscodeStrategy
@@ -771,6 +933,26 @@ impl TranscodePipeline {
         accel: HardwareAccel,
         profile: &RenditionProfile,
         audio_strategy: AudioTranscodeStrategy,
+    ) -> Vec<String> {
+        Self::build_ffmpeg_args_full(
+            input_file,
+            output_dir,
+            accel,
+            profile,
+            audio_strategy,
+            None,
+        )
+    }
+
+    /// Builds comprehensive FFmpeg command arguments with exact GOP keyframe alignment,
+    /// dynamic audio downmixing/passthrough strategy, and metadata-aware scaling.
+    pub fn build_ffmpeg_args_full(
+        input_file: &Path,
+        output_dir: &Path,
+        accel: HardwareAccel,
+        profile: &RenditionProfile,
+        audio_strategy: AudioTranscodeStrategy,
+        meta: Option<&MediaMetadata>,
     ) -> Vec<String> {
         let segment_pattern = output_dir.join(format!("{}_%05d.ts", profile.tag));
         let playlist_path = output_dir.join("index.m3u8");
@@ -791,26 +973,44 @@ impl TranscodePipeline {
             input_file.to_string_lossy().to_string(),
         ]);
 
-        let gop_size = ((profile.max_fps as f32) * profile.segment_duration_secs).round() as u32;
+        let gop_config = GopAlignmentConfig::for_profile_and_metadata(profile, meta);
+
+        // Compute aspect-ratio preserved dimensions if source metadata is provided
+        let (scaled_width, scaled_height) = if let Some(m) = meta {
+            if let (Some(w), Some(h)) = (m.width, m.height) {
+                if h > 0 && w > 0 {
+                    let target_height = profile.height.min(h);
+                    let aspect = w as f64 / h as f64;
+                    let target_width = ((target_height as f64 * aspect).round() as u32) & !1;
+                    (target_width.max(2), target_height)
+                } else {
+                    (profile.width, profile.height)
+                }
+            } else {
+                (profile.width, profile.height)
+            }
+        } else {
+            (profile.width, profile.height)
+        };
 
         // Video codec & scale filter
         args.extend(vec![
             "-c:v".to_string(),
             accel.encoder_name().to_string(),
             "-vf".to_string(),
-            format!("scale={}:{}", profile.width, profile.height),
+            format!("scale={}:{}", scaled_width, scaled_height),
             "-b:v".to_string(),
             format!("{}k", profile.video_bitrate_kbps),
             "-maxrate".to_string(),
             format!("{}k", profile.maxrate_kbps()),
             "-bufsize".to_string(),
             format!("{}k", profile.bufsize_kbps()),
-            "-g".to_string(),
-            gop_size.to_string(),
-            "-keyint_min".to_string(),
-            gop_size.to_string(),
-            "-sc_threshold".to_string(),
-            "0".to_string(),
+        ]);
+
+        // Keyframe GOP alignment flags (exact 4-second GOP)
+        args.extend(gop_config.ffmpeg_gop_flags());
+
+        args.extend(vec![
             "-preset".to_string(),
             "veryfast".to_string(),
         ]);
@@ -818,20 +1018,8 @@ impl TranscodePipeline {
         // Audio flags driven by dynamic transcode strategy
         args.extend(audio_strategy.ffmpeg_flags(profile.audio_bitrate_kbps));
 
-        // HLS packaging arguments
-        args.extend(vec![
-            "-f".to_string(),
-            "hls".to_string(),
-            "-hls_time".to_string(),
-            profile.segment_duration_secs.to_string(),
-            "-hls_list_size".to_string(),
-            "10".to_string(),
-            "-hls_flags".to_string(),
-            "delete_segments+independent_segments".to_string(),
-            "-hls_segment_filename".to_string(),
-            segment_pattern.to_string_lossy().to_string(),
-            playlist_path.to_string_lossy().to_string(),
-        ]);
+        // HLS packaging arguments with exact segment duration
+        args.extend(gop_config.ffmpeg_hls_flags(&segment_pattern, &playlist_path));
 
         args
     }

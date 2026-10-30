@@ -4412,3 +4412,163 @@ fn test_multi_channel_surround_sound_audio_downmix_to_stereo_aac() {
 
     println!("[TASK-9.2.3 VERIFIED] Multi-channel surround sound downmixing to stereo AAC verified.");
 }
+
+#[test]
+fn test_ffmpeg_segmenter_with_exact_4s_gop_keyframe_alignment() {
+    use aetherstream_server::transcode::pipeline::{
+        GopAlignmentConfig, HardwareAccel, MediaMetadata, TranscodePipeline,
+    };
+    use aetherstream_server::transcode::profiles::STANDARD_RENDITION_LADDER;
+    use std::path::Path;
+    use std::time::Instant;
+
+    // 1. Standard broadcast, cinematic, and web framerates against 4.0s segment duration
+    let test_rates: &[(f32, u32)] = &[
+        (60.0, 240),   // High-framerate web/gaming: 60 * 4 = 240 frames
+        (59.94, 240),  // NTSC high-framerate: round(59.94 * 4) = 240 frames
+        (50.0, 200),   // PAL / European standard: 50 * 4 = 200 frames
+        (30.0, 120),   // Standard web: 30 * 4 = 120 frames
+        (29.97, 120),  // NTSC broadcast: round(29.97 * 4) = 120 frames
+        (25.0, 100),   // PAL broadcast: 25 * 4 = 100 frames
+        (24.0, 96),    // Standard cinema: 24 * 4 = 96 frames
+        (23.976, 96),  // NTSC cinematic film: round(23.976 * 4) = 96 frames
+    ];
+
+    for &(fps, expected_gop) in test_rates {
+        let config = GopAlignmentConfig::new(fps, 4.0);
+        assert_eq!(
+            config.gop_size, expected_gop,
+            "GOP size mismatch for fps {:.3}",
+            fps
+        );
+        assert_eq!(
+            config.keyint_min, expected_gop,
+            "-keyint_min must match -g exactly to lock keyframe interval"
+        );
+        assert_eq!(
+            config.sc_threshold, 0,
+            "-sc_threshold must be 0 to disable scene cut keyframe insertion"
+        );
+        assert_eq!(
+            config.force_key_frames_expr, "expr:gte(t,n_forced*4)",
+            "Forced keyframe expression must enforce 4s grid"
+        );
+        assert_eq!(
+            config.segment_duration_secs, 4.0,
+            "Nominal segment duration must be 4.0s"
+        );
+        assert!((config.segment_duration_ms() - 4000.0).abs() < 0.001);
+        assert_eq!(config.expected_frames_per_segment(), expected_gop);
+
+        let frame_ms = config.frame_duration_ms();
+        let expected_frame_ms = 1000.0 / fps;
+        assert!(
+            (frame_ms - expected_frame_ms).abs() < 0.01,
+            "Frame duration calculation mismatch"
+        );
+    }
+
+    // 2. Continuous keyframe sequence validation across chunk boundaries
+    let config_24fps = GopAlignmentConfig::new(24.0, 4.0);
+    // Ideal PTS timestamps falling strictly on 4.0-second boundaries
+    let ideal_pts = vec![0.0, 4.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0];
+    assert!(
+        config_24fps.validate_keyframe_sequence(&ideal_pts, 20.0),
+        "Ideal keyframe sequence must validate"
+    );
+
+    // Minor PTS timestamps with acceptable network/muxer jitter (+/- 15ms)
+    let jittered_pts = vec![0.002, 3.998, 8.012, 11.990, 16.005];
+    assert!(
+        config_24fps.validate_keyframe_sequence(&jittered_pts, 20.0),
+        "Keyframe sequence within 20ms jitter must validate"
+    );
+
+    // Unaligned / variable-GOP timestamps (e.g. keyframes placed on scene cuts: 3.2s, 7.5s)
+    let unaligned_pts = vec![0.0, 3.2, 7.5, 11.8, 15.2];
+    assert!(
+        !config_24fps.validate_keyframe_sequence(&unaligned_pts, 50.0),
+        "Unaligned scene-cut sequence must fail keyframe validation"
+    );
+
+    // 3. Profile + MediaMetadata derivation
+    let profile_1080 = &STANDARD_RENDITION_LADDER[0]; // 1080p (max_fps: 60)
+    let profile_480 = &STANDARD_RENDITION_LADDER[2];  // 480p (max_fps: 30)
+
+    // Cinematic film source (23.976 fps) should retain 23.976 effective fps on 1080p
+    let film_meta = MediaMetadata {
+        container: "mp4".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(1920),
+        height: Some(1080),
+        framerate: Some(23.976),
+        ..Default::default()
+    };
+    let film_config = GopAlignmentConfig::for_profile_and_metadata(profile_1080, Some(&film_meta));
+    assert!((film_config.effective_fps - 23.976).abs() < 0.001);
+    assert_eq!(film_config.gop_size, 96);
+    assert_eq!(film_config.keyint_min, 96);
+
+    // High framerate source (120 fps) must be bounded by profile max_fps (30 fps for 480p)
+    let hfr_meta = MediaMetadata {
+        container: "mp4".to_string(),
+        framerate: Some(120.0),
+        ..Default::default()
+    };
+    let hfr_config = GopAlignmentConfig::for_profile_and_metadata(profile_480, Some(&hfr_meta));
+    assert_eq!(hfr_config.effective_fps, 30.0);
+    assert_eq!(hfr_config.gop_size, 120);
+
+    // Metadata with framerate: None falls back to profile max_fps
+    let no_fps_meta = MediaMetadata::default();
+    let no_fps_config = GopAlignmentConfig::for_profile_and_metadata(profile_1080, Some(&no_fps_meta));
+    assert_eq!(no_fps_config.effective_fps, 60.0);
+    assert_eq!(no_fps_config.gop_size, 240);
+
+    // 4. CLI Argument builder emission verification
+    let args = TranscodePipeline::build_ffmpeg_args_with_metadata(
+        Path::new("feature_film.mkv"),
+        Path::new("/tmp/hls_rendition"),
+        HardwareAccel::Nvenc,
+        profile_1080,
+        &film_meta,
+    );
+
+    // GOP arguments
+    let gop_pos = args.iter().position(|a| a == "-g").expect("-g flag missing");
+    assert_eq!(args[gop_pos + 1], "96", "GOP size for 23.976 film must be 96 frames");
+    let keyint_pos = args.iter().position(|a| a == "-keyint_min").expect("-keyint_min missing");
+    assert_eq!(args[keyint_pos + 1], "96", "-keyint_min must equal -g size");
+    let sc_pos = args.iter().position(|a| a == "-sc_threshold").expect("-sc_threshold missing");
+    assert_eq!(args[sc_pos + 1], "0", "-sc_threshold must be 0 to disable scene change keyframes");
+    let force_pos = args.iter().position(|a| a == "-force_key_frames").expect("-force_key_frames missing");
+    assert_eq!(args[force_pos + 1], "expr:gte(t,n_forced*4)");
+
+    // HLS Segmenter arguments
+    let hls_time_pos = args.iter().position(|a| a == "-hls_time").expect("-hls_time missing");
+    assert_eq!(args[hls_time_pos + 1], "4");
+    assert!(args.contains(&"-hls_flags".to_string()));
+    assert!(args.contains(&"delete_segments+independent_segments".to_string()));
+    assert!(args.contains(&"veryfast".to_string()));
+
+    // 5. High-throughput performance benchmark
+    let start = Instant::now();
+    let iterations = 10_000;
+    for _ in 0..iterations {
+        let cfg = GopAlignmentConfig::for_profile_and_metadata(profile_1080, Some(&film_meta));
+        let _gop_flags = cfg.ffmpeg_gop_flags();
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] GopAlignmentConfig generation: {:.2} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 100.0,
+        "GopAlignmentConfig compilation must complete under 100 µs/op (measured {:.2} µs)",
+        per_op_us
+    );
+
+    println!("[TASK-9.3.1 VERIFIED] FFmpeg segmenter with exact 4-second GOP keyframe alignment verified.");
+}
