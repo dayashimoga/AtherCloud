@@ -106,3 +106,4 @@ if ($isMac) {
 }
 
 Write-Host "[SUCCESS] iOS IPA packaging pipeline completed successfully." -ForegroundColor Green
+

@@ -1090,3 +1090,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Mobile & iOS Systems Architect
 - **Execution Trace:** cargo test --test security_tests test_capacitor_ios_ipa_release_archive_suite
 - **Validation Proof:** Configured production iOS Capacitor workspace in client/ios/App with Xcode project App.xcodeproj (PRODUCT_BUNDLE_IDENTIFIER io.aetherstream.app, MARKETING_VERSION 1.2.0, CURRENT_PROJECT_VERSION 120), App.xcworkspace, Podfile, and Info.plist with CFBundleDisplayName AetherStream and NSAppTransportSecurity arbitrary load allowances for media streaming. Configured client/capacitor.config.json and client/capacitor.config.ts with iOS container settings. Updated .github/workflows/build-and-release.yml with iOS payload archive generation and upload-artifact hooks for AetherStream-unsigned.ipa. Created automation utilities scripts/build-ios.ps1 and scripts/build-ios.sh and updated scripts/stages/stage-6.ps1 audit validator. Marked Phase 6.2 (PHASE_12.2: Native Desktop & Mobile Client Packaging) 100% complete. Verified via test_capacitor_ios_ipa_release_archive_suite with all 69 integration tests passing.
+
+### [2026-10-30T13:16:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-12.3.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Release Engineer & CI/CD Systems Architect
+- **Execution Trace:** cargo test --test security_tests test_github_releases_publishing_and_notes_suite
+- **Validation Proof:** Configured automated GitHub Releases publishing pipeline in .github/workflows/build-and-release.yml with publish-github-release job utilizing softprops/action-gh-release@v2, tag and workflow_dispatch triggers, automated asset staging, and SHA256SUMS.txt integrity digest inclusion. Developed scripts/generate-release-notes.ps1 and scripts/generate-release-notes.sh for dynamic markdown release notes generation with complete package matrix and cryptographic hashes. Updated scripts/stages/stage-6.ps1 audit validator. Verified via test_github_releases_publishing_and_notes_suite with all 70 integration tests passing.

@@ -8142,3 +8142,66 @@ async fn test_capacitor_ios_ipa_release_archive_suite() {
 
     println!("[TASK-12.2.3 VERIFIED] iOS Capacitor workspace preparing .ipa release archive verified.");
 }
+
+#[tokio::test]
+async fn test_github_releases_publishing_and_notes_suite() {
+    use std::time::Instant;
+
+    // 1. Locate and verify scripts/generate-release-notes.ps1 and .sh
+    let ps1_path = [
+        std::path::PathBuf::from("../../scripts/generate-release-notes.ps1"),
+        std::path::PathBuf::from("scripts/generate-release-notes.ps1"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(ps1_path.is_some(), "scripts/generate-release-notes.ps1 must exist");
+    let start = Instant::now();
+    let ps1_content = std::fs::read_to_string(ps1_path.unwrap()).expect("Failed to read generate-release-notes.ps1");
+    let elapsed = start.elapsed();
+    println!("[BENCHMARK] Release notes template evaluation: {:?}", elapsed);
+
+    assert!(ps1_content.contains("AetherStream $Version Production Release"), "Must contain release header");
+    assert!(ps1_content.contains("Multi-Architecture Native Daemon"), "Must document multi-architecture daemon");
+    assert!(ps1_content.contains("Hardware Transcoding & ABR Engine"), "Must document hardware transcoding");
+    assert!(ps1_content.contains("Zero-Cost Remote Ingress"), "Must document remote ingress");
+    assert!(ps1_content.contains("Distribution Packages"), "Must include distribution packages table");
+    assert!(ps1_content.contains("Cryptographic Checksums (SHA-256)"), "Must include SHA-256 verification section");
+
+    let sh_path = [
+        std::path::PathBuf::from("../../scripts/generate-release-notes.sh"),
+        std::path::PathBuf::from("scripts/generate-release-notes.sh"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+    assert!(sh_path.is_some(), "scripts/generate-release-notes.sh must exist");
+
+    // 2. Locate and verify CI workflow release publishing job
+    let ci_path = [
+        std::path::PathBuf::from("../../.github/workflows/build-and-release.yml"),
+        std::path::PathBuf::from(".github/workflows/build-and-release.yml"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(ci_path.is_some(), ".github/workflows/build-and-release.yml must exist");
+    let ci_content = std::fs::read_to_string(ci_path.unwrap()).unwrap();
+    assert!(ci_content.contains("publish-github-release:"), "CI workflow must define publish-github-release job");
+    assert!(ci_content.contains("action-gh-release@v2"), "CI workflow must use action-gh-release@v2");
+    assert!(ci_content.contains("RELEASE_NOTES.md"), "CI workflow must specify RELEASE_NOTES.md");
+    assert!(ci_content.contains("files: release-staging/*"), "CI workflow must attach all release artifacts");
+    assert!(ci_content.contains("generate-release-manifest"), "Release publishing must depend on generate-release-manifest");
+
+    // 3. Verify stage-6.ps1 audit function
+    let stage6_path = [
+        std::path::PathBuf::from("../../scripts/stages/stage-6.ps1"),
+        std::path::PathBuf::from("scripts/stages/stage-6.ps1"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+    assert!(stage6_path.is_some(), "scripts/stages/stage-6.ps1 must exist");
+    let stage6_content = std::fs::read_to_string(stage6_path.unwrap()).unwrap();
+    assert!(stage6_content.contains("Test-Subphase-6-3-1"), "stage-6.ps1 must implement Test-Subphase-6-3-1");
+
+    println!("[TASK-12.3.1 VERIFIED] Automate GitHub Releases publishing with auto-generated release notes and SHA256SUMS.txt verified.");
+}

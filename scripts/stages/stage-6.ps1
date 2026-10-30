@@ -177,13 +177,27 @@ function Test-Subphase-6-2-3 {
 }
 
 function Test-Subphase-6-3-1 {
-    Write-AetherLog "INFO" "Auditing Subphase 6.3.1: Artifact Upload Hooks..."
+    Write-AetherLog "INFO" "Auditing Subphase 6.3.1: Automated GitHub Releases Publishing & Notes Generation..."
+    $ps1Notes = Join-Path $Script:RepoRoot "scripts/generate-release-notes.ps1"
+    $shNotes = Join-Path $Script:RepoRoot "scripts/generate-release-notes.sh"
+    if (-not (Test-Path $ps1Notes)) { throw "scripts/generate-release-notes.ps1 missing!" }
+    if (-not (Test-Path $shNotes)) { throw "scripts/generate-release-notes.sh missing!" }
+
     $wfPath = Join-Path $Script:RepoRoot ".github/workflows/build-and-release.yml"
     $content = Get-Content $wfPath -Raw
+    if (-not ($content -match "publish-github-release:")) {
+        throw "publish-github-release job missing in CI workflow!"
+    }
+    if (-not ($content -match "action-gh-release@v2")) {
+        throw "GitHub release action (action-gh-release@v2) missing in CI workflow!"
+    }
+    if (-not ($content -match "RELEASE_NOTES\.md" -or $content -match "release_notes\.md")) {
+        throw "Automated release notes generator invocation missing in CI workflow!"
+    }
     if (-not ($content -match "actions/upload-artifact@v4")) {
         throw "upload-artifact step missing in CI workflow!"
     }
-    Write-AetherLog "SUCCESS" "Automated GitHub Actions artifact preservation verified."
+    Write-AetherLog "SUCCESS" "Automated GitHub Releases publishing workflow and release notes generation verified."
     return $true
 }
 
