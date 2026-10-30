@@ -456,3 +456,153 @@ async fn test_concurrent_io_throughput_and_ttfb() {
         "All workers must complete full stream"
     );
 }
+
+#[tokio::test]
+async fn test_ffprobe_metadata_extraction() {
+    use aetherstream_server::transcode::pipeline::{MediaMetadata, TranscodePipeline};
+    use aetherstream_server::transcode::profiles::STANDARD_RENDITION_LADDER;
+
+    // 1. Test parsing H.264 1080p stream with 5.1 AAC audio and GOP frames
+    let ffprobe_h264_json = r#"{
+        "format": {
+            "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+            "duration": "120.500000",
+            "size": "67500000",
+            "bit_rate": "4481327"
+        },
+        "streams": [
+            {
+                "index": 0,
+                "codec_name": "h264",
+                "codec_type": "video",
+                "width": 1920,
+                "height": 1080,
+                "avg_frame_rate": "30000/1001",
+                "bit_rate": "4100000"
+            },
+            {
+                "index": 1,
+                "codec_name": "aac",
+                "codec_type": "audio",
+                "channels": 6,
+                "channel_layout": "5.1",
+                "bit_rate": "384000"
+            }
+        ],
+        "frames": [
+            { "key_frame": 1, "pict_type": "I", "pts_time": "0.000000" },
+            { "key_frame": 0, "pict_type": "P", "pts_time": "0.033367" },
+            { "key_frame": 0, "pict_type": "B", "pts_time": "0.066733" },
+            { "key_frame": 1, "pict_type": "I", "pts_time": "2.002000" }
+        ]
+    }"#;
+
+    let meta = TranscodePipeline::parse_ffprobe_json(ffprobe_h264_json).expect("Failed to parse valid H.264 JSON");
+    assert_eq!(meta.container, "mov,mp4,m4a,3gp,3g2,mj2");
+    assert_eq!(meta.video_codec.as_deref(), Some("h264"));
+    assert_eq!(meta.width, Some(1920));
+    assert_eq!(meta.height, Some(1080));
+    assert_eq!(meta.audio_codec.as_deref(), Some("aac"));
+    assert_eq!(meta.audio_channels, Some(6));
+    assert_eq!(meta.bitrate_kbps, Some(4100));
+    assert_eq!(meta.gop_size, Some(3)); // Keyframe at index 0 and index 3 (diff = 3)
+    assert!((meta.framerate.unwrap() - 29.97).abs() < 0.01);
+    // 5.1 surround sound audio requires downmix, so cannot be direct played as-is without audio transcode
+    assert!(!meta.is_direct_streamable());
+
+    // 2. Test stereo AAC audio makes H.264 direct streamable
+    let mut stereo_meta = meta.clone();
+    stereo_meta.audio_channels = Some(2);
+    assert!(stereo_meta.is_direct_streamable());
+
+    // 3. Test HEVC 4K parsing
+    let ffprobe_hevc_json = r#"{
+        "format": { "format_name": "matroska,webm", "bit_rate": "15000000" },
+        "streams": [
+            {
+                "index": 0,
+                "codec_name": "hevc",
+                "codec_type": "video",
+                "width": 3840,
+                "height": 2160,
+                "avg_frame_rate": "60/1",
+                "bit_rate": "14500000"
+            },
+            {
+                "index": 1,
+                "codec_name": "eac3",
+                "codec_type": "audio",
+                "channels": 6
+            }
+        ]
+    }"#;
+    let hevc_meta = TranscodePipeline::parse_ffprobe_json(ffprobe_hevc_json).unwrap();
+    assert_eq!(hevc_meta.video_codec.as_deref(), Some("hevc"));
+    assert_eq!(hevc_meta.width, Some(3840));
+    assert_eq!(hevc_meta.height, Some(2160));
+    assert_eq!(hevc_meta.framerate, Some(60.0));
+    assert_eq!(hevc_meta.audio_codec.as_deref(), Some("eac3"));
+
+    // 4. Test AV1 with Opus
+    let ffprobe_av1_json = r#"{
+        "format": { "format_name": "matroska,webm" },
+        "streams": [
+            { "index": 0, "codec_name": "av1", "codec_type": "video", "width": 1280, "height": 720, "r_frame_rate": "24/1" },
+            { "index": 1, "codec_name": "opus", "codec_type": "audio", "channels": 2 }
+        ]
+    }"#;
+    let av1_meta = TranscodePipeline::parse_ffprobe_json(ffprobe_av1_json).unwrap();
+    assert_eq!(av1_meta.video_codec.as_deref(), Some("av1"));
+    assert_eq!(av1_meta.audio_codec.as_deref(), Some("opus"));
+    assert_eq!(av1_meta.audio_channels, Some(2));
+    assert!(av1_meta.is_direct_streamable());
+
+    // 5. Test VP9
+    let ffprobe_vp9_json = r#"{
+        "format": { "format_name": "webm" },
+        "streams": [
+            { "index": 0, "codec_name": "vp9", "codec_type": "video", "width": 854, "height": 480, "avg_frame_rate": "30/1" },
+            { "index": 1, "codec_name": "vorbis", "codec_type": "audio", "channels": 2 }
+        ]
+    }"#;
+    let vp9_meta = TranscodePipeline::parse_ffprobe_json(ffprobe_vp9_json).unwrap();
+    assert_eq!(vp9_meta.video_codec.as_deref(), Some("vp9"));
+    assert_eq!(vp9_meta.height, Some(480));
+
+    // 6. Test adaptive profile ladder filtering (no upscaling)
+    let ladder_720 = av1_meta.filter_rendition_ladder(STANDARD_RENDITION_LADDER);
+    assert_eq!(ladder_720.len(), 3);
+    assert_eq!(ladder_720[0].tag, "720p_med");
+    assert_eq!(ladder_720[1].tag, "480p_low");
+    assert_eq!(ladder_720[2].tag, "360p_min");
+
+    let ladder_1080 = meta.filter_rendition_ladder(STANDARD_RENDITION_LADDER);
+    assert_eq!(ladder_1080.len(), 4);
+    assert_eq!(ladder_1080[0].tag, "1080p_high");
+
+    let low_meta = MediaMetadata {
+        container: "mp4".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(320),
+        height: Some(240),
+        framerate: Some(25.0),
+        bitrate_kbps: Some(300),
+        audio_codec: Some("aac".to_string()),
+        audio_channels: Some(2),
+        gop_size: Some(50),
+        duration_secs: Some(60.0),
+    };
+    let ladder_240 = low_meta.filter_rendition_ladder(STANDARD_RENDITION_LADDER);
+    assert_eq!(ladder_240.len(), 1);
+    assert_eq!(ladder_240[0].tag, "360p_min");
+
+    // 7. Test probe_file fallback execution
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dummy_mp4 = temp_dir.path().join("sample.mp4");
+    tokio::fs::write(&dummy_mp4, b"dummy video container header").await.unwrap();
+
+    let probe_res = TranscodePipeline::probe_file(&dummy_mp4).await;
+    assert!(probe_res.is_ok(), "probe_file must handle absent ffprobe gracefully");
+    let probed = probe_res.unwrap();
+    assert!(probed.container.contains("mp4"));
+}

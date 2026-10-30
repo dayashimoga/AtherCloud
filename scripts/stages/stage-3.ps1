@@ -11,7 +11,10 @@ param(
     [switch]$ValidateOnly,
 
     [Parameter(Mandatory=$false)]
-    [switch]$AutoApprove
+    [switch]$AutoApprove,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,10 +29,16 @@ function Test-Subphase-3-1-1 {
     Write-AetherLog "INFO" "Auditing Subphase 3.1.1: FFprobe Metadata & Codec Probing..."
     $pipelineFile = Join-Path $Script:RepoRoot "crates/server/src/transcode/pipeline.rs"
     $content = Get-Content $pipelineFile -Raw
-    if (-not ($content.Contains('ffmpeg') -and $content.Contains('probe_hardware'))) {
-        throw "Transcode probe runner missing in pipeline.rs!"
+    if (-not ($content.Contains('MediaMetadata') -and $content.Contains('parse_ffprobe_json') -and $content.Contains('probe_file') -and $content.Contains('gop_size'))) {
+        throw "Transcode probe runner or MediaMetadata missing in pipeline.rs!"
     }
-    Write-AetherLog "SUCCESS" "FFprobe/FFmpeg process prober verified."
+
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $testOut = cargo test --test security_tests test_ffprobe_metadata_extraction -- --nocapture 2>&1
+    $ErrorActionPreference = $prev
+    if ($LASTEXITCODE -ne 0) { throw "FFprobe metadata unit test failed: $testOut" }
+
+    Write-AetherLog "SUCCESS" "FFprobe metadata, codec (H.264, HEVC, AV1, VP9), audio channel, and GOP parser verified."
     return $true
 }
 
@@ -143,7 +152,7 @@ foreach ($entry in $subphases) {
 
     $state = Get-AetherState
     $rec = Get-SubphaseRecord -State $state -SubphaseId $entry.FullId
-    if ($rec -and $rec.Subphase.status -eq "COMPLETED") {
+    if (-not $Force -and -not $Subphase -and $rec -and $rec.Subphase.status -eq "COMPLETED") {
         Write-AetherLog "INFO" "Subphase $($entry.Id) is already marked COMPLETED in state tracker."
         continue
     }
