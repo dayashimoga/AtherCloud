@@ -197,7 +197,11 @@ foreach ($p in $stage3.phases) {
     foreach ($s in $p.subphases) {
         if ($s.status -ne "COMPLETED") { $phaseDone = $false; $allDone = $false }
     }
-    if ($phaseDone) { $p.status = "COMPLETED" }
+    if ($phaseDone) {
+        $p.status = "COMPLETED"
+    } elseif ($p.subphases | Where-Object { $_.status -eq "COMPLETED" }) {
+        $p.status = "IN_PROGRESS"
+    }
 }
 if ($allDone) {
     $stage3.status = "COMPLETED"

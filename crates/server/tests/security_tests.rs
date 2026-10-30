@@ -208,13 +208,59 @@ fn test_hmac_scoped_token_verification() {
 
 #[test]
 fn test_master_manifest_generation() {
-    let manifest = TranscodePipeline::generate_master_manifest("/api/v1/transcode/hls/videos/matrix.mp4");
+    use aetherstream_server::transcode::pipeline::MediaMetadata;
+
+    // 1. Generic full manifest with default 1080p source
+    let manifest =
+        TranscodePipeline::generate_master_manifest("/api/v1/transcode/hls/videos/matrix.mp4");
     assert!(manifest.contains("#EXTM3U"));
+    assert!(manifest.contains("#EXT-X-VERSION:6"));
+    assert!(manifest.contains("#EXT-X-INDEPENDENT-SEGMENTS"));
     assert!(manifest.contains("#EXT-X-STREAM-INF"));
     assert!(manifest.contains("1080p_high"));
     assert!(manifest.contains("720p_med"));
     assert!(manifest.contains("480p_low"));
     assert!(manifest.contains("360p_min"));
+
+    // 2. Dynamic manifest for 720p source -> must exclude 1080p (zero upscaling)
+    let manifest_720 = TranscodePipeline::generate_dynamic_master_manifest(
+        "/api/v1/transcode/hls/videos/stream720.mp4",
+        720,
+    );
+    assert!(!manifest_720.contains("1080p_high"));
+    assert!(manifest_720.contains("720p_med"));
+    assert!(manifest_720.contains("480p_low"));
+    assert!(manifest_720.contains("360p_min"));
+
+    // 3. Dynamic manifest from MediaMetadata for 480p source -> must exclude 1080p and 720p
+    let meta_480 = MediaMetadata {
+        container: "mp4".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(854),
+        height: Some(480),
+        framerate: Some(29.97),
+        bitrate_kbps: Some(1200),
+        audio_codec: Some("aac".to_string()),
+        audio_channels: Some(2),
+        gop_size: Some(60),
+        duration_secs: Some(300.0),
+    };
+    let manifest_480 = TranscodePipeline::generate_master_manifest_for_media(
+        "/api/v1/transcode/hls/videos/stream480.mp4",
+        &meta_480,
+    );
+    assert!(!manifest_480.contains("1080p_high"));
+    assert!(!manifest_480.contains("720p_med"));
+    assert!(manifest_480.contains("480p_low"));
+    assert!(manifest_480.contains("360p_min"));
+
+    // 4. Fallback for ultra-low resolution source (240p) -> retains lowest profile (360p)
+    let manifest_240 = TranscodePipeline::generate_dynamic_master_manifest(
+        "/api/v1/transcode/hls/videos/low.mp4",
+        240,
+    );
+    assert_eq!(manifest_240.matches("#EXT-X-STREAM-INF").count(), 1);
+    assert!(manifest_240.contains("360p_min"));
 }
 
 #[test]

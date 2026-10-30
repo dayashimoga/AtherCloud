@@ -374,20 +374,37 @@ impl TranscodePipeline {
 
     /// Generates an RFC 8216 compliant HLS Master Manifest string linking all rendition profiles
     pub fn generate_master_manifest(base_uri_prefix: &str) -> String {
-        let mut manifest = String::from("#EXTM3U\n#EXT-X-VERSION:6\n\n");
-        for profile in STANDARD_RENDITION_LADDER {
-            let line = format!(
-                "#EXT-X-STREAM-INF:BANDWIDTH={},RESOLUTION={}x{},CODECS=\"{}\"\n{}/{}/index.m3u8\n",
-                profile.bandwidth(),
-                profile.width,
-                profile.height,
-                profile.codecs_string,
-                base_uri_prefix.trim_end_matches('/'),
-                profile.tag
-            );
-            manifest.push_str(&line);
+        Self::generate_dynamic_master_manifest(base_uri_prefix, 1080)
+    }
+
+    /// Generates an RFC 8216 compliant dynamic HLS Master Manifest string
+    /// bounded by the source video height to strictly prevent upscaling.
+    pub fn generate_dynamic_master_manifest(base_uri_prefix: &str, source_height: u32) -> String {
+        let mut manifest = String::from("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-INDEPENDENT-SEGMENTS\n\n");
+        let mut profiles: Vec<&RenditionProfile> = STANDARD_RENDITION_LADDER
+            .iter()
+            .filter(|p| p.height <= source_height)
+            .collect();
+
+        if profiles.is_empty() && !STANDARD_RENDITION_LADDER.is_empty() {
+            if let Some(lowest) = STANDARD_RENDITION_LADDER.last() {
+                profiles.push(lowest);
+            }
+        }
+
+        for profile in profiles {
+            manifest.push_str(&profile.to_stream_inf(base_uri_prefix));
         }
         manifest
+    }
+
+    /// Generates an RFC 8216 compliant dynamic HLS Master Manifest directly from extracted MediaMetadata
+    pub fn generate_master_manifest_for_media(
+        base_uri_prefix: &str,
+        meta: &MediaMetadata,
+    ) -> String {
+        let source_height = meta.height.unwrap_or(1080);
+        Self::generate_dynamic_master_manifest(base_uri_prefix, source_height)
     }
 
     /// Builds FFmpeg command arguments for JIT HLS multi-rendition segmentation
