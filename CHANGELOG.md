@@ -1673,3 +1673,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Refactored `VideoPlayerComponent` in `client/src/components/VideoPlayer.ts` incorporating cinema-grade Hls.js v1.5+ adaptive bitrate streaming. Features EWMA sliding window bandwidth estimation (`abrEwmaFastLive: 3.0`, `abrEwmaSlowLive: 9.0`, 5 Mbps initial baseline, 15% headroom margin), 30s forward buffer horizon with 60MB max buffer ceiling and 30s reverse buffer retention, dynamic multi-variant manifest parsing with clean human-readable resolution labels (`4K 2160p`, `1080p FHD`, `720p HD`, `480p SD`, `360p Mobile` with bitrates and framerates), explicit manual level locking vs dynamic Auto ABR switching (`-1`), real-time quality badge indicator (`.quality-badge.auto` / `.quality-badge.manual`), animated quality change toast overlay (`#player-quality-toast`), live telemetry HUD updates, buffer starvation & dropped frame decode throttle downscaling defenses, and resilient error recovery. Verified via `test_refactored_video_player_hls_v15_and_dynamic_resolution_ladder` with all 58 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_HLS_PLAYER_RESOLUTION_LADDER_040
 - **Executor:** Principal Streaming Media Architect & Frontend Engineer
+
+### [2026-10-30T11:35:00Z] - STAGE_11 / PHASE_11.2 / SUBPHASE_11.2.2
+- **Stage ID:** STAGE_11 (Universal Web UI, Mount Manager Modal, ABR Player & PWA)
+- **Phase ID:** PHASE_11.2 (Cinema-Grade Video Player & Dynamic Bitrate Switcher)
+- **Subphase ID:** SUBPHASE_11.2.2 (Persistent Playback Settings Storing Volume, Playback Rate, and Subtitle Preferences in LocalStorage)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `client/src/services/playbackSettings.ts`
+  - `client/src/components/VideoPlayer.ts`
+  - `client/index.html`
+  - `client/src/app.css`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `PlaybackSettingsManager` in `client/src/services/playbackSettings.ts` providing persistent client storage for playback preferences via `localStorage` key `aetherstream_playback_settings_v1`. Tracks volume level ($0.0$ to $1.0$), muted state, playback rate ($0.5\times$ to $2.0\times$), subtitle language (`off`, `auto`, `en`, `es`, `fr`, etc.), subtitles active state, and preferred stream resolution with in-memory fallbacks and reactive listener subscriptions. Refactored `VideoPlayerComponent` in `client/src/components/VideoPlayer.ts` to automatically apply stored preferences on initialization and media loads (`loadSource`), preserve user adjustments across sessions, handle Hls.js subtitle discovery (`SUBTITLE_TRACKS_UPDATED`), wire dedicated subtitle toggle button (`#player-subtitles-btn`) with active badge styling, populate `#player-subtitles-select`, and bind keyboard shortcut `C` for closed captions. Verified via `test_persistent_playback_settings_volume_rate_and_subtitles` ($765\,\mu\text{s}$ serde benchmark) with all 59 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_PLAYBACK_SETTINGS_LOCALSTORAGE_041
+- **Executor:** Principal Frontend Architect & Streaming Systems Engineer

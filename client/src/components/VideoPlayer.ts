@@ -1,4 +1,5 @@
 import Hls from "hls.js";
+import { PlaybackSettingsManager } from "../services/playbackSettings";
 
 export interface RenditionInfo {
   index: number;
@@ -18,6 +19,9 @@ export class VideoPlayerComponent {
   private videoWrapper: HTMLElement | null = null;
   private videoContainerEl: HTMLElement | null = null;
   private hls: Hls | null = null;
+
+  // Persistent Settings
+  private settingsManager: PlaybackSettingsManager;
 
   // Live Telemetry HUD Elements
   private telemetryHudEl: HTMLElement | null = null;
@@ -45,6 +49,8 @@ export class VideoPlayerComponent {
   private qualityBadgeEl: HTMLElement | null = null;
   private qualityToastEl: HTMLElement | null = null;
   private toastTimer: number | null = null;
+  private subtitlesBtn: HTMLButtonElement | null = null;
+  private subtitlesSelect: HTMLSelectElement | null = null;
   private statsBtn: HTMLButtonElement | null = null;
   private pipBtn: HTMLButtonElement | null = null;
   private theaterBtn: HTMLButtonElement | null = null;
@@ -66,6 +72,8 @@ export class VideoPlayerComponent {
   public onLevelSwitched: ((level: RenditionInfo | null) => void) | null = null;
 
   constructor() {
+    this.settingsManager = PlaybackSettingsManager.getInstance();
+
     this.videoElement = document.getElementById("video-element") as HTMLVideoElement;
     this.videoWrapper = document.getElementById("video-wrapper");
     this.videoContainerEl = document.querySelector(".video-container");
@@ -91,6 +99,8 @@ export class VideoPlayerComponent {
     this.resolutionSelect = document.getElementById("player-resolution-select") as HTMLSelectElement | null;
     this.qualityBadgeEl = document.getElementById("player-quality-badge");
     this.qualityToastEl = document.getElementById("player-quality-toast");
+    this.subtitlesBtn = document.getElementById("player-subtitles-btn") as HTMLButtonElement | null;
+    this.subtitlesSelect = document.getElementById("player-subtitles-select") as HTMLSelectElement | null;
     this.statsBtn = document.getElementById("player-stats-btn") as HTMLButtonElement | null;
     this.pipBtn = document.getElementById("player-pip-btn") as HTMLButtonElement | null;
     this.theaterBtn = document.getElementById("player-theater-btn") as HTMLButtonElement | null;
@@ -99,7 +109,36 @@ export class VideoPlayerComponent {
     this.seekRippleLeft = document.getElementById("seek-ripple-left");
     this.seekRippleRight = document.getElementById("seek-ripple-right");
 
+    this.applyStoredSettings();
     this.bindControls();
+  }
+
+  /**
+   * Restores persistent playback preferences from localStorage:
+   * Volume level, Mute state, Playback rate, Subtitle preferences
+   */
+  public applyStoredSettings() {
+    const s = this.settingsManager.getSettings();
+
+    // Volume & Mute
+    this.videoElement.volume = s.volume;
+    this.videoElement.muted = s.muted;
+    if (this.volumeSlider) {
+      this.volumeSlider.value = s.volume.toString();
+    }
+    this.updateMuteIcon();
+
+    // Playback Speed
+    this.videoElement.playbackRate = s.playbackRate;
+    if (this.speedSelect) {
+      this.speedSelect.value = s.playbackRate.toString();
+    }
+
+    // Subtitles
+    if (this.subtitlesSelect) {
+      this.subtitlesSelect.value = s.subtitlesEnabled ? s.subtitleLanguage : "off";
+    }
+    this.updateSubtitlesButton(s.subtitlesEnabled);
   }
 
   private bindControls() {
@@ -145,6 +184,8 @@ export class VideoPlayerComponent {
       if (this.seekRange) {
         this.seekRange.value = "0";
       }
+      // Re-apply rate on metadata load in case browser resets
+      this.videoElement.playbackRate = this.settingsManager.getPlaybackRate();
     };
 
     if (this.seekRange) {
@@ -167,13 +208,14 @@ export class VideoPlayerComponent {
       };
     }
 
-    // 4. Volume & Mute
+    // 4. Volume & Mute with persistent localStorage storage
     if (this.volumeSlider) {
       this.volumeSlider.oninput = () => {
         const val = parseFloat(this.volumeSlider!.value);
         this.videoElement.volume = val;
         this.videoElement.muted = val === 0;
         this.updateMuteIcon();
+        this.settingsManager.setVolume(val);
       };
     }
 
@@ -181,13 +223,17 @@ export class VideoPlayerComponent {
       this.muteBtn.onclick = () => {
         this.videoElement.muted = !this.videoElement.muted;
         this.updateMuteIcon();
+        this.settingsManager.setMuted(this.videoElement.muted);
       };
     }
 
-    // 5. Playback Speed Selector
+    // 5. Playback Speed Selector with persistent storage
     if (this.speedSelect) {
       this.speedSelect.onchange = () => {
-        this.videoElement.playbackRate = parseFloat(this.speedSelect!.value);
+        const rate = parseFloat(this.speedSelect!.value);
+        this.videoElement.playbackRate = rate;
+        this.settingsManager.setPlaybackRate(rate);
+        this.showQualityToast(`Speed: ${rate}x`);
       };
     }
 
@@ -196,15 +242,41 @@ export class VideoPlayerComponent {
       this.resolutionSelect.onchange = () => {
         const levelIdx = parseInt(this.resolutionSelect!.value, 10);
         this.setLevel(levelIdx);
+        this.settingsManager.setPreferredResolution(levelIdx);
       };
     }
 
-    // 7. Live Telemetry HUD Toggle Button
+    // 7. Subtitles & Closed Captions with persistent storage
+    if (this.subtitlesSelect) {
+      this.subtitlesSelect.onchange = () => {
+        const lang = this.subtitlesSelect!.value;
+        const enabled = lang !== "off";
+        this.settingsManager.setSubtitlePreference(lang, enabled);
+        this.applySubtitleTrack(lang, enabled);
+        this.updateSubtitlesButton(enabled);
+        this.showQualityToast(enabled ? `Subtitles: ${lang.toUpperCase()}` : "Subtitles: Off");
+      };
+    }
+
+    if (this.subtitlesBtn) {
+      this.subtitlesBtn.onclick = () => {
+        const enabled = this.settingsManager.toggleSubtitles();
+        const lang = this.settingsManager.getSubtitleLanguage();
+        if (this.subtitlesSelect) {
+          this.subtitlesSelect.value = enabled ? lang : "off";
+        }
+        this.applySubtitleTrack(lang, enabled);
+        this.updateSubtitlesButton(enabled);
+        this.showQualityToast(enabled ? `Subtitles: ${lang.toUpperCase()}` : "Subtitles: Off");
+      };
+    }
+
+    // 8. Live Telemetry HUD Toggle Button
     if (this.statsBtn) {
       this.statsBtn.onclick = () => this.toggleTelemetryHud();
     }
 
-    // 8. Picture-in-Picture
+    // 9. Picture-in-Picture
     if (this.pipBtn) {
       this.pipBtn.onclick = async () => {
         try {
@@ -219,14 +291,14 @@ export class VideoPlayerComponent {
       };
     }
 
-    // 9. Theater Mode Toggle
+    // 10. Theater Mode Toggle
     if (this.theaterBtn) {
       this.theaterBtn.onclick = () => {
         this.videoContainerEl?.classList.toggle("theater-mode");
       };
     }
 
-    // 10. Fullscreen Toggle
+    // 11. Fullscreen Toggle
     if (this.fullscreenBtn) {
       this.fullscreenBtn.onclick = () => {
         if (!document.fullscreenElement) {
@@ -237,13 +309,13 @@ export class VideoPlayerComponent {
       };
     }
 
-    // 11. Mobile Touch Double-Tap Gestures & Inactivity Timer
+    // 12. Mobile Touch Double-Tap Gestures & Inactivity Timer
     if (this.videoWrapper) {
       this.videoWrapper.onmousemove = () => this.handleUserActivity();
       this.videoWrapper.ontouchstart = (e) => this.handleTouch(e);
     }
 
-    // 12. Keyboard Navigation
+    // 13. Keyboard Navigation
     window.addEventListener("keydown", (e) => {
       // Only handle if video modal is visible and no input is focused
       if (
@@ -266,6 +338,10 @@ export class VideoPlayerComponent {
         case "ArrowRight":
           e.preventDefault();
           this.seekRelative(10);
+          break;
+        case "c":
+        case "C":
+          this.subtitlesBtn?.click();
           break;
         case "d":
         case "D":
@@ -389,6 +465,17 @@ export class VideoPlayerComponent {
     }
   }
 
+  private updateSubtitlesButton(enabled: boolean) {
+    if (!this.subtitlesBtn) return;
+    if (enabled) {
+      this.subtitlesBtn.classList.add("active");
+      this.subtitlesBtn.title = "Subtitles Active (C to toggle)";
+    } else {
+      this.subtitlesBtn.classList.remove("active");
+      this.subtitlesBtn.title = "Subtitles Off (C to toggle)";
+    }
+  }
+
   private formatTime(seconds: number): string {
     if (isNaN(seconds) || seconds < 0) return "00:00";
     const h = Math.floor(seconds / 3600);
@@ -420,11 +507,13 @@ export class VideoPlayerComponent {
     if (this.seekRange) this.seekRange.value = "0";
     if (this.currentTimeEl) this.currentTimeEl.textContent = "00:00";
     if (this.durationEl) this.durationEl.textContent = "00:00";
-    if (this.speedSelect) this.speedSelect.value = "1.0";
-    this.videoElement.playbackRate = 1.0;
+
+    // Preserved Persistent Settings Re-application
+    this.applyStoredSettings();
 
     if (this.resolutionSelect) {
-      this.resolutionSelect.innerHTML = "<option value='-1' selected id='opt-resolution-auto'>Auto ABR (Adaptive)</option>";
+      this.resolutionSelect.innerHTML =
+        "<option value='-1' selected id='opt-resolution-auto'>Auto ABR (Adaptive)</option>";
     }
 
     if (isHls && Hls.isSupported()) {
@@ -460,6 +549,12 @@ export class VideoPlayerComponent {
         this.availableLevels = this.parseLevels();
         this.populateResolutionPicker(this.availableLevels);
         this.onLevelsLoaded?.(this.availableLevels);
+
+        // If user preferred a specific resolution level, restore it
+        const prefRes = this.settingsManager.getPreferredResolution();
+        if (prefRes !== -1 && prefRes < this.availableLevels.length) {
+          this.setLevel(prefRes);
+        }
       });
 
       this.hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
@@ -470,6 +565,13 @@ export class VideoPlayerComponent {
         const stats = data.frag.stats as any;
         const bw = Math.round((stats.bandwidth || this.hls?.bandwidthEstimate || 0) / 1000);
         this.hudBandwidth.textContent = `${bw} kbps`;
+      });
+
+      // Dynamic Subtitle Tracks Discovery & Restoration
+      this.hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
+        this.populateSubtitleTracks(data.subtitleTracks);
+        const s = this.settingsManager.getSettings();
+        this.applySubtitleTrack(s.subtitleLanguage, s.subtitlesEnabled);
       });
 
       // Adaptive Error Recovery Strategy
@@ -485,7 +587,10 @@ export class VideoPlayerComponent {
               this.hls?.recoverMediaError();
               break;
             default:
-              console.error("[HLS] Unrecoverable fatal error encountered, falling back to direct stream:", data);
+              console.error(
+                "[HLS] Unrecoverable fatal error encountered, falling back to direct stream:",
+                data
+              );
               this.destroy();
               this.loadSource(url, false);
               break;
@@ -571,6 +676,64 @@ export class VideoPlayerComponent {
       }
       this.resolutionSelect!.appendChild(opt);
     });
+  }
+
+  private populateSubtitleTracks(tracks: any[]) {
+    if (!this.subtitlesSelect) return;
+    const currentVal = this.subtitlesSelect.value;
+    this.subtitlesSelect.innerHTML = "<option value='off'>Subtitles: Off</option>";
+
+    if (tracks && tracks.length > 0) {
+      const autoOpt = document.createElement("option");
+      autoOpt.value = "auto";
+      autoOpt.textContent = "Auto Track";
+      this.subtitlesSelect.appendChild(autoOpt);
+
+      tracks.forEach((track, idx) => {
+        const opt = document.createElement("option");
+        opt.value = track.lang || `track_${idx}`;
+        opt.textContent = `${track.name || track.lang || `Track ${idx + 1}`}${
+          track.lang ? ` [${track.lang.toUpperCase()}]` : ""
+        }`;
+        this.subtitlesSelect!.appendChild(opt);
+      });
+    }
+
+    if (currentVal) {
+      this.subtitlesSelect.value = currentVal;
+    }
+  }
+
+  public applySubtitleTrack(lang: string, enabled: boolean) {
+    if (!enabled || lang === "off") {
+      if (this.hls) {
+        this.hls.subtitleTrack = -1;
+      }
+      for (let i = 0; i < this.videoElement.textTracks.length; i++) {
+        this.videoElement.textTracks[i].mode = "disabled";
+      }
+      return;
+    }
+
+    if (this.hls && this.hls.subtitleTracks && this.hls.subtitleTracks.length > 0) {
+      if (lang === "auto") {
+        this.hls.subtitleTrack = 0;
+      } else {
+        const matchIdx = this.hls.subtitleTracks.findIndex(
+          (t) => t.lang?.toLowerCase() === lang.toLowerCase()
+        );
+        this.hls.subtitleTrack = matchIdx >= 0 ? matchIdx : 0;
+      }
+    } else {
+      for (let i = 0; i < this.videoElement.textTracks.length; i++) {
+        const track = this.videoElement.textTracks[i];
+        if (track.language.toLowerCase() === lang.toLowerCase()) {
+          track.mode = "showing";
+        } else {
+          track.mode = "disabled";
+        }
+      }
+    }
   }
 
   private handleLevelSwitched(levelIndex: number) {
@@ -677,6 +840,10 @@ export class VideoPlayerComponent {
     return this.hls;
   }
 
+  public getSettingsManager(): PlaybackSettingsManager {
+    return this.settingsManager;
+  }
+
   public showQualityToast(message: string) {
     if (!this.qualityToastEl) return;
     if (this.toastTimer !== null) {
@@ -732,9 +899,14 @@ export class VideoPlayerComponent {
         }
 
         // Emergency buffer starvation prevention (<6s) in Auto ABR mode
-        if (!this.isManualResolution && forwardBuffer < 6.0 && this.hls && this.hls.currentLevel > 0) {
+        if (
+          !this.isManualResolution &&
+          forwardBuffer < 6.0 &&
+          this.hls &&
+          this.hls.currentLevel > 0
+        ) {
           console.warn("[TELEMETRY] Buffer starvation alert (<6s). Downgrading rendition ladder.");
-          this.hls.nextLevel = 0; // Drop to lowest safe rendition to prevent playback stall
+          this.hls.nextLevel = 0;
         }
       }
 
@@ -749,9 +921,10 @@ export class VideoPlayerComponent {
 
         if (dropPct > 5.0) {
           this.hudDropped.className = "hud-val-danger";
-          // If frame drop rate exceeds 5% on active playback, step down level to relieve hardware decoder
           if (!this.isManualResolution && this.hls && this.hls.currentLevel > 0) {
-            console.warn(`[TELEMETRY] Excessive frame drop rate (${dropPct.toFixed(1)}%). Downscaling rendition.`);
+            console.warn(
+              `[TELEMETRY] Excessive frame drop rate (${dropPct.toFixed(1)}%). Downscaling rendition.`
+            );
             this.hls.nextLevel = Math.max(0, this.hls.currentLevel - 1);
           }
         } else if (dropPct > 1.0) {

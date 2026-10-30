@@ -630,6 +630,34 @@ video {
   gap: 6px;
 }
 
+.ctrl-select-group.subtitles-group {
+  position: relative;
+  gap: 6px;
+}
+
+.ctrl-btn-icon {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, transform 0.1s ease;
+  line-height: 1;
+}
+
+.ctrl-btn-icon:hover {
+  color: var(--text-main);
+}
+
+.ctrl-btn-icon.active {
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(14, 165, 233, 0.6);
+}
+
 .quality-badge {
   font-size: 0.65rem;
   font-weight: 700;

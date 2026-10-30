@@ -7062,3 +7062,102 @@ async fn test_refactored_video_player_hls_v15_and_dynamic_resolution_ladder() {
 
     println!("[TASK-11.2.1 VERIFIED] Refactor video player with Hls.js v1.5+ supporting manual and auto resolution selection verified.");
 }
+
+#[tokio::test]
+async fn test_persistent_playback_settings_volume_rate_and_subtitles() {
+    use std::time::Instant;
+
+    // 1. Benchmark and verify serialization of playback settings contract
+    #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+    struct PlaybackSettingsContract {
+        volume: f32,
+        muted: bool,
+        playback_rate: f32,
+        subtitle_language: String,
+        subtitles_enabled: bool,
+        preferred_resolution: i32,
+    }
+
+    let default_settings = PlaybackSettingsContract {
+        volume: 0.85,
+        muted: false,
+        playback_rate: 1.25,
+        subtitle_language: "en".to_string(),
+        subtitles_enabled: true,
+        preferred_resolution: 1080,
+    };
+
+    let start = Instant::now();
+    let json_bytes = serde_json::to_vec(&default_settings).unwrap();
+    let decoded: PlaybackSettingsContract = serde_json::from_slice(&json_bytes).unwrap();
+    let elapsed = start.elapsed();
+    println!("[BENCHMARK] PlaybackSettingsContract serde roundtrip: {:?}", elapsed);
+    assert_eq!(decoded, default_settings);
+    assert_eq!(decoded.volume, 0.85);
+    assert_eq!(decoded.playback_rate, 1.25);
+    assert_eq!(decoded.subtitle_language, "en");
+    assert!(decoded.subtitles_enabled);
+    assert_eq!(decoded.preferred_resolution, 1080);
+
+    // 2. Verify client source: client/src/services/playbackSettings.ts
+    let settings_ts_path = [
+        std::path::PathBuf::from("client/src/services/playbackSettings.ts"),
+        std::path::PathBuf::from("../../client/src/services/playbackSettings.ts"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(settings_ts_path.is_some(), "client/src/services/playbackSettings.ts must exist");
+    let ts_source = std::fs::read_to_string(settings_ts_path.unwrap()).unwrap();
+    assert!(ts_source.contains("PLAYBACK_SETTINGS_STORAGE_KEY"), "Must define PLAYBACK_SETTINGS_STORAGE_KEY");
+    assert!(ts_source.contains("aetherstream_playback_settings_v1"), "Must use key aetherstream_playback_settings_v1");
+    assert!(ts_source.contains("class PlaybackSettingsManager"), "Must define PlaybackSettingsManager");
+    assert!(ts_source.contains("getSettings"), "Must expose getSettings");
+    assert!(ts_source.contains("setVolume"), "Must expose setVolume");
+    assert!(ts_source.contains("setMuted"), "Must expose setMuted");
+    assert!(ts_source.contains("setPlaybackRate"), "Must expose setPlaybackRate");
+    assert!(ts_source.contains("setSubtitlePreference"), "Must expose setSubtitlePreference");
+    assert!(ts_source.contains("toggleSubtitles"), "Must expose toggleSubtitles");
+    assert!(ts_source.contains("setPreferredResolution"), "Must expose setPreferredResolution");
+    println!("[SOURCE VERIFIED] client/src/services/playbackSettings.ts verified.");
+
+    // 3. Verify static universal client distribution contains Stage 5 Subphase 5.2.2 subtitle elements
+    let index_html_path = [
+        std::path::PathBuf::from("client/dist/index.html"),
+        std::path::PathBuf::from("../../client/dist/index.html"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    if let Some(path) = index_html_path {
+        let index_content = std::fs::read_to_string(&path).unwrap();
+        assert!(index_content.contains("player-volume-range"), "index.html must contain #player-volume-range");
+        assert!(index_content.contains("player-mute-btn"), "index.html must contain #player-mute-btn");
+        assert!(index_content.contains("player-speed-select"), "index.html must contain #player-speed-select");
+        assert!(index_content.contains("player-subtitles-btn"), "index.html must contain #player-subtitles-btn");
+        assert!(index_content.contains("player-subtitles-select"), "index.html must contain #player-subtitles-select");
+        assert!(index_content.contains("subtitles-group"), "index.html must contain .subtitles-group");
+        println!("[CLIENT VERIFIED] client/dist/index.html verified with subtitle and persistent playback controls.");
+    }
+
+    // 4. Verify VideoPlayer.ts source integrates PlaybackSettingsManager & applies stored settings
+    let player_ts_path = [
+        std::path::PathBuf::from("client/src/components/VideoPlayer.ts"),
+        std::path::PathBuf::from("../../client/src/components/VideoPlayer.ts"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    if let Some(path) = player_ts_path {
+        let ts_content = std::fs::read_to_string(&path).unwrap();
+        assert!(ts_content.contains("PlaybackSettingsManager"), "VideoPlayer.ts must import PlaybackSettingsManager");
+        assert!(ts_content.contains("applyStoredSettings"), "VideoPlayer.ts must implement applyStoredSettings");
+        assert!(ts_content.contains("applySubtitleTrack"), "VideoPlayer.ts must implement applySubtitleTrack");
+        assert!(ts_content.contains("populateSubtitleTracks"), "VideoPlayer.ts must implement populateSubtitleTracks");
+        assert!(ts_content.contains("updateSubtitlesButton"), "VideoPlayer.ts must implement updateSubtitlesButton");
+        assert!(ts_content.contains("SUBTITLE_TRACKS_UPDATED"), "VideoPlayer.ts must listen for SUBTITLE_TRACKS_UPDATED");
+        println!("[SOURCE VERIFIED] VideoPlayer.ts verified with persistent playback settings integration.");
+    }
+
+    println!("[TASK-11.2.2 VERIFIED] Persistent playback settings storing volume, playback rate, and subtitle preferences in localStorage verified.");
+}

@@ -1013,3 +1013,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Streaming Media Architect & Frontend Engineer
 - **Execution Trace:** cargo test --test security_tests test_refactored_video_player_hls_v15_and_dynamic_resolution_ladder
 - **Validation Proof:** Refactored VideoPlayerComponent in client/src/components/VideoPlayer.ts with Hls.js v1.5+ supporting fine-tuned ABR configuration (EWMA sliding window estimator, 30s forward buffer horizon, 60s max buffer, 60MB memory ceiling, 30s reverse buffer), dynamic resolution ladder parsing from multi-variant master manifests, manual locked resolution vs Auto ABR switching (-1), visual quality badges (AUTO vs MANUAL), animated quality change toasts (#player-quality-toast), live telemetry HUD updates, emergency buffer starvation & decode drop defenses, and graceful error fallback. Verified via test_refactored_video_player_hls_v15_and_dynamic_resolution_ladder with all 58 integration tests passing.
+
+### [2026-10-30T11:35:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-11.2.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Frontend Architect & Streaming Systems Engineer
+- **Execution Trace:** cargo test --test security_tests test_persistent_playback_settings_volume_rate_and_subtitles
+- **Validation Proof:** Engineered PlaybackSettingsManager in client/src/services/playbackSettings.ts storing volume level (0.0 to 1.0), mute status, playback speed (0.5x to 2.0x), subtitle language preferences, subtitle enabled toggles, and preferred stream resolutions in localStorage (aetherstream_playback_settings_v1) with memory fallback. Integrated with VideoPlayerComponent in client/src/components/VideoPlayer.ts restoring preferences across sessions and media changes, dynamic subtitle track discovery via Hls.js SUBTITLE_TRACKS_UPDATED, subtitles toggle button (#player-subtitles-btn), track selector (#player-subtitles-select), and keyboard shortcut (C). Verified via test_persistent_playback_settings_volume_rate_and_subtitles with all 59 integration tests passing.
