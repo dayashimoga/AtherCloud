@@ -13,6 +13,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -102,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_headers(Any);
 
     // Assemble Axum Router
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/api/v1/health", get(health_handler))
         .route("/api/v1/mounts", get(list_mounts_handler))
         .route("/api/v1/system/drives", get(system_drives_handler))
@@ -116,7 +117,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/v1/transcode/hls/:mount/*path",
             get(hls_master_manifest_handler),
-        )
+        );
+
+    if Path::new("client/dist").exists() {
+        info!("Serving static universal client UI from 'client/dist'...");
+        app = app.fallback_service(
+            ServeDir::new("client/dist").not_found_service(ServeFile::new("client/dist/index.html")),
+        );
+    }
+
+    let app = app
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(app_state);
