@@ -147,13 +147,32 @@ function Test-Subphase-6-2-2 {
 }
 
 function Test-Subphase-6-2-3 {
-    Write-AetherLog "INFO" "Auditing Subphase 6.2.3: iOS CI Packaging (.ipa / .xcarchive)..."
+    Write-AetherLog "INFO" "Auditing Subphase 6.2.3: iOS Capacitor Workspace & Packaging Preparation (.ipa)..."
+    $infoPlist = Join-Path $Script:RepoRoot "client/ios/App/App/Info.plist"
+    $pbxproj = Join-Path $Script:RepoRoot "client/ios/App/App.xcodeproj/project.pbxproj"
+    if (-not (Test-Path $infoPlist)) { throw "client/ios/App/App/Info.plist missing!" }
+    if (-not (Test-Path $pbxproj)) { throw "client/ios/App/App.xcodeproj/project.pbxproj missing!" }
+
+    $pbxContent = Get-Content $pbxproj -Raw
+    if (-not ($pbxContent -match "io\.aetherstream\.app")) {
+        throw "iOS bundle identifier missing or invalid in project.pbxproj!"
+    }
+    $infoContent = Get-Content $infoPlist -Raw
+    if (-not ($infoContent -match "AetherStream")) {
+        throw "iOS CFBundleDisplayName missing in Info.plist!"
+    }
+
+    $ps1Script = Join-Path $Script:RepoRoot "scripts/build-ios.ps1"
+    $shScript = Join-Path $Script:RepoRoot "scripts/build-ios.sh"
+    if (-not (Test-Path $ps1Script)) { throw "scripts/build-ios.ps1 missing!" }
+    if (-not (Test-Path $shScript)) { throw "scripts/build-ios.sh missing!" }
+
     $wfPath = Join-Path $Script:RepoRoot ".github/workflows/build-and-release.yml"
     $content = Get-Content $wfPath -Raw
-    if (-not ($content -match "AetherStream-unsigned.ipa")) {
-        throw "iOS package generation missing in CI workflow!"
+    if (-not ($content -match "AetherStream-unsigned.ipa" -and $content -match "aetherstream-ios-unsigned-ipa")) {
+        throw "iOS application package (.ipa) CI runner steps missing in CI workflow!"
     }
-    Write-AetherLog "SUCCESS" "iOS application package (.ipa) CI runner job verified."
+    Write-AetherLog "SUCCESS" "iOS application package (.ipa) workspace and CI runner jobs verified."
     return $true
 }
 

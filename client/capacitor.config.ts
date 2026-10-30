@@ -12,6 +12,10 @@ export interface CapacitorConfig {
       releaseType?: string;
     };
   };
+  ios?: {
+    contentInset?: string;
+    preferredContentMode?: string;
+  };
   plugins?: Record<string, any>;
 }
 
@@ -27,6 +31,10 @@ const config: CapacitorConfig = {
     buildOptions: {
       releaseType: "AAB",
     },
+  },
+  ios: {
+    contentInset: "automatic",
+    preferredContentMode: "mobile",
   },
   plugins: {
     SplashScreen: {

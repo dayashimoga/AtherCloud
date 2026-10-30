@@ -8056,3 +8056,89 @@ async fn test_capacitor_android_signed_apk_and_aab_workflow_suite() {
 
     println!("[TASK-12.2.2 VERIFIED] Capacitor Android workflow compiling signed release APK and AAB packages verified.");
 }
+
+#[tokio::test]
+async fn test_capacitor_ios_ipa_release_archive_suite() {
+    use std::time::Instant;
+
+    // 1. Locate and verify client/ios/App/App/Info.plist
+    let info_plist_path = [
+        std::path::PathBuf::from("../../client/ios/App/App/Info.plist"),
+        std::path::PathBuf::from("client/ios/App/App/Info.plist"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(info_plist_path.is_some(), "client/ios/App/App/Info.plist must exist");
+    let start = Instant::now();
+    let info_content = std::fs::read_to_string(info_plist_path.unwrap()).expect("Failed to read Info.plist");
+    let elapsed = start.elapsed();
+    println!("[BENCHMARK] iOS Info.plist parse & evaluation: {:?}", elapsed);
+
+    assert!(info_content.contains("<string>AetherStream</string>"), "Info.plist must configure CFBundleDisplayName");
+    assert!(info_content.contains("NSAppTransportSecurity"), "Info.plist must configure NSAppTransportSecurity");
+    assert!(info_content.contains("NSAllowsArbitraryLoads"), "Info.plist must configure NSAllowsArbitraryLoads for streaming");
+
+    // 2. Locate and verify client/ios/App/App.xcodeproj/project.pbxproj
+    let pbxproj_path = [
+        std::path::PathBuf::from("../../client/ios/App/App.xcodeproj/project.pbxproj"),
+        std::path::PathBuf::from("client/ios/App/App.xcodeproj/project.pbxproj"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(pbxproj_path.is_some(), "client/ios/App/App.xcodeproj/project.pbxproj must exist");
+    let pbx_content = std::fs::read_to_string(pbxproj_path.unwrap()).expect("Failed to read project.pbxproj");
+    assert!(pbx_content.contains("PRODUCT_BUNDLE_IDENTIFIER = io.aetherstream.app;"),
+        "Xcode project must specify bundle identifier io.aetherstream.app");
+    assert!(pbx_content.contains("MARKETING_VERSION = 1.2.0;"),
+        "Xcode project must specify MARKETING_VERSION 1.2.0");
+
+    // 3. Locate and verify client/capacitor.config.json for iOS settings
+    let cap_json_path = [
+        std::path::PathBuf::from("../../client/capacitor.config.json"),
+        std::path::PathBuf::from("client/capacitor.config.json"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(cap_json_path.is_some(), "client/capacitor.config.json must exist");
+    let cap_raw = std::fs::read_to_string(cap_json_path.unwrap()).expect("Failed to read capacitor.config.json");
+    let cap: serde_json::Value = serde_json::from_str(&cap_raw).expect("capacitor.config.json must be valid JSON");
+    assert_eq!(cap["appId"].as_str().unwrap_or_default(), "io.aetherstream.app");
+    assert_eq!(cap["ios"]["contentInset"].as_str().unwrap_or_default(), "automatic");
+
+    // 4. Locate and verify CI workflow iOS archive and artifact upload steps
+    let ci_path = [
+        std::path::PathBuf::from("../../.github/workflows/build-and-release.yml"),
+        std::path::PathBuf::from(".github/workflows/build-and-release.yml"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(ci_path.is_some(), ".github/workflows/build-and-release.yml must exist");
+    let ci_content = std::fs::read_to_string(ci_path.unwrap()).unwrap();
+    assert!(ci_content.contains("AetherStream-unsigned.ipa"), "CI workflow must generate AetherStream-unsigned.ipa");
+    assert!(ci_content.contains("aetherstream-ios-unsigned-ipa"), "CI workflow must upload aetherstream-ios-unsigned-ipa");
+
+    // 5. Verify local helper scripts and stage audit
+    let helper_ps1 = [
+        std::path::PathBuf::from("../../scripts/build-ios.ps1"),
+        std::path::PathBuf::from("scripts/build-ios.ps1"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+    assert!(helper_ps1.is_some(), "scripts/build-ios.ps1 must exist");
+
+    let stage6_path = [
+        std::path::PathBuf::from("../../scripts/stages/stage-6.ps1"),
+        std::path::PathBuf::from("scripts/stages/stage-6.ps1"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+    assert!(stage6_path.is_some(), "scripts/stages/stage-6.ps1 must exist");
+    let stage6_content = std::fs::read_to_string(stage6_path.unwrap()).unwrap();
+    assert!(stage6_content.contains("Test-Subphase-6-2-3"), "stage-6.ps1 must implement Test-Subphase-6-2-3");
+
+    println!("[TASK-12.2.3 VERIFIED] iOS Capacitor workspace preparing .ipa release archive verified.");
+}

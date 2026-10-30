@@ -12,6 +12,8 @@
     "cap:ios": "cap open ios",
     "android:sync": "cap sync android",
     "android:build": "cd android && ./gradlew assembleDebug assembleRelease bundleRelease",
+    "ios:sync": "cap sync ios",
+    "ios:build": "cap sync ios",
     "tauri": "tauri",
     "tauri:build": "tauri build",
     "tauri:dev": "tauri dev"
@@ -23,6 +25,7 @@
   "devDependencies": {
     "@capacitor/android": "^5.7.8",
     "@capacitor/cli": "^5.7.8",
+    "@capacitor/ios": "^5.7.8",
     "@tauri-apps/cli": "^1.6.3",
     "typescript": "^5.4.5",
     "vite": "^5.2.11"

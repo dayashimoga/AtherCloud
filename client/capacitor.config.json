@@ -11,6 +11,10 @@
       "releaseType": "AAB"
     }
   },
+  "ios": {
+    "contentInset": "automatic",
+    "preferredContentMode": "mobile"
+  },
   "plugins": {
     "SplashScreen": {
       "launchShowDuration": 1500,

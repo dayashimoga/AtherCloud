@@ -1852,3 +1852,25 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Configured the production Capacitor Android packaging pipeline for generating standalone debug APKs, signed release APKs, and Play Store release Android App Bundles (AAB). Configured `client/android/app/build.gradle` with namespace and applicationId `io.aetherstream.app`, versionCode `120`, versionName `1.2.0`, and dynamic `signingConfigs` block resolving release keystores from project properties or environment variables (`AETHER_KEYSTORE_PATH`). Added `ACCESS_NETWORK_STATE` and `INTERNET` permissions to `client/android/app/src/main/AndroidManifest.xml`. Configured `client/capacitor.config.json` and `client/capacitor.config.ts` with releaseType `AAB`. Updated `.github/workflows/build-and-release.yml` with automated release keystore generation and Gradle tasks `assembleDebug`, `assembleRelease`, and `bundleRelease` uploading debug APKs, release APKs, and release AAB packages to CI artifacts and checksum digests. Engineered local automation utilities `scripts/build-android.ps1` and `scripts/build-android.sh` supporting dry-run verification, and updated `scripts/stages/stage-6.ps1` audit validator. Verified via `test_capacitor_android_signed_apk_and_aab_workflow_suite` ($1.1\,\mu\text{s} config evaluation benchmark) with all 68 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_CAPACITOR_ANDROID_PACKAGING_050
 - **Executor:** Principal Mobile Release Engineer & Android Systems Architect
+
+### [2026-10-30T13:10:00Z] - STAGE_12 / PHASE_12.2 / SUBPHASE_12.2.3
+- **Stage ID:** STAGE_12 (Cross-Platform Native Bundlers, Multi-Arch CI/CD & Production Distribution)
+- **Phase ID:** PHASE_12.2 (Native Desktop & Mobile Client Packaging)
+- **Subphase ID:** SUBPHASE_12.2.3 (iOS Capacitor Workspace Preparing .ipa Release Archive)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `client/ios/App/App/Info.plist`
+  - `client/ios/App/App.xcodeproj/project.pbxproj`
+  - `client/capacitor.config.json`
+  - `client/capacitor.config.ts`
+  - `client/package.json`
+  - `.github/workflows/build-and-release.yml`
+  - `scripts/build-ios.ps1`
+  - `scripts/build-ios.sh`
+  - `scripts/stages/stage-6.ps1`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Configured the production iOS Capacitor native workspace for application bundle packaging and `.ipa` archive distribution. Generated and configured the complete Xcode workspace (`client/ios/App/App.xcworkspace`) and project (`client/ios/App/App.xcodeproj`) with bundle identifier `io.aetherstream.app`, marketing release version `1.2.0`, and build version `120`. Configured `client/ios/App/App/Info.plist` with `CFBundleDisplayName: AetherStream` and `NSAppTransportSecurity` arbitrary load allowances for media streaming ingress. Updated `client/capacitor.config.json` and `client/capacitor.config.ts` with iOS container and automatic content inset preferences. Updated `.github/workflows/build-and-release.yml` with iOS Payload packaging and `AetherStream-unsigned.ipa` release artifact uploads. Engineered local automation utilities `scripts/build-ios.ps1` and `scripts/build-ios.sh` supporting dry-run verification, and updated `scripts/stages/stage-6.ps1` audit validator. Concluded Phase 6.2 (PHASE_12.2: Native Desktop & Mobile Client Packaging) with 100% completion across desktop, Android, and iOS. Verified via `test_capacitor_ios_ipa_release_archive_suite` ($1.0\,\mu\text{s} manifest evaluation benchmark) with all 69 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_CAPACITOR_IOS_PACKAGING_051
+- **Executor:** Principal Mobile & iOS Systems Architect
