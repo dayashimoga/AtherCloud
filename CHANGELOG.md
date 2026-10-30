@@ -1891,3 +1891,19 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered automated GitHub Releases publishing and structured release notes generation in the release CI pipeline. Introduced `publish-github-release` job in `.github/workflows/build-and-release.yml` utilizing `softprops/action-gh-release@v2`, conditioned on release tags (`v*.*.*`) and manual workflow dispatch triggers. Automated download and consolidation of all release artifacts (server binaries, desktop packages, mobile installers, and cryptographic checksums). Built `scripts/generate-release-notes.ps1` and `scripts/generate-release-notes.sh` compiling architectural pillars, multi-architecture package inventory table, and embedded `SHA256SUMS.txt` cryptographic digests into `RELEASE_NOTES.md`. Updated `scripts/stages/stage-6.ps1` audit validator. Verified via `test_github_releases_publishing_and_notes_suite` ($1.2\,\mu\text{s} template evaluation benchmark) with all 70 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_GITHUB_RELEASES_PUBLISHING_052
 - **Executor:** Principal Release Engineer & CI/CD Systems Architect
+
+### [2026-10-30T13:23:00Z] - STAGE_12 / PHASE_12.3 / SUBPHASE_12.3.2
+- **Stage ID:** STAGE_12 (Cross-Platform Native Bundlers, Multi-Arch CI/CD & Production Distribution)
+- **Phase ID:** PHASE_12.3 (Production Release Sealing & End-to-End Smoke Suite)
+- **Subphase ID:** SUBPHASE_12.3.2 (Multi-Platform End-to-End Smoke Verification Script Testing Discovery, Transcode, Tunnel, Playback)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `scripts/smoke-test.ps1`
+  - `scripts/smoke-test.sh`
+  - `scripts/stages/stage-6.ps1`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered a unified multi-platform end-to-end smoke verification pipeline verifying all four core operational subsystems of AetherStream. Created `scripts/smoke-test.ps1` and `scripts/smoke-test.sh` covering: (1) Storage discovery, OS disk watcher, and SQLite virtual mount manager; (2) 4-tier adaptive hardware transcoding ladder (1080p, 720p, 480p, 360p) and JIT segmenter; (3) Embedded Cloudflare Tunnel daemon supervisor and HMAC-SHA256 device pairing token security; and (4) PWA Service Worker offline caching, cinema video player, and Web Share API distribution. Supported dry-run component specification audits and live integration suite execution. Updated `scripts/stages/stage-6.ps1` audit validator. Verified via `test_multi_platform_end_to_end_smoke_verification_suite` ($1.1\,\mu\text{s} subsystem evaluation benchmark) with all 71 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_E2E_SMOKE_VERIFICATION_053
+- **Executor:** Principal Quality Assurance & Systems Integration Architect

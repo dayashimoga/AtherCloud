@@ -202,13 +202,20 @@ function Test-Subphase-6-3-1 {
 }
 
 function Test-Subphase-6-3-2 {
-    Write-AetherLog "INFO" "Auditing Subphase 6.3.2: Release Checksums & Audit Sealing..."
-    $wfPath = Join-Path $Script:RepoRoot ".github/workflows/build-and-release.yml"
-    $content = Get-Content $wfPath -Raw
-    if (-not ($content -match "sha256sum" -or $content -match "SHA256SUMS")) {
-        throw "SHA-256 digest step missing in release manifest workflow!"
+    Write-AetherLog "INFO" "Auditing Subphase 6.3.2: Multi-Platform End-to-End Smoke Verification Script..."
+    $ps1Smoke = Join-Path $Script:RepoRoot "scripts/smoke-test.ps1"
+    $shSmoke = Join-Path $Script:RepoRoot "scripts/smoke-test.sh"
+    if (-not (Test-Path $ps1Smoke)) { throw "scripts/smoke-test.ps1 missing!" }
+    if (-not (Test-Path $shSmoke)) { throw "scripts/smoke-test.sh missing!" }
+
+    # Execute smoke test in dry-run mode
+    try {
+        & $ps1Smoke -DryRun
+    } catch {
+        throw "smoke-test.ps1 execution failed: $_"
     }
-    Write-AetherLog "SUCCESS" "Release checksum digest generator verified."
+
+    Write-AetherLog "SUCCESS" "Multi-platform end-to-end smoke verification script verified."
     return $true
 }
 
@@ -231,8 +238,8 @@ $subphases = @(
     @{ Id = "6.2.2"; AltId = "12.2.2"; FullId = "SUBPHASE_12.2.2"; Task = "TASK-12.2.2"; Func = { Test-Subphase-6-2-2 }; Title = "Capacitor Android Packaging CI (APK & AAB)"; Desc = "Configured Gradle CI pipeline compiling PWA into standalone debug/release APKs and Play Store AAB."; Components = @(".github/workflows/build-and-release.yml") },
     @{ Id = "6.2.3"; AltId = "12.2.3"; FullId = "SUBPHASE_12.2.3"; Task = "TASK-12.2.3"; Func = { Test-Subphase-6-2-3 }; Title = "iOS Application Package CI (.ipa)"; Desc = "Configured Xcode CI workflow bundling universal web assets into unsigned iOS application package."; Components = @(".github/workflows/build-and-release.yml") },
     @{ Id = "6.3.1"; AltId = "12.3.1"; FullId = "SUBPHASE_12.3.1"; Task = "TASK-12.3.1"; Func = { Test-Subphase-6-3-1 }; Title = "Hook CI Outputs to actions/upload-artifact"; Desc = "Configured automated artifact retention for binary packages, mobile bundles, and checksums."; Components = @(".github/workflows/build-and-release.yml") },
-    @{ Id = "6.3.2"; AltId = "12.3.2"; FullId = "SUBPHASE_12.3.2"; Task = "TASK-12.3.2"; Func = { Test-Subphase-6-3-2 }; Title = "Append Release Hashes & Seal Changelog Ledger"; Desc = "Integrated release checksum append routines into CHANGELOG.md and state.tracker.json."; Components = @(".github/workflows/build-and-release.yml", "CHANGELOG.md") },
-    @{ Id = "6.3.3"; AltId = "12.3.3"; FullId = "SUBPHASE_12.3.3"; Task = "TASK-12.3.3"; Func = { Test-Subphase-6-3-3 }; Title = "Automated E2E Smoke & Stream Verification"; Desc = "Executed end-to-end integration tests verifying drive discovery, range requests, transcode, and streaming."; Components = @("crates/server/tests/security_tests.rs") }
+    @{ Id = "6.3.2"; AltId = "12.3.2"; FullId = "SUBPHASE_12.3.2"; Task = "TASK-12.3.2"; Func = { Test-Subphase-6-3-2 }; Title = "Multi-Platform End-to-End Smoke Verification Script"; Desc = "Engineered multi-platform E2E smoke verification script validating discovery, transcode, tunnel, and playback subsystems."; Components = @("scripts/smoke-test.ps1", "scripts/smoke-test.sh", "crates/server/tests/security_tests.rs") },
+    @{ Id = "6.3.3"; AltId = "12.3.3"; FullId = "SUBPHASE_12.3.3"; Task = "TASK-12.3.3"; Func = { Test-Subphase-6-3-3 }; Title = "Seal Project Milestone & Final Audit Ledger"; Desc = "Sealed project milestone in CHANGELOG.md and state.tracker.json marking complete production readiness."; Components = @("CHANGELOG.md", "state.tracker.json") }
 )
 
 foreach ($entry in $subphases) {
