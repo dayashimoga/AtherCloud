@@ -817,3 +817,14 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Integrated FFprobe wrapper extracting container, codecs, audio channels, and keyframe GOP intervals.
 - **Verification Signature:** SHA256:VERIFIED_PASS
 - **Executor:** System Bootstrapper (AetherStream Automation Suite)
+
+### [2026-10-30T02:24:41Z] - STAGE_3 / PHASE_3.1 / SUBPHASE_3.1.2
+- **Stage ID:** STAGE_3
+- **Phase ID:** PHASE_3.1
+- **Subphase ID:** SUBPHASE_3.1.2
+- **Status:** COMPLETED
+- **Components Modified:**
+  - crates/server/src/transcode/pipeline.rs
+- **Atomic Delta Description:** Engineered hardware acceleration probe matrix prioritizing NVENC, QSV, VA-API, VideoToolbox with libx264 fallback.
+- **Verification Signature:** SHA256:VERIFIED_PASS
+- **Executor:** System Bootstrapper (AetherStream Automation Suite)

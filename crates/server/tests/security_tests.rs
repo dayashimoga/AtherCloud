@@ -606,3 +606,82 @@ async fn test_ffprobe_metadata_extraction() {
     let probed = probe_res.unwrap();
     assert!(probed.container.contains("mp4"));
 }
+
+#[test]
+fn test_hardware_encoder_detection_ladder() {
+    use aetherstream_server::transcode::pipeline::{HardwareAccel, TranscodePipeline};
+    use aetherstream_server::transcode::profiles::STANDARD_RENDITION_LADDER;
+    use std::path::Path;
+
+    // 1. Dual GPU system (NVENC + QSV present) -> NVENC priority
+    let dual_gpu_encoders = r#"
+Encoders:
+ V..... h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)
+ V..... h264_qsv             Intel Quick Sync Video acceleration for H.264 (codec h264)
+ V..... libx264              libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10
+    "#;
+    let accel = HardwareAccel::detect_from_encoder_list(dual_gpu_encoders);
+    assert_eq!(accel, HardwareAccel::Nvenc);
+    assert_eq!(accel.encoder_name(), "h264_nvenc");
+    assert_eq!(accel.hevc_encoder_name(), "hevc_nvenc");
+    assert!(accel.is_hardware_accelerated());
+    assert_eq!(accel.extra_ffmpeg_flags(), vec!["-hwaccel", "cuda"]);
+
+    // 2. Intel integrated GPU system (only QSV) -> QSV selected
+    let qsv_only = "V..... h264_qsv Intel QuickSync\nV..... libx264";
+    let accel_qsv = HardwareAccel::detect_from_encoder_list(qsv_only);
+    assert_eq!(accel_qsv, HardwareAccel::QuickSync);
+    assert_eq!(accel_qsv.encoder_name(), "h264_qsv");
+    assert_eq!(accel_qsv.hevc_encoder_name(), "hevc_qsv");
+    assert!(accel_qsv.is_hardware_accelerated());
+    assert_eq!(accel_qsv.extra_ffmpeg_flags(), vec!["-hwaccel", "qsv"]);
+
+    // 3. Apple Silicon / macOS system -> VideoToolbox selected
+    let videotoolbox_only = "V..... h264_videotoolbox Apple VideoToolbox\nV..... libx264";
+    let accel_vt = HardwareAccel::detect_from_encoder_list(videotoolbox_only);
+    assert_eq!(accel_vt, HardwareAccel::VideoToolbox);
+    assert_eq!(accel_vt.encoder_name(), "h264_videotoolbox");
+    assert_eq!(accel_vt.hevc_encoder_name(), "hevc_videotoolbox");
+    assert!(accel_vt.is_hardware_accelerated());
+    assert_eq!(accel_vt.extra_ffmpeg_flags(), vec!["-hwaccel", "videotoolbox"]);
+
+    // 4. Linux server (VA-API only) -> VA-API selected
+    let vaapi_only = "V..... h264_vaapi VAAPI H.264\nV..... libx264";
+    let accel_va = HardwareAccel::detect_from_encoder_list(vaapi_only);
+    assert_eq!(accel_va, HardwareAccel::Vaapi);
+    assert_eq!(accel_va.encoder_name(), "h264_vaapi");
+    assert_eq!(accel_va.hevc_encoder_name(), "hevc_vaapi");
+    assert!(accel_va.is_hardware_accelerated());
+    assert_eq!(accel_va.extra_ffmpeg_flags(), vec!["-hwaccel", "vaapi"]);
+
+    // 5. Headless / generic VM (no hardware encoders) -> CPU libx264 fallback
+    let cpu_only = "V..... libx264 libx264 software encoder\nV..... libx265";
+    let accel_cpu = HardwareAccel::detect_from_encoder_list(cpu_only);
+    assert_eq!(accel_cpu, HardwareAccel::SoftwareCpu);
+    assert_eq!(accel_cpu.encoder_name(), "libx264");
+    assert_eq!(accel_cpu.hevc_encoder_name(), "libx265");
+    assert!(!accel_cpu.is_hardware_accelerated());
+    assert!(accel_cpu.extra_ffmpeg_flags().is_empty());
+
+    // 6. Test build_ffmpeg_args includes hardware acceleration flags
+    let dummy_in = Path::new("test.mp4");
+    let dummy_out = Path::new("out");
+    let args_nvenc = TranscodePipeline::build_ffmpeg_args(
+        dummy_in,
+        dummy_out,
+        HardwareAccel::Nvenc,
+        &STANDARD_RENDITION_LADDER[0],
+    );
+    assert!(args_nvenc.contains(&"-hwaccel".to_string()));
+    assert!(args_nvenc.contains(&"cuda".to_string()));
+    assert!(args_nvenc.contains(&"h264_nvenc".to_string()));
+
+    let args_cpu = TranscodePipeline::build_ffmpeg_args(
+        dummy_in,
+        dummy_out,
+        HardwareAccel::SoftwareCpu,
+        &STANDARD_RENDITION_LADDER[0],
+    );
+    assert!(!args_cpu.contains(&"-hwaccel".to_string()));
+    assert!(args_cpu.contains(&"libx264".to_string()));
+}

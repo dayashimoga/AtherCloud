@@ -25,6 +25,61 @@ impl HardwareAccel {
             HardwareAccel::SoftwareCpu => "libx264",
         }
     }
+
+    pub fn hevc_encoder_name(&self) -> &'static str {
+        match self {
+            HardwareAccel::Nvenc => "hevc_nvenc",
+            HardwareAccel::QuickSync => "hevc_qsv",
+            HardwareAccel::Vaapi => "hevc_vaapi",
+            HardwareAccel::VideoToolbox => "hevc_videotoolbox",
+            HardwareAccel::SoftwareCpu => "libx265",
+        }
+    }
+
+    pub fn is_hardware_accelerated(&self) -> bool {
+        !matches!(self, HardwareAccel::SoftwareCpu)
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            HardwareAccel::Nvenc => "NVIDIA NVENC (CUDA Accelerated)",
+            HardwareAccel::QuickSync => "Intel QuickSync Video (QSV)",
+            HardwareAccel::Vaapi => "Linux Video Acceleration API (VA-API)",
+            HardwareAccel::VideoToolbox => "Apple VideoToolbox (CoreVideo / Metal)",
+            HardwareAccel::SoftwareCpu => "Software CPU (libx264 veryfast fallback)",
+        }
+    }
+
+    pub fn extra_ffmpeg_flags(&self) -> Vec<&'static str> {
+        match self {
+            HardwareAccel::Nvenc => vec!["-hwaccel", "cuda"],
+            HardwareAccel::QuickSync => vec!["-hwaccel", "qsv"],
+            HardwareAccel::Vaapi => vec!["-hwaccel", "vaapi"],
+            HardwareAccel::VideoToolbox => vec!["-hwaccel", "videotoolbox"],
+            HardwareAccel::SoftwareCpu => vec![],
+        }
+    }
+
+    /// Evaluates the priority ladder across available FFmpeg encoders.
+    /// Order of preference: NVENC -> QuickSync -> VideoToolbox -> VA-API -> libx264.
+    pub fn detect_from_encoder_list(output: &str) -> Self {
+        if output.contains("h264_nvenc") {
+            info!("NVIDIA NVENC hardware acceleration detected.");
+            HardwareAccel::Nvenc
+        } else if output.contains("h264_qsv") {
+            info!("Intel QuickSync Video (QSV) hardware acceleration detected.");
+            HardwareAccel::QuickSync
+        } else if output.contains("h264_videotoolbox") {
+            info!("Apple VideoToolbox hardware acceleration detected.");
+            HardwareAccel::VideoToolbox
+        } else if output.contains("h264_vaapi") {
+            info!("Linux VA-API hardware acceleration detected.");
+            HardwareAccel::Vaapi
+        } else {
+            info!("No dedicated hardware encoder detected; utilizing libx264 software fallback.");
+            HardwareAccel::SoftwareCpu
+        }
+    }
 }
 
 /// Extracted media container, stream codec, and structural properties
@@ -314,22 +369,7 @@ impl TranscodePipeline {
             }
         };
 
-        if output.contains("h264_nvenc") {
-            info!("NVIDIA NVENC hardware acceleration detected.");
-            HardwareAccel::Nvenc
-        } else if output.contains("h264_qsv") {
-            info!("Intel QuickSync Video (QSV) hardware acceleration detected.");
-            HardwareAccel::QuickSync
-        } else if output.contains("h264_videotoolbox") {
-            info!("Apple VideoToolbox hardware acceleration detected.");
-            HardwareAccel::VideoToolbox
-        } else if output.contains("h264_vaapi") {
-            info!("Linux VA-API hardware acceleration detected.");
-            HardwareAccel::Vaapi
-        } else {
-            info!("No dedicated hardware encoder detected; utilizing libx264 software fallback.");
-            HardwareAccel::SoftwareCpu
-        }
+        HardwareAccel::detect_from_encoder_list(&output)
     }
 
     /// Generates an RFC 8216 compliant HLS Master Manifest string linking all rendition profiles
@@ -365,9 +405,16 @@ impl TranscodePipeline {
             "-loglevel".to_string(),
             "warning".to_string(),
             "-y".to_string(),
+        ];
+
+        for flag in accel.extra_ffmpeg_flags() {
+            args.push(flag.to_string());
+        }
+
+        args.extend(vec![
             "-i".to_string(),
             input_file.to_string_lossy().to_string(),
-        ];
+        ]);
 
         // Video codec & scale filter
         args.extend(vec![

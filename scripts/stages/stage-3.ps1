@@ -52,7 +52,13 @@ function Test-Subphase-3-1-2 {
             throw "Missing encoder ladder member: $enc"
         }
     }
-    Write-AetherLog "SUCCESS" "Complete hardware acceleration auto-detection ladder verified."
+
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $testOut = cargo test --test security_tests test_hardware_encoder_detection_ladder -- --nocapture 2>&1
+    $ErrorActionPreference = $prev
+    if ($LASTEXITCODE -ne 0) { throw "Encoder detection ladder test failed: $testOut" }
+
+    Write-AetherLog "SUCCESS" "Complete hardware acceleration auto-detection ladder verified (NVENC -> QSV -> VideoToolbox -> VA-API -> libx264)."
     return $true
 }
 
