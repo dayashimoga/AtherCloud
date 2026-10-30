@@ -2490,5 +2490,32 @@ video {
   }
 }
 
+/* Offline Fallback Banner */
+.offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(245, 158, 11, 0.15);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 6px 16px;
+  width: 100%;
+  position: relative;
+  z-index: 100;
+  transition: all 0.3s ease;
+}
+
+.offline-banner.hidden {
+  display: none;
+}
+
+.offline-icon {
+  font-size: 0.9rem;
+}
+
+
 
 

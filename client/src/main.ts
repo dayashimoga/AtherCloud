@@ -6,6 +6,7 @@ import { VideoPlayerComponent } from "./components/VideoPlayer";
 import { ShareModalComponent } from "./components/ShareModal";
 import { DrivesDashboardComponent } from "./components/DrivesDashboard";
 import { CreateMountModalComponent } from "./components/CreateMountModal";
+import { ShareService } from "./services/shareService";
 
 class AetherApp {
   private fileExplorer: FileExplorerComponent;
@@ -20,6 +21,7 @@ class AetherApp {
   private closePlayerBtn: HTMLButtonElement;
   private refreshBtn: HTMLButtonElement;
   private hwAccelBadge: HTMLElement;
+  private offlineBannerEl: HTMLElement | null;
 
   // View Navigation & Modals
   private navExplorerBtn: HTMLButtonElement;
@@ -54,6 +56,7 @@ class AetherApp {
     this.closePlayerBtn = document.getElementById("close-player-btn") as HTMLButtonElement;
     this.refreshBtn = document.getElementById("refresh-btn") as HTMLButtonElement;
     this.hwAccelBadge = document.getElementById("hw-accel-badge")!;
+    this.offlineBannerEl = document.getElementById("offline-banner");
 
     // Navigation elements
     this.navExplorerBtn = document.getElementById("nav-explorer-btn") as HTMLButtonElement;
@@ -229,6 +232,7 @@ class AetherApp {
     }
 
     await Promise.allSettled([this.loadMounts(), this.loadDrives()]);
+    this.initOfflineDetection();
     this.registerServiceWorker();
   }
 
@@ -281,8 +285,44 @@ class AetherApp {
     ) {
       navigator.serviceWorker
         .register("/sw.js")
-        .then(() => console.log("[PWA] Service Worker registered"))
+        .then((reg) => {
+          console.log("[PWA] Service Worker registered with scope:", reg.scope);
+          reg.addEventListener("updatefound", () => {
+            const installingWorker = reg.installing;
+            if (installingWorker) {
+              installingWorker.addEventListener("statechange", () => {
+                if (
+                  installingWorker.state === "installed" &&
+                  navigator.serviceWorker.controller
+                ) {
+                  console.log("[PWA] New version installed; prompt or auto-activate available.");
+                }
+              });
+            }
+          });
+        })
         .catch((err) => console.warn("[PWA] Service Worker registration failed:", err));
+    }
+  }
+
+  private initOfflineDetection() {
+    const updateOnlineStatus = () => {
+      const isOnline = navigator.onLine;
+      if (!isOnline) {
+        this.offlineBannerEl?.classList.remove("hidden");
+        ShareService.getInstance().showToast("⚡ Offline Mode — Running from cached app shell");
+      } else {
+        this.offlineBannerEl?.classList.add("hidden");
+        if (this.offlineBannerEl && !this.offlineBannerEl.classList.contains("hidden")) {
+          ShareService.getInstance().showToast("🌐 Connection restored — Back online");
+        }
+      }
+    };
+
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      updateOnlineStatus();
     }
   }
 }
