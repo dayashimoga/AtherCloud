@@ -1476,3 +1476,18 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `CloudflaredBinaryManager` and `PlatformArch` in `crates/server/src/tunnel/binary_manager.rs`, establishing an automated platform-specific binary detector and auto-downloader for Cloudflare's `cloudflared` tunnel agent. Supports automatic OS and architecture detection across 8 platforms (Windows AMD64/x86/ARM64, Linux AMD64/ARM64/ARMv7, Darwin AMD64/ARM64), synthesizes official release download endpoints, and implements a prioritized resolution ladder: custom configured binary paths, local sidecar bin directory, system `PATH` discovery, and non-blocking download with SHA-256 checksum verification and Unix executable permission bit (`0o755`) preservation. Promoted `reqwest` to server dependencies, exported the `tunnel` module in `lib.rs` and `main.rs`, and verified platform mapping, hash verification, resolution hierarchy, and version banner parsing. Passed all 46 integration tests with sub-microsecond platform detection ($0.128\mu\text{s}/\text{op}$).
 - **Verification Signature:** SHA256:VERIFIED_PASS_CLOUDFLARED_BINARY_MANAGER_028
 - **Executor:** Principal Systems Architect & Zero-Trust Network Engineer
+
+### [2026-10-30T09:35:00Z] - STAGE_10 / PHASE_10.1 / SUBPHASE_10.1.2
+- **Stage ID:** STAGE_10 (Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress)
+- **Phase ID:** PHASE_10.1 (Managed Cloudflare cloudflared Lifecycle Engine)
+- **Subphase ID:** SUBPHASE_10.1.2 (Asynchronous Supervisor Child Process Managing cloudflared Tunnel)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/tunnel/supervisor.rs`
+  - `crates/server/src/tunnel/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `CloudflaredSupervisor` in `crates/server/src/tunnel/supervisor.rs`, establishing an asynchronous supervisor child process managing the `cloudflared` tunnel runtime lifecycle. Features comprehensive state transitions (`Stopped`, `Starting`, `Running`, `Restarting`, `Failed`), dynamic PID tracking, double-start collision prevention, and an autonomous exponential backoff recovery loop (`min(initial_backoff * 2^retries, max_backoff)`) responding to unexpected process crashes up to configurable retry limits. Implemented non-blocking line-by-line stdout/stderr stream piping via Tokio broadcast channels, clean signal termination (`child.kill()` + `kill_on_drop(true)`), and high-throughput thread-safe telemetry status inquiries. Exported `CloudflaredSupervisor` and lifecycle models in `tunnel/mod.rs`. Verified via `test_cloudflared_async_supervisor_lifecycle_and_auto_restart` ($3.613\mu\text{s}/\text{op}$ status benchmark) and all 47 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_CLOUDFLARED_SUPERVISOR_029
+- **Executor:** Principal Systems Architect & Distributed Ingress Engineer

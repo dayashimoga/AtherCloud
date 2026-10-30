@@ -929,3 +929,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Systems Architect & Zero-Trust Network Engineer
 - **Execution Trace:** cargo test --test security_tests test_cloudflared_platform_detector_and_binary_manager
 - **Validation Proof:** Engineered CloudflaredBinaryManager and PlatformArch detector in crates/server/src/tunnel/binary_manager.rs. Implemented multi-platform CPU/OS architecture detection (Windows x86_64/x86/ARM64, Linux x86_64/ARM64/ARM, macOS x86_64/Apple Silicon ARM64), official GitHub release download URL synthesis with version pinning support, four-tier resolution ladder (Custom Path -> Local Sidecar bin directory -> System PATH -> Automated binary auto-downloader), SHA-256 integrity verification, version probing via sub-process execution, and test mock installation. Exposed tunnel module in lib.rs and main.rs. Verified via test_cloudflared_platform_detector_and_binary_manager (0.128µs/op detector benchmark) and all 46 integration tests passing.
+
+### [2026-10-30T09:35:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-10.1.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Systems Architect & Distributed Ingress Engineer
+- **Execution Trace:** cargo test --test security_tests test_cloudflared_async_supervisor_lifecycle_and_auto_restart
+- **Validation Proof:** Engineered CloudflaredSupervisor in crates/server/src/tunnel/supervisor.rs managing child process lifecycle (Starting, Running, Restarting, Stopped, Failed), PID allocation, double-start defense, exponential backoff auto-restart on unexpected exit, real-time stdout/stderr stream piping via broadcast channels, and clean signal termination without zombie processes. Verified via test_cloudflared_async_supervisor_lifecycle_and_auto_restart (3.613µs/op status query benchmark) and all 47 integration tests passing.

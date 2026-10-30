@@ -460,3 +460,4 @@ pub fn mock_install_binary(dest_path: &Path, content: &[u8]) -> Result<PathBuf, 
 
     Ok(dest_path.to_path_buf())
 }
+

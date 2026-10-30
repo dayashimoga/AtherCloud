@@ -5069,3 +5069,197 @@ async fn test_cloudflared_platform_detector_and_binary_manager() {
 
     println!("[TASK-10.1.1 VERIFIED] Automated cloudflared platform-specific binary detector and auto-downloader verified.");
 }
+
+#[tokio::test]
+async fn test_cloudflared_async_supervisor_lifecycle_and_auto_restart() {
+    use aetherstream_server::tunnel::supervisor::{
+        CloudflaredSupervisor, TunnelEvent, TunnelState, TunnelSupervisorConfig,
+        TunnelSupervisorError,
+    };
+    use std::time::Instant;
+
+    #[cfg(windows)]
+    let sleep_cmd = vec![
+        "powershell".to_string(),
+        "-Command".to_string(),
+        "Start-Sleep -Milliseconds 1500".to_string(),
+    ];
+    #[cfg(not(windows))]
+    let sleep_cmd = vec!["sleep".to_string(), "1.5".to_string()];
+
+    #[cfg(windows)]
+    let exit_err_cmd = vec![
+        "cmd".to_string(),
+        "/c".to_string(),
+        "exit 42".to_string(),
+    ];
+    #[cfg(not(windows))]
+    let exit_err_cmd = vec!["sh".to_string(), "-c".to_string(), "exit 42".to_string()];
+
+    #[cfg(windows)]
+    let output_cmd = vec![
+        "powershell".to_string(),
+        "-Command".to_string(),
+        "Write-Output 'TUNNEL_INGRESS_ONLINE'; Start-Sleep -Milliseconds 600".to_string(),
+    ];
+    #[cfg(not(windows))]
+    let output_cmd = vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "echo 'TUNNEL_INGRESS_ONLINE'; sleep 0.6".to_string(),
+    ];
+
+    // 1. Initial State Verification
+    let config = TunnelSupervisorConfig {
+        target_url: "http://127.0.0.1:8080".to_string(),
+        command_override: Some(sleep_cmd.clone()),
+        auto_restart: false,
+        ..Default::default()
+    };
+    let supervisor = CloudflaredSupervisor::new(config);
+
+    assert_eq!(supervisor.state().await, TunnelState::Stopped);
+    assert!(!supervisor.is_running().await);
+
+    let initial_status = supervisor.status().await;
+    assert_eq!(initial_status.state, TunnelState::Stopped);
+    assert!(initial_status.pid.is_none());
+    assert_eq!(initial_status.restart_count, 0);
+
+    // 2. Start Lifecycle & Event Broadcasts
+    let mut event_rx = supervisor.subscribe_events();
+    supervisor.start().await.expect("Failed to start supervisor");
+
+    // Must emit Starting event
+    let ev1 = event_rx.recv().await.expect("Failed to receive Starting event");
+    assert!(matches!(ev1, TunnelEvent::Starting { .. }));
+
+    // Wait briefly for process to transition to Running
+    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+    assert_eq!(supervisor.state().await, TunnelState::Running);
+    assert!(supervisor.is_running().await);
+
+    let running_status = supervisor.status().await;
+    assert!(running_status.pid.is_some(), "PID must be allocated");
+    let active_pid = running_status.pid.unwrap();
+    assert!(active_pid > 0);
+
+    // 3. Double-Start Protection
+    let double_start_err = supervisor.start().await.unwrap_err();
+    assert!(
+        matches!(double_start_err, TunnelSupervisorError::AlreadyRunning(p) if p == active_pid),
+        "Double start must return AlreadyRunning error with active PID"
+    );
+
+    // 4. Graceful Stop
+    supervisor.stop().await.expect("Failed to stop supervisor");
+    assert_eq!(supervisor.state().await, TunnelState::Stopped);
+    assert!(!supervisor.is_running().await);
+
+    let stopped_status = supervisor.status().await;
+    assert!(stopped_status.pid.is_none());
+
+    // 5. Stream Output Capture
+    let output_supervisor = CloudflaredSupervisor::new(TunnelSupervisorConfig {
+        command_override: Some(output_cmd),
+        auto_restart: false,
+        ..Default::default()
+    });
+    let mut output_rx = output_supervisor.subscribe_output();
+    output_supervisor.start().await.expect("Failed to start output supervisor");
+
+    let received_line = tokio::time::timeout(tokio::time::Duration::from_secs(4), async {
+        while let Ok(line) = output_rx.recv().await {
+            if line.contains("TUNNEL_INGRESS_ONLINE") {
+                return true;
+            }
+        }
+        false
+    })
+    .await
+    .unwrap_or(false);
+
+    assert!(
+        received_line,
+        "Supervisor must pipe stdout/stderr stream in real-time"
+    );
+    output_supervisor.stop().await.expect("Failed to stop output supervisor");
+
+    // 6. Auto-Restart & Exponential Backoff on Premature Crash
+    let restart_supervisor = CloudflaredSupervisor::new(TunnelSupervisorConfig {
+        command_override: Some(exit_err_cmd),
+        auto_restart: true,
+        max_retries: 2,
+        initial_backoff_secs: 1,
+        max_backoff_secs: 2,
+        stable_uptime_threshold_secs: 60,
+        ..Default::default()
+    });
+    let mut restart_event_rx = restart_supervisor.subscribe_events();
+    restart_supervisor.start().await.expect("Failed to start restart supervisor");
+
+    // Process exits immediately with code 42. It should retry up to 2 times and then fail.
+    let mut exit_events_count = 0;
+    let mut failed_event_observed = false;
+
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(6);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(tokio::time::Duration::from_millis(500), restart_event_rx.recv()).await {
+            Ok(Ok(TunnelEvent::UnexpectedExit { exit_code, retry_count, .. })) => {
+                assert_eq!(exit_code, Some(42));
+                exit_events_count += 1;
+                assert_eq!(retry_count, exit_events_count);
+            }
+            Ok(Ok(TunnelEvent::Failed { .. })) => {
+                failed_event_observed = true;
+                break;
+            }
+            _ => {
+                if restart_supervisor.state().await == TunnelState::Failed {
+                    failed_event_observed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    assert!(exit_events_count >= 1, "Must observe at least 1 unexpected exit event");
+    assert_eq!(restart_supervisor.state().await, TunnelState::Failed);
+    assert!(failed_event_observed, "Must transition to Failed state after exhausting retries");
+
+    // 7. Restart Lifecycle Helper Method
+    let restart_helper_supervisor = CloudflaredSupervisor::new(TunnelSupervisorConfig {
+        command_override: Some(sleep_cmd),
+        auto_restart: false,
+        ..Default::default()
+    });
+    restart_helper_supervisor.start().await.expect("Initial start failed");
+    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+    assert_eq!(restart_helper_supervisor.state().await, TunnelState::Running);
+
+    restart_helper_supervisor.restart().await.expect("Restart failed");
+    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+    assert_eq!(restart_helper_supervisor.state().await, TunnelState::Running);
+    restart_helper_supervisor.stop().await.expect("Stop failed");
+    assert_eq!(restart_helper_supervisor.state().await, TunnelState::Stopped);
+
+    // 8. Performance Benchmark: Concurrent Status Inquiries
+    let start = Instant::now();
+    let iterations = 10_000;
+    for _ in 0..iterations {
+        let _ = supervisor.status().await;
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] TunnelSupervisor status inquiry: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 20.0,
+        "Status queries must execute under 20 µs/op (measured {:.3} µs)",
+        per_op_us
+    );
+
+    println!("[TASK-10.1.2 VERIFIED] Asynchronous supervisor child process managing cloudflared tunnel verified.");
+}
