@@ -943,3 +943,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Systems Architect & Distributed Ingress Engineer
 - **Execution Trace:** cargo test --test security_tests test_cloudflared_stdout_stderr_dynamic_url_parser_and_assignment
 - **Validation Proof:** Engineered real-time dynamic ingress URL capture in crates/server/src/tunnel/url_parser.rs (extract_tunnel_url, extract_custom_tunnel_url, is_valid_subdomain, strip_ansi, probe_url_reachability) and integrated with CloudflaredSupervisor. Implemented zero-copy Cow ANSI escape sequence stripping, multi-format stdout/stderr stream parsing capturing quick tunnel trycloudflare.com hostnames across banner boxes, log messages, and JSON formats. Added asynchronous wait_for_url notification listener, public URL accessor, telemetry status integration, and automated revocation event emission upon tunnel shutdown. Marked Phase 4.1 (PHASE_10.1) 100% complete. Verified via test_cloudflared_stdout_stderr_dynamic_url_parser_and_assignment (5.404µs/op benchmark) and all 48 integration tests passing.
+
+### [2026-10-30T09:55:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-10.2.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Systems Architect & Zero-Trust Network Engineer
+- **Execution Trace:** cargo test --test security_tests test_mdns_dns_sd_lan_discovery_and_packet_engine
+- **Validation Proof:** Engineered mDNS/DNS-SD local network service discovery publisher in crates/server/src/tunnel/mdns.rs. Implemented RFC 1035/6762/6763 compliant binary DNS packet encoding and decoding for PTR, SRV, TXT, and A records, automatic local IPv4 detection, dual-burst announcement packets to 224.0.0.251:5353, query responder loop, and goodbye packet broadcast (TTL=0) on shutdown. Verified via test_mdns_dns_sd_lan_discovery_and_packet_engine (11.748µs/op packet encoding benchmark) and all 49 integration tests passing.

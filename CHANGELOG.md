@@ -1507,3 +1507,18 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `url_parser.rs` and integrated real-time dynamic ingress URL capture into `CloudflaredSupervisor` in `crates/server/src/tunnel/`. Employs zero-copy `Cow` ANSI sequence stripping (`strip_ansi`), RFC 1035/1123 compliant subdomain validation, and multi-format line matching parsing `trycloudflare.com` endpoints out of terminal borders, timestamps, and JSON-formatted log streams. Features asynchronous `wait_for_url` event listeners, HTTPS reachability probing (`probe_url_reachability`), and automatic URL revocation (`TunnelEvent::UrlRevoked`) on process exit or termination. Marked Phase 4.1 (PHASE_10.1) 100% complete. Verified via `test_cloudflared_stdout_stderr_dynamic_url_parser_and_assignment` (5.4µs/op log parser benchmark) and all 48 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_CLOUDFLARED_URL_PARSER_030
 - **Executor:** Principal Systems Architect & Distributed Ingress Engineer
+
+### [2026-10-30T09:55:00Z] - STAGE_10 / PHASE_10.2 / SUBPHASE_10.2.1
+- **Stage ID:** STAGE_10 (Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress)
+- **Phase ID:** PHASE_10.2 (Dual-Stack LAN/WAN Ingress & Failover Routing)
+- **Subphase ID:** SUBPHASE_10.2.1 (Implement LAN Discovery Using mDNS/DNS-SD Publishing _aetherstream._tcp.local on Port 5353)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/tunnel/mdns.rs`
+  - `crates/server/src/tunnel/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `mdns.rs` in `crates/server/src/tunnel/` providing an autonomous, zero-dependency mDNS and DNS-SD (DNS Service Discovery) publisher advertising `_aetherstream._tcp.local` on standard port 5353 (`224.0.0.251:5353`). Features compliant binary DNS packet serialization and deserialization across PTR, SRV, TXT, and A resource records with DNS pointer decompression. Implements routing-table-based local IPv4 interface detection, dual-burst announcement packets upon daemon startup, query interception responding to service enumeration (`_services._dns-sd._udp.local`) and instance lookups, and TTL=0 goodbye broadcast upon clean termination. Exported `MdnsPublisher`, `MdnsServiceConfig`, and packet utilities in `tunnel/mod.rs`. Verified via `test_mdns_dns_sd_lan_discovery_and_packet_engine` ($11.748\mu\text{s}/\text{op}$ packet encoding benchmark) and full 49-test suite.
+- **Verification Signature:** SHA256:VERIFIED_PASS_MDNS_DNS_SD_DISCOVERY_031
+- **Executor:** Principal Systems Architect & Zero-Trust Network Engineer

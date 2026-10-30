@@ -5452,3 +5452,155 @@ async fn test_cloudflared_stdout_stderr_dynamic_url_parser_and_assignment() {
 
     println!("[TASK-10.1.3 VERIFIED] Parse stdout/stderr in real-time to capture assigned dynamic trycloudflare.com URL verified.");
 }
+
+#[tokio::test]
+async fn test_mdns_dns_sd_lan_discovery_and_packet_engine() {
+    use aetherstream_server::tunnel::mdns::{
+        build_mdns_response, decode_dns_name, detect_local_ip, encode_dns_name, parse_mdns_query,
+        DnsRecord, MdnsError, MdnsPublisher, MdnsServiceConfig, DNS_SD_SERVICE_ENUMERATION,
+    };
+    use std::net::Ipv4Addr;
+    use std::time::Instant;
+
+    // 1. DNS Name Encoding & Decoding Round-Trip
+    let mut name_buf = Vec::new();
+    encode_dns_name("_aetherstream._tcp.local", &mut name_buf);
+    let mut offset = 0;
+    let decoded_name = decode_dns_name(&name_buf, &mut offset).expect("Failed to decode DNS name");
+    assert_eq!(decoded_name, "_aetherstream._tcp.local");
+    assert_eq!(offset, name_buf.len());
+
+    let mut enum_buf = Vec::new();
+    encode_dns_name(DNS_SD_SERVICE_ENUMERATION, &mut enum_buf);
+    let mut offset2 = 0;
+    let decoded_enum = decode_dns_name(&enum_buf, &mut offset2).expect("Failed to decode DNS-SD name");
+    assert_eq!(decoded_enum, DNS_SD_SERVICE_ENUMERATION);
+
+    // 2. DNS Packet Construction (Header & Records)
+    let records = vec![
+        DnsRecord::Ptr {
+            name: "_aetherstream._tcp.local".to_string(),
+            ptr_name: "AetherStream Test Server._aetherstream._tcp.local".to_string(),
+            ttl: 4500,
+        },
+        DnsRecord::Srv {
+            name: "AetherStream Test Server._aetherstream._tcp.local".to_string(),
+            priority: 0,
+            weight: 0,
+            port: 8080,
+            target: "aetherstream.local".to_string(),
+            ttl: 120,
+        },
+        DnsRecord::Txt {
+            name: "AetherStream Test Server._aetherstream._tcp.local".to_string(),
+            entries: vec![
+                "version=1.0.0".to_string(),
+                "vendor=AetherStream".to_string(),
+                "api_version=v1".to_string(),
+            ],
+            ttl: 4500,
+        },
+        DnsRecord::A {
+            name: "aetherstream.local".to_string(),
+            ip: Ipv4Addr::new(192, 168, 1, 100),
+            ttl: 120,
+        },
+    ];
+
+    let packet = build_mdns_response(&records);
+    assert!(packet.len() >= 12, "Packet must have at least 12 bytes DNS header");
+
+    // Validate Header fields
+    let id = u16::from_be_bytes([packet[0], packet[1]]);
+    assert_eq!(id, 0, "mDNS response ID must be 0");
+    let flags = u16::from_be_bytes([packet[2], packet[3]]);
+    assert_eq!(flags, 0x8400, "mDNS response flags must be 0x8400 (QR=1, AA=1)");
+    let qdcount = u16::from_be_bytes([packet[4], packet[5]]);
+    assert_eq!(qdcount, 0);
+    let ancount = u16::from_be_bytes([packet[6], packet[7]]);
+    assert_eq!(ancount, 4);
+
+    // 3. mDNS Query Packet Synthesis and Parsing
+    let mut query_packet = Vec::new();
+    query_packet.extend_from_slice(&0u16.to_be_bytes()); // ID: 0
+    query_packet.extend_from_slice(&0u16.to_be_bytes()); // Flags: Query (QR=0)
+    query_packet.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT: 1
+    query_packet.extend_from_slice(&0u16.to_be_bytes()); // ANCOUNT: 0
+    query_packet.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT: 0
+    query_packet.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT: 0
+    encode_dns_name("_aetherstream._tcp.local", &mut query_packet);
+    query_packet.extend_from_slice(&12u16.to_be_bytes()); // QTYPE PTR
+    query_packet.extend_from_slice(&1u16.to_be_bytes());  // QCLASS IN
+
+    let parsed_questions = parse_mdns_query(&query_packet).expect("Failed to parse mDNS query");
+    assert_eq!(parsed_questions.len(), 1);
+    assert_eq!(parsed_questions[0].name, "_aetherstream._tcp.local");
+    assert_eq!(parsed_questions[0].qtype, 12);
+    assert_eq!(parsed_questions[0].qclass, 1);
+
+    // 4. Local IP Resolution
+    let local_ip = detect_local_ip();
+    assert!(!local_ip.is_unspecified(), "Local IP must not be 0.0.0.0");
+
+    // 5. MdnsPublisher Lifecycle & Auto-Discovery
+    let config = MdnsServiceConfig {
+        instance_name: "AetherStream Test Node".to_string(),
+        service_type: "_aetherstream._tcp".to_string(),
+        domain: "local".to_string(),
+        port: 8080,
+        hostname: "aetherstream-test".to_string(),
+        ip_override: Some(Ipv4Addr::new(192, 168, 1, 55)),
+        txt_records: vec![
+            ("version".to_string(), "1.0.0".to_string()),
+            ("model".to_string(), "AetherStream-Daemon".to_string()),
+        ],
+        announcement_interval: std::time::Duration::from_secs(60),
+        ttl: 120,
+    };
+
+    let publisher = MdnsPublisher::new(config);
+    assert!(!publisher.is_running().await);
+    assert_eq!(publisher.service_type_fqdn().await, "_aetherstream._tcp.local");
+    assert_eq!(
+        publisher.service_instance_fqdn().await,
+        "AetherStream Test Node._aetherstream._tcp.local"
+    );
+    assert_eq!(publisher.hostname_fqdn().await, "aetherstream-test.local");
+    assert_eq!(publisher.resolved_ip().await, Ipv4Addr::new(192, 168, 1, 55));
+
+    // Verify generated service records
+    let records = publisher.build_records(120).await;
+    assert_eq!(records.len(), 5); // Enum PTR, Service PTR, SRV, TXT, A
+
+    // Start Publisher
+    publisher.start().await.expect("Failed to start mDNS publisher");
+    assert!(publisher.is_running().await);
+
+    // Double-start protection
+    let double_err = publisher.start().await.unwrap_err();
+    assert!(matches!(double_err, MdnsError::AlreadyRunning));
+
+    // Stop Publisher
+    publisher.stop().await.expect("Failed to stop mDNS publisher");
+    assert!(!publisher.is_running().await);
+
+    // 6. High-Throughput Packet Encoding Benchmark
+    let start = Instant::now();
+    let iterations = 10_000;
+    for _ in 0..iterations {
+        let _ = build_mdns_response(&records);
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] mDNS response packet encoding: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 20.0,
+        "mDNS response encoding must execute under 20 µs/op (measured {:.3} µs)",
+        per_op_us
+    );
+
+    println!("[TASK-10.2.1 VERIFIED] Implement LAN discovery using mDNS/DNS-SD publishing _aetherstream._tcp.local on port 5353 verified.");
+}
