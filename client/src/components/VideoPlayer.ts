@@ -1,5 +1,6 @@
 import Hls from "hls.js";
 import { PlaybackSettingsManager } from "../services/playbackSettings";
+import { AetherApi } from "../services/api";
 
 export interface RenditionInfo {
   index: number;
@@ -23,16 +24,22 @@ export class VideoPlayerComponent {
   // Persistent Settings
   private settingsManager: PlaybackSettingsManager;
 
-  // Live Telemetry HUD Elements
+  // Stats for Nerds Live Telemetry HUD Elements
   private telemetryHudEl: HTMLElement | null = null;
+  private hudResolution: HTMLElement | null = null;
   private hudRendition: HTMLElement;
   private hudBandwidth: HTMLElement;
   private hudBuffer: HTMLElement;
   private hudDropped: HTMLElement;
+  private hudAudioLayout: HTMLElement | null = null;
+  private hudHwAccel: HTMLElement | null = null;
   private hudShifts: HTMLElement | null = null;
   private hudCodec: HTMLElement | null = null;
+  private hudCloseBtn: HTMLElement | null = null;
   private telemetryTimer: number | null = null;
   private abrShiftCount = 0;
+  private cachedHwAccel = "Detecting...";
+  private cachedHwIsAccel = false;
 
   // Custom Controls UI Elements
   private controlsBar: HTMLElement | null = null;
@@ -78,13 +85,22 @@ export class VideoPlayerComponent {
     this.videoWrapper = document.getElementById("video-wrapper");
     this.videoContainerEl = document.querySelector(".video-container");
 
+    // Stats for Nerds Telemetry HUD Elements
     this.telemetryHudEl = document.getElementById("telemetry-hud");
+    this.hudResolution = document.getElementById("hud-resolution");
     this.hudRendition = document.getElementById("hud-rendition")!;
     this.hudBandwidth = document.getElementById("hud-bandwidth")!;
     this.hudBuffer = document.getElementById("hud-buffer")!;
     this.hudDropped = document.getElementById("hud-dropped")!;
+    this.hudAudioLayout = document.getElementById("hud-audio-layout");
+    this.hudHwAccel = document.getElementById("hud-hwaccel");
     this.hudShifts = document.getElementById("hud-shifts");
     this.hudCodec = document.getElementById("hud-codec");
+    this.hudCloseBtn = document.getElementById("hud-close-btn");
+
+    if (this.hudCloseBtn) {
+      this.hudCloseBtn.onclick = () => this.toggleTelemetryHud();
+    }
 
     this.controlsBar = document.getElementById("player-controls");
     this.playBtn = document.getElementById("player-play-btn") as HTMLButtonElement | null;
@@ -111,6 +127,36 @@ export class VideoPlayerComponent {
 
     this.applyStoredSettings();
     this.bindControls();
+    this.fetchHwAccelStatus();
+  }
+
+  /**
+   * Probes active GPU/CPU hardware acceleration telemetry from daemon REST API
+   */
+  public async fetchHwAccelStatus() {
+    try {
+      const status = await AetherApi.getTranscodeStatus();
+      if (status) {
+        this.cachedHwIsAccel = status.is_hardware_accelerated;
+        if (status.is_hardware_accelerated) {
+          const enc = status.active_encoder ? ` (${status.active_encoder})` : "";
+          this.cachedHwAccel = `${status.description}${enc}`;
+        } else {
+          this.cachedHwAccel = `${status.description} (CPU)`;
+        }
+      } else {
+        this.cachedHwAccel = "Software CPU (libx264)";
+        this.cachedHwIsAccel = false;
+      }
+    } catch {
+      this.cachedHwAccel = "Direct / HW Probe Pending";
+      this.cachedHwIsAccel = false;
+    }
+
+    if (this.hudHwAccel) {
+      this.hudHwAccel.textContent = this.cachedHwAccel;
+      this.hudHwAccel.className = this.cachedHwIsAccel ? "hud-val-good" : "hud-val-warn";
+    }
   }
 
   /**
@@ -510,6 +556,7 @@ export class VideoPlayerComponent {
 
     // Preserved Persistent Settings Re-application
     this.applyStoredSettings();
+    this.fetchHwAccelStatus();
 
     if (this.resolutionSelect) {
       this.resolutionSelect.innerHTML =
@@ -871,10 +918,32 @@ export class VideoPlayerComponent {
     return this.hls !== null;
   }
 
+  /**
+   * Stats for Nerds telemetry polling loop:
+   * Periodically queries resolution, dropped frames, buffer length, audio layout, and hwaccel
+   */
   private startTelemetryLoop() {
     this.stopTelemetryLoop();
     this.telemetryTimer = window.setInterval(() => {
-      // 1. Buffer health calculation & adaptive coloration
+      // 1. Stream Resolution & Viewport metrics
+      if (this.hudResolution) {
+        const vw = this.videoElement.videoWidth;
+        const vh = this.videoElement.videoHeight;
+        const cw = Math.round(this.videoElement.clientWidth);
+        const ch = Math.round(this.videoElement.clientHeight);
+        const fps = this.currentActiveLevel?.frameRate;
+        const fpsStr = fps && fps > 0 ? `@${Math.round(fps)}fps` : "";
+
+        if (vw > 0 && vh > 0) {
+          this.hudResolution.textContent = `${vw}x${vh}${fpsStr} (${cw}x${ch} view)`;
+        } else if (this.currentActiveLevel) {
+          this.hudResolution.textContent = `${this.currentActiveLevel.height}p${fpsStr} (${cw}x${ch} view)`;
+        } else {
+          this.hudResolution.textContent = `${cw}x${ch} view`;
+        }
+      }
+
+      // 2. Buffer health calculation & adaptive coloration
       if (this.videoElement.buffered.length > 0) {
         const current = this.videoElement.currentTime;
         let forwardBuffer = 0;
@@ -910,14 +979,14 @@ export class VideoPlayerComponent {
         }
       }
 
-      // 2. Dropped frames calculation & GPU decode throttling detection
+      // 3. Dropped frames calculation & GPU decode throttling detection
       if ("getVideoPlaybackQuality" in this.videoElement) {
         const quality = this.videoElement.getVideoPlaybackQuality();
         const dropped = quality.droppedVideoFrames;
         const total = quality.totalVideoFrames;
         const dropPct = total > 0 ? (dropped / total) * 100 : 0;
 
-        this.hudDropped.textContent = `${dropped} (${dropPct.toFixed(1)}%)`;
+        this.hudDropped.textContent = `${dropped} / ${total} (${dropPct.toFixed(1)}%)`;
 
         if (dropPct > 5.0) {
           this.hudDropped.className = "hud-val-danger";
@@ -934,10 +1003,37 @@ export class VideoPlayerComponent {
         }
       }
 
-      // 3. Bandwidth update
+      // 4. Audio Layout & Channel Configuration
+      if (this.hudAudioLayout) {
+        if (this.hls && this.hls.audioTracks && this.hls.audioTracks.length > 0) {
+          const currentTrack = this.hls.audioTracks[this.hls.audioTrack] || this.hls.audioTracks[0];
+          const name = currentTrack.name || "Default Audio";
+          const lang = currentTrack.lang ? ` [${currentTrack.lang.toUpperCase()}]` : "";
+          this.hudAudioLayout.textContent = `${name}${lang} (AAC)`;
+        } else {
+          this.hudAudioLayout.textContent = "Stereo 2.0 (AAC 48kHz)";
+        }
+      }
+
+      // 5. Hardware Acceleration & Encoder
+      if (this.hudHwAccel) {
+        this.hudHwAccel.textContent = this.cachedHwAccel;
+        this.hudHwAccel.className = this.cachedHwIsAccel ? "hud-val-good" : "hud-val-warn";
+      }
+
+      // 6. Bandwidth estimate update
       if (this.hls) {
         const bw = Math.round((this.hls.bandwidthEstimate || 0) / 1000);
         this.hudBandwidth.textContent = `${bw} kbps`;
+      }
+
+      // 7. Codec Stream indicator
+      if (this.hudCodec) {
+        if (this.currentActiveLevel?.codecs) {
+          this.hudCodec.textContent = `${this.currentActiveLevel.codecs}`;
+        } else {
+          this.hudCodec.textContent = this.isHlsActive() ? "H.264 / AAC (HLS ABR)" : "Direct Zero-Copy";
+        }
       }
     }, 1000);
   }

@@ -87,6 +87,19 @@ export interface BrowseResponse {
   items: FileItem[];
 }
 
+export interface TranscodeStatusInfo {
+  active_accel: string;
+  active_encoder: string;
+  active_hevc_encoder?: string | null;
+  active_av1_encoder?: string | null;
+  is_hardware_accelerated: boolean;
+  description: string;
+  extra_ffmpeg_flags?: string[];
+  os_platform: string;
+  dri_device_accessible?: boolean;
+  status: string;
+}
+
 export class AetherApi {
   private static get baseUrl(): string {
     return SessionManager.getInstance().getServerUrl();
@@ -105,6 +118,20 @@ export class AetherApi {
     });
     if (!res.ok) throw new Error("Health check failed");
     return res.json();
+  }
+
+  static async getTranscodeStatus(): Promise<TranscodeStatusInfo | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/transcode/status`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.warn("Failed to fetch transcode status:", err);
+    }
+    return null;
   }
 
   static async getMounts(): Promise<MountItem[]> {

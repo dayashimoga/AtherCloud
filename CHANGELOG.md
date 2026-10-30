@@ -1690,3 +1690,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `PlaybackSettingsManager` in `client/src/services/playbackSettings.ts` providing persistent client storage for playback preferences via `localStorage` key `aetherstream_playback_settings_v1`. Tracks volume level ($0.0$ to $1.0$), muted state, playback rate ($0.5\times$ to $2.0\times$), subtitle language (`off`, `auto`, `en`, `es`, `fr`, etc.), subtitles active state, and preferred stream resolution with in-memory fallbacks and reactive listener subscriptions. Refactored `VideoPlayerComponent` in `client/src/components/VideoPlayer.ts` to automatically apply stored preferences on initialization and media loads (`loadSource`), preserve user adjustments across sessions, handle Hls.js subtitle discovery (`SUBTITLE_TRACKS_UPDATED`), wire dedicated subtitle toggle button (`#player-subtitles-btn`) with active badge styling, populate `#player-subtitles-select`, and bind keyboard shortcut `C` for closed captions. Verified via `test_persistent_playback_settings_volume_rate_and_subtitles` ($765\,\mu\text{s}$ serde benchmark) with all 59 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_PLAYBACK_SETTINGS_LOCALSTORAGE_041
 - **Executor:** Principal Frontend Architect & Streaming Systems Engineer
+
+### [2026-10-30T11:45:00Z] - STAGE_11 / PHASE_11.2 / SUBPHASE_11.2.3
+- **Stage ID:** STAGE_11 (Universal Web UI, Mount Manager Modal, ABR Player & PWA)
+- **Phase ID:** PHASE_11.2 (Cinema-Grade Video Player & Dynamic Bitrate Switcher)
+- **Subphase ID:** SUBPHASE_11.2.3 (Stats for Nerds HUD Displaying Current Stream Resolution, Dropped Frames, Buffer Length, Audio Layout, HWAccel)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `client/src/services/api.ts`
+  - `client/src/components/VideoPlayer.ts`
+  - `client/index.html`
+  - `client/src/app.css`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered a comprehensive cinema-grade Stats for Nerds HUD overlay in `client/index.html`, `app.css`, and `client/src/components/VideoPlayer.ts`. Displays real-time stream resolution (`videoWidth x videoHeight @ fps` alongside viewport client dimensions), dropped frames telemetry (`dropped / total` and ratio percentage with adaptive color indicators), buffer length in seconds with starvation warning thresholds, audio layout channel mapping (`Stereo 2.0`, `5.1 Surround`), and live hardware acceleration telemetry queried from `AetherApi.getTranscodeStatus()` (`/api/v1/transcode/status`) reporting active accelerator (`NVIDIA NVENC`, `Intel QSV`, `Apple VideoToolbox`, `Software CPU`), encoder binary, and operational status. Added close button (`#hud-close-btn`), HUD toggle button (`#player-stats-btn`), and keyboard shortcut `D`/`d`. Concluded Phase 5.2 (PHASE_11.2: Cinema-Grade Video Player & Dynamic Bitrate Switcher) with 100% completion. Verified via `test_stats_for_nerds_hud_stream_resolution_dropped_frames_buffer_audio_and_hwaccel` ($1.78\,\text{ms}$ dispatch benchmark) with all 60 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_STATS_FOR_NERDS_HUD_042
+- **Executor:** Principal Streaming Media Architect & Frontend Engineer

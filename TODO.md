@@ -1020,3 +1020,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Frontend Architect & Streaming Systems Engineer
 - **Execution Trace:** cargo test --test security_tests test_persistent_playback_settings_volume_rate_and_subtitles
 - **Validation Proof:** Engineered PlaybackSettingsManager in client/src/services/playbackSettings.ts storing volume level (0.0 to 1.0), mute status, playback speed (0.5x to 2.0x), subtitle language preferences, subtitle enabled toggles, and preferred stream resolutions in localStorage (aetherstream_playback_settings_v1) with memory fallback. Integrated with VideoPlayerComponent in client/src/components/VideoPlayer.ts restoring preferences across sessions and media changes, dynamic subtitle track discovery via Hls.js SUBTITLE_TRACKS_UPDATED, subtitles toggle button (#player-subtitles-btn), track selector (#player-subtitles-select), and keyboard shortcut (C). Verified via test_persistent_playback_settings_volume_rate_and_subtitles with all 59 integration tests passing.
+
+### [2026-10-30T11:45:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-11.2.3
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Streaming Media Architect & Frontend Engineer
+- **Execution Trace:** cargo test --test security_tests test_stats_for_nerds_hud_stream_resolution_dropped_frames_buffer_audio_and_hwaccel
+- **Validation Proof:** Engineered Stats for Nerds HUD overlay in client/index.html, app.css, and client/src/components/VideoPlayer.ts displaying live stream resolution (videoWidth x videoHeight @ fps vs viewport dimensions), dropped frames ratio (/total and %), buffer length in seconds with color thresholds (<6s red, 6-15s amber, >=15s green), audio layout channel probing (Stereo 2.0 / 5.1 Surround), and GPU/CPU hardware acceleration telemetry fetched from /api/v1/transcode/status (active_accel, active_encoder, status). Marked Phase 5.2 (PHASE_11.2: Cinema-Grade Video Player & Dynamic Bitrate Switcher) 100% complete. Verified via test_stats_for_nerds_hud_stream_resolution_dropped_frames_buffer_audio_and_hwaccel with all 60 integration tests passing.

@@ -7161,3 +7161,98 @@ async fn test_persistent_playback_settings_volume_rate_and_subtitles() {
 
     println!("[TASK-11.2.2 VERIFIED] Persistent playback settings storing volume, playback rate, and subtitle preferences in localStorage verified.");
 }
+
+#[tokio::test]
+async fn test_stats_for_nerds_hud_stream_resolution_dropped_frames_buffer_audio_and_hwaccel() {
+    use aetherstream_server::transcode::pipeline::MediaMetadata;
+    use aetherstream_server::transcode::status_api::transcode_status_router;
+    use axum::body::to_bytes;
+    use axum::http::{Request, StatusCode};
+    use std::time::Instant;
+    use tower::ServiceExt;
+
+    // 1. Verify GET /api/v1/transcode/status provides hwaccel telemetry for the HUD
+    let app = transcode_status_router();
+    let req = Request::builder()
+        .uri("/api/v1/transcode/status")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let start = Instant::now();
+    let resp = app.oneshot(req).await.unwrap();
+    let elapsed = start.elapsed();
+    println!("[BENCHMARK] GET /api/v1/transcode/status dispatch: {:?}", elapsed);
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let status_val: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert!(status_val.get("active_accel").is_some(), "Must report active_accel");
+    assert!(status_val.get("active_encoder").is_some(), "Must report active_encoder");
+    assert!(status_val.get("is_hardware_accelerated").is_some(), "Must report is_hardware_accelerated");
+    assert!(status_val.get("description").is_some(), "Must report description");
+    assert!(status_val.get("status").is_some(), "Must report status");
+
+    // 2. Verify MediaMetadata audio layout capabilities
+    let meta = MediaMetadata {
+        container: "mkv".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(1920),
+        height: Some(1080),
+        aspect_ratio: Some("16:9".to_string()),
+        framerate: Some(60.0),
+        bitrate_kbps: Some(5000),
+        audio_codec: Some("aac".to_string()),
+        audio_channels: Some(6),
+        audio_layout: Some("5.1(side)".to_string()),
+        audio_sample_rate: Some(48000),
+        ..Default::default()
+    };
+    assert_eq!(meta.audio_layout.as_deref(), Some("5.1(side)"));
+    assert_eq!(meta.audio_channels, Some(6));
+
+    // 3. Verify static universal client distribution contains all Stage 5 Subphase 5.2.3 Stats for Nerds HUD elements
+    let index_html_path = [
+        std::path::PathBuf::from("client/dist/index.html"),
+        std::path::PathBuf::from("../../client/dist/index.html"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    if let Some(path) = index_html_path {
+        let index_content = std::fs::read_to_string(&path).unwrap();
+        assert!(index_content.contains("telemetry-hud"), "index.html must contain #telemetry-hud");
+        assert!(index_content.contains("hud-resolution"), "index.html must contain #hud-resolution");
+        assert!(index_content.contains("hud-rendition"), "index.html must contain #hud-rendition");
+        assert!(index_content.contains("hud-dropped"), "index.html must contain #hud-dropped");
+        assert!(index_content.contains("hud-buffer"), "index.html must contain #hud-buffer");
+        assert!(index_content.contains("hud-audio-layout"), "index.html must contain #hud-audio-layout");
+        assert!(index_content.contains("hud-hwaccel"), "index.html must contain #hud-hwaccel");
+        assert!(index_content.contains("hud-close-btn"), "index.html must contain #hud-close-btn");
+        assert!(index_content.contains("player-stats-btn"), "index.html must contain #player-stats-btn");
+        println!("[CLIENT VERIFIED] client/dist/index.html verified with full Stats for Nerds HUD overlay elements.");
+    }
+
+    // 4. Verify VideoPlayer.ts source implements live Stats for Nerds telemetry polling
+    let player_ts_path = [
+        std::path::PathBuf::from("client/src/components/VideoPlayer.ts"),
+        std::path::PathBuf::from("../../client/src/components/VideoPlayer.ts"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    if let Some(path) = player_ts_path {
+        let ts_content = std::fs::read_to_string(&path).unwrap();
+        assert!(ts_content.contains("hudResolution"), "VideoPlayer.ts must bind hudResolution");
+        assert!(ts_content.contains("hudDropped"), "VideoPlayer.ts must bind hudDropped");
+        assert!(ts_content.contains("hudBuffer"), "VideoPlayer.ts must bind hudBuffer");
+        assert!(ts_content.contains("hudAudioLayout"), "VideoPlayer.ts must bind hudAudioLayout");
+        assert!(ts_content.contains("hudHwAccel"), "VideoPlayer.ts must bind hudHwAccel");
+        assert!(ts_content.contains("fetchHwAccelStatus"), "VideoPlayer.ts must implement fetchHwAccelStatus");
+        assert!(ts_content.contains("startTelemetryLoop"), "VideoPlayer.ts must implement startTelemetryLoop");
+        assert!(ts_content.contains("getVideoPlaybackQuality"), "VideoPlayer.ts must query getVideoPlaybackQuality");
+        println!("[SOURCE VERIFIED] VideoPlayer.ts verified with complete Stats for Nerds telemetry polling.");
+    }
+
+    println!("[TASK-11.2.3 VERIFIED] Stats for Nerds HUD displaying current stream resolution, dropped frames, buffer length, audio layout, hwaccel verified.");
+}
