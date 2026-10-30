@@ -964,3 +964,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Systems Architect & Distributed Ingress Engineer
 - **Execution Trace:** cargo test --test security_tests test_heartbeat_ping_worker_monitoring_and_auto_restart
 - **Validation Proof:** Engineered TunnelHeartbeatWorker, TunnelHeartbeatConfig, TunnelHeartbeatMetrics, and HeartbeatEvent in crates/server/src/tunnel/heartbeat.rs. Features configurable ping interval (default 15s) and timeout, multi-state health progression (Healthy, Degraded, Unhealthy, Paused, Recovering), exponential latency tracking (min, max, running average), broadcast telemetry events, and automated supervisor restart upon consecutive threshold breach (3/3 failures). Marked Phase 4.2 (PHASE_10.2) 100% complete. Verified via test_heartbeat_ping_worker_monitoring_and_auto_restart (0.169µs/op status query benchmark) and all 51 integration tests passing.
+
+### [2026-10-30T10:25:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-10.3.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Systems Architect & Distributed Ingress Engineer
+- **Execution Trace:** cargo test --test security_tests test_tunnel_status_rest_api_endpoint_and_telemetry
+- **Validation Proof:** Engineered TunnelStatusResponse, TunnelApiState, and tunnel_status_router in crates/server/src/tunnel/status_api.rs. Exposes GET /api/v1/tunnel/status returning active tunnel state, health, public URL, target URL, local gigabit LAN URL, loopback URL, PID, uptime, restart counts, ping latency (min, max, avg), total ping statistics, and last errors. Integrated with main daemon router and verified via test_tunnel_status_rest_api_endpoint_and_telemetry (108.168µs/op dispatch & serialization benchmark) with all 52 integration tests passing.

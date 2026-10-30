@@ -172,6 +172,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let share_routes = security::public_share_router(share_state);
 
+    let tunnel_sup_config = tunnel::TunnelSupervisorConfig {
+        target_url: format!("http://127.0.0.1:{}", config.port),
+        ..Default::default()
+    };
+    let tunnel_supervisor = tunnel::CloudflaredSupervisor::new(tunnel_sup_config);
+    let tunnel_api_state = tunnel::TunnelApiState::new(tunnel_supervisor, config.port);
+    let tunnel_routes = tunnel::tunnel_status_router(tunnel_api_state);
+
     // Assemble Axum Router
     let mut app = Router::new()
         .route("/api/v1/health", get(health_handler))
@@ -209,6 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(app_state)
         .merge(storage_routes)
         .merge(share_routes)
+        .merge(tunnel_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 

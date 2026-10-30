@@ -5999,3 +5999,176 @@ async fn test_heartbeat_ping_worker_monitoring_and_auto_restart() {
     server_task.abort();
     println!("[TASK-10.2.3 VERIFIED] Instrument heartbeat ping worker monitoring tunnel health every 15s with auto-restart verified.");
 }
+
+#[tokio::test]
+async fn test_tunnel_status_rest_api_endpoint_and_telemetry() {
+    use aetherstream_server::tunnel::edge_router::{EdgeRoutingClassifier, EdgeRoutingConfig};
+    use aetherstream_server::tunnel::heartbeat::{
+        TunnelHealthState, TunnelHeartbeatConfig, TunnelHeartbeatWorker,
+    };
+    use aetherstream_server::tunnel::status_api::{
+        tunnel_status_router, TunnelApiState, TunnelStatusResponse,
+    };
+    use aetherstream_server::tunnel::supervisor::{
+        CloudflaredSupervisor, TunnelState, TunnelSupervisorConfig,
+    };
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Request, StatusCode},
+        routing::get,
+        Router,
+    };
+    use std::net::Ipv4Addr;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    use tower::ServiceExt;
+
+    // 1. Setup Mock HTTP probe destination
+    let is_server_healthy = Arc::new(AtomicBool::new(true));
+    let health_flag = is_server_healthy.clone();
+
+    let mock_app = Router::new().route(
+        "/health",
+        get(move || {
+            let flag = health_flag.clone();
+            async move {
+                if flag.load(Ordering::SeqCst) {
+                    (StatusCode::OK, "{\"status\":\"ok\"}")
+                } else {
+                    (StatusCode::BAD_GATEWAY, "{\"error\":\"edge_failure\"}")
+                }
+            }
+        }),
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mock_port = listener.local_addr().unwrap().port();
+    let probe_url = format!("http://127.0.0.1:{}/health", mock_port);
+    let server_task = tokio::spawn(async move {
+        let _ = axum::serve(listener, mock_app).await;
+    });
+
+    // 2. Initialize Tunnel Components
+    let sup_config = TunnelSupervisorConfig {
+        target_url: format!("http://127.0.0.1:{}", mock_port),
+        auto_restart: false,
+        command_override: Some(vec!["cargo".to_string(), "--version".to_string()]),
+        ..Default::default()
+    };
+    let supervisor = CloudflaredSupervisor::new(sup_config);
+
+    let hb_config = TunnelHeartbeatConfig {
+        ping_interval: Duration::from_millis(50),
+        timeout: Duration::from_millis(500),
+        max_consecutive_failures: 3,
+        auto_restart: false,
+        probe_path: "/health".to_string(),
+        probe_override_url: Some(probe_url.clone()),
+        ..Default::default()
+    };
+    let heartbeat = TunnelHeartbeatWorker::new(supervisor.clone(), hb_config);
+
+    let edge_config = EdgeRoutingConfig {
+        lan_ip: Some(Ipv4Addr::new(192, 168, 1, 150)),
+        daemon_port: 8080,
+        block_tunnel_admin: true,
+        custom_tunnel_domain: Some("media.aetherstream.io".to_string()),
+    };
+    let classifier = Arc::new(EdgeRoutingClassifier::new(edge_config));
+
+    let api_state = TunnelApiState::new(supervisor.clone(), 8080)
+        .with_heartbeat(heartbeat.clone())
+        .with_classifier(classifier.clone());
+
+    let app = tunnel_status_router(api_state);
+
+    // 3. Query Initial Status (Stopped, Paused)
+    let req = Request::builder()
+        .uri("/api/v1/tunnel/status")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let status_initial: TunnelStatusResponse = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(status_initial.state, TunnelState::Stopped);
+    assert_eq!(status_initial.health, TunnelHealthState::Paused);
+    assert!(!status_initial.is_running);
+    assert!(!status_initial.is_healthy);
+    assert_eq!(status_initial.lan_url, "http://192.168.1.150:8080");
+    assert_eq!(status_initial.loopback_url, "http://127.0.0.1:8080");
+    assert_eq!(status_initial.target_url, format!("http://127.0.0.1:{}", mock_port));
+    assert_eq!(status_initial.total_pings, 0);
+
+    // 4. Perform Successful Probe -> Query Healthy Status
+    let probe_lat = heartbeat.probe_once().await.unwrap();
+    assert!(probe_lat > 0.0);
+
+    let req_healthy = Request::builder()
+        .uri("/api/v1/tunnel/status")
+        .body(Body::empty())
+        .unwrap();
+    let resp_healthy = app.clone().oneshot(req_healthy).await.unwrap();
+    assert_eq!(resp_healthy.status(), StatusCode::OK);
+
+    let body_healthy = to_bytes(resp_healthy.into_body(), 64 * 1024).await.unwrap();
+    let status_healthy: TunnelStatusResponse = serde_json::from_slice(&body_healthy).unwrap();
+
+    assert_eq!(status_healthy.health, TunnelHealthState::Healthy);
+    assert!(status_healthy.is_healthy);
+    assert!(status_healthy.latency_ms.is_some());
+    assert!(status_healthy.avg_latency_ms.is_some());
+    assert_eq!(status_healthy.total_pings, 1);
+    assert_eq!(status_healthy.total_ping_failures, 0);
+    assert_eq!(status_healthy.consecutive_failures, 0);
+
+    // 5. Fail Probe -> Query Degraded Status
+    is_server_healthy.store(false, Ordering::SeqCst);
+    let probe_fail = heartbeat.probe_once().await;
+    assert!(probe_fail.is_err());
+
+    let req_degraded = Request::builder()
+        .uri("/api/v1/tunnel/status")
+        .body(Body::empty())
+        .unwrap();
+    let resp_degraded = app.clone().oneshot(req_degraded).await.unwrap();
+    assert_eq!(resp_degraded.status(), StatusCode::OK);
+
+    let body_degraded = to_bytes(resp_degraded.into_body(), 64 * 1024).await.unwrap();
+    let status_degraded: TunnelStatusResponse = serde_json::from_slice(&body_degraded).unwrap();
+
+    assert_eq!(status_degraded.health, TunnelHealthState::Degraded);
+    assert!(!status_degraded.is_healthy);
+    assert_eq!(status_degraded.total_pings, 2);
+    assert_eq!(status_degraded.total_ping_failures, 1);
+    assert_eq!(status_degraded.consecutive_failures, 1);
+    assert!(status_degraded.last_error.is_some());
+
+    // 6. High-Throughput Endpoint Latency Benchmark
+    let start = Instant::now();
+    let iterations = 10_000;
+    for _ in 0..iterations {
+        let req_bench = Request::builder()
+            .uri("/api/v1/tunnel/status")
+            .body(Body::empty())
+            .unwrap();
+        let _ = app.clone().oneshot(req_bench).await.unwrap();
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] /api/v1/tunnel/status dispatch & JSON serialization: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 250.0,
+        "Endpoint response must execute under 250.0 µs/op (measured {:.3} µs)",
+        per_op_us
+    );
+
+    server_task.abort();
+    println!("[TASK-10.3.1 VERIFIED] Expose /api/v1/tunnel/status returning active tunnel status, public URL, uptime, and latency verified.");
+}

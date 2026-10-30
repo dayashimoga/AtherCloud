@@ -2,6 +2,7 @@ pub mod binary_manager;
 pub mod edge_router;
 pub mod heartbeat;
 pub mod mdns;
+pub mod status_api;
 pub mod supervisor;
 pub mod url_parser;
 
@@ -21,6 +22,9 @@ pub use mdns::{
     build_mdns_response, decode_dns_name, detect_local_ip, encode_dns_name, parse_mdns_query,
     DnsQuestion, DnsRecord, MdnsError, MdnsPublisher, MdnsServiceConfig, MDNS_IPV4_MULTICAST,
     MDNS_PORT,
+};
+pub use status_api::{
+    tunnel_status_handler, tunnel_status_router, TunnelApiState, TunnelStatusResponse,
 };
 pub use supervisor::{
     CloudflaredSupervisor, TunnelEvent, TunnelState, TunnelSupervisorConfig, TunnelSupervisorError,

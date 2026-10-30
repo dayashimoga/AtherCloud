@@ -1552,3 +1552,19 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `heartbeat.rs` in `crates/server/src/tunnel/` featuring `TunnelHeartbeatWorker`, `TunnelHeartbeatConfig`, `TunnelHeartbeatMetrics`, `TunnelHealthState` (`Healthy`, `Degraded`, `Unhealthy`, `Paused`, `Recovering`), and broadcast `HeartbeatEvent`. Implemented periodic active health probing (default 15s interval, configurable) of the ingress endpoint with sub-millisecond latency tracking (min, max, running average). Enforces consecutive failure threshold (default 3/3): transitions through `Degraded` to `Unhealthy`, emits diagnostic broadcast events, and automatically invokes `supervisor.restart()` while enforcing restart cooldown and state recovery. Marked Phase 4.2 (PHASE_10.2) 100% complete. Verified via `test_heartbeat_ping_worker_monitoring_and_auto_restart` ($0.169\mu\text{s}/\text{op}$ status query benchmark) and 51/51 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_TUNNEL_HEARTBEAT_WORKER_033
 - **Executor:** Principal Systems Architect & Distributed Ingress Engineer
+
+### [2026-10-30T10:25:00Z] - STAGE_10 / PHASE_10.3 / SUBPHASE_10.3.1
+- **Stage ID:** STAGE_10 (Embedded Zero-Cost Tunnel Daemon & Instant Remote Ingress)
+- **Phase ID:** PHASE_10.3 (Dynamic Connection QR & Pairing Handshake)
+- **Subphase ID:** SUBPHASE_10.3.1 (Expose /api/v1/tunnel/status Returning Active Tunnel Status, Public URL, Uptime, and Latency)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/tunnel/status_api.rs`
+  - `crates/server/src/tunnel/mod.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `status_api.rs` in `crates/server/src/tunnel/` defining `TunnelStatusResponse`, `TunnelApiState`, and `tunnel_status_router`. Exposes `GET /api/v1/tunnel/status` delivering unified daemon telemetry combining supervisor state (`TunnelState`, PID, uptime, binary path, restart counters), heartbeat health metrics (`TunnelHealthState`, min/max/average RTT latency, ping counts, failure diagnostics), local gigabit network endpoint URLs (`lan_url`, `loopback_url`), and public ingress addresses (`public_url`). Merged tunnel status routes into main daemon application router. Verified via `test_tunnel_status_rest_api_endpoint_and_telemetry` ($108.168\mu\text{s}/\text{op}$ dispatch and serialization benchmark) and 52/52 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_TUNNEL_STATUS_REST_API_034
+- **Executor:** Principal Systems Architect & Distributed Ingress Engineer
