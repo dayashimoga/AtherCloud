@@ -23,16 +23,49 @@
 
       <main class="app-main">
         <aside class="sidebar">
-          <h3>Virtual Mounts</h3>
-          <ul id="mount-list" class="mount-list">
-            <li class="loading">Discovering storage mounts...</li>
-          </ul>
+          <div class="sidebar-section">
+            <div class="sidebar-header">
+              <h3>Virtual Mounts</h3>
+              <span id="mount-count" class="section-count">0</span>
+            </div>
+            <ul id="mount-list" class="mount-list">
+              <li class="loading">Discovering storage mounts...</li>
+            </ul>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-header">
+              <h3>Host Storage Drives</h3>
+              <span id="drive-count" class="section-count">0</span>
+            </div>
+            <ul id="drive-list" class="drive-list">
+              <li class="loading">Probing host drives...</li>
+            </ul>
+          </div>
         </aside>
 
         <section class="content-panel">
-          <div class="breadcrumb" id="breadcrumb">/</div>
-          <div id="file-grid" class="file-grid">
-            <div class="loading">Select a mount to view media...</div>
+          <div class="explorer-toolbar">
+            <div class="breadcrumb-container">
+              <div class="breadcrumb" id="breadcrumb">/</div>
+            </div>
+            <div class="toolbar-controls">
+              <div class="search-box">
+                <span class="search-icon">&#128269;</span>
+                <input type="text" id="file-search-input" placeholder="Filter files in directory..." autocomplete="off" />
+                <button id="clear-search-btn" class="btn-clear hidden" title="Clear filter">&times;</button>
+              </div>
+              <div class="view-toggles">
+                <button id="view-grid-btn" class="btn btn-icon view-btn active" title="Grid View">&#9638;</button>
+                <button id="view-list-btn" class="btn btn-icon view-btn" title="List View">&#9776;</button>
+              </div>
+            </div>
+          </div>
+          <div id="file-container" class="file-container">
+            <div id="file-grid" class="file-grid">
+              <div class="loading">Select a mount to view media...</div>
+            </div>
+            <div id="file-list" class="file-list hidden"></div>
           </div>
         </section>
       </main>

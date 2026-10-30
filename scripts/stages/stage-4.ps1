@@ -11,7 +11,10 @@ param(
     [switch]$ValidateOnly,
 
     [Parameter(Mandatory=$false)]
-    [switch]$AutoApprove
+    [switch]$AutoApprove,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,7 +32,21 @@ function Test-Subphase-4-1-1 {
     if (-not ($content -match "export class FileExplorerComponent" -and $content -match "loadDirectory")) {
         throw "FileExplorerComponent incomplete!"
     }
-    Write-AetherLog "SUCCESS" "Responsive file explorer verified with breadcrumb tree and drive selection."
+
+    $clientDir = Join-Path $Script:RepoRoot "client"
+    Push-Location $clientDir
+    try {
+        $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $buildOut = npm run build 2>&1
+        $ErrorActionPreference = $prev
+        if ($LASTEXITCODE -ne 0) {
+            throw "Client build failed: $buildOut"
+        }
+    } finally {
+        Pop-Location
+    }
+
+    Write-AetherLog "SUCCESS" "Responsive file explorer verified with breadcrumb tree, drive selection, and production bundle build."
     return $true
 }
 
@@ -148,7 +165,7 @@ foreach ($entry in $subphases) {
 
     $state = Get-AetherState
     $rec = Get-SubphaseRecord -State $state -SubphaseId $entry.FullId
-    if ($rec -and $rec.Subphase.status -eq "COMPLETED") {
+    if (-not $Force -and -not $Subphase -and $rec -and $rec.Subphase.status -eq "COMPLETED") {
         Write-AetherLog "INFO" "Subphase $($entry.Id) is already marked COMPLETED in state tracker."
         continue
     }
@@ -181,10 +198,33 @@ foreach ($p in $stage4.phases) {
     foreach ($s in $p.subphases) {
         if ($s.status -ne "COMPLETED") { $phaseDone = $false; $allDone = $false }
     }
-    if ($phaseDone) { $p.status = "COMPLETED" }
+    if ($phaseDone) {
+        $p.status = "COMPLETED"
+    } elseif ($p.subphases | Where-Object { $_.status -eq "COMPLETED" }) {
+        $p.status = "IN_PROGRESS"
+    }
 }
 if ($allDone) {
     $stage4.status = "COMPLETED"
     Write-AetherLog "SUCCESS" "STAGE 4 IS FULLY COMPLETED!"
 }
+
+# Advance pointer to next pending subphase
+$foundNext = $false
+foreach ($stg in $finalState.stages) {
+    foreach ($phs in $stg.phases) {
+        foreach ($sub in $phs.subphases) {
+            if ($sub.status -eq "PENDING") {
+                $finalState.current_stage = $stg.number
+                $finalState.current_phase = $phs.id.Replace("PHASE_", "")
+                $finalState.current_subphase = $sub.id.Replace("SUBPHASE_", "")
+                $foundNext = $true
+                break
+            }
+        }
+        if ($foundNext) { break }
+    }
+    if ($foundNext) { break }
+}
+
 Save-AetherState -State $finalState

@@ -39,7 +39,8 @@ export class VideoPlayerComponent {
       });
 
       this.hls.on(Hls.Events.FRAG_LOADED, (_, data) => {
-        const bw = Math.round(data.frag.stats.bandwidth / 1000);
+        const stats = data.frag.stats as any;
+        const bw = Math.round((stats.bandwidth || this.hls?.bandwidthEstimate || 0) / 1000);
         this.hudBandwidth.textContent = `${bw} kbps`;
       });
     } else {

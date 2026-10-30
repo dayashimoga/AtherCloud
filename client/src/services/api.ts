@@ -5,6 +5,14 @@ export interface MountItem {
   path_display: string;
 }
 
+export interface DiscoveredDriveItem {
+  path: string;
+  name: string;
+  drive_type: string;
+  is_system: boolean;
+  is_removable: boolean;
+}
+
 export interface FileItem {
   name: string;
   is_dir: boolean;
@@ -33,6 +41,13 @@ export class AetherApi {
     if (!res.ok) throw new Error("Failed to load mounts");
     const data = await res.json();
     return data.mounts;
+  }
+
+  static async getSystemDrives(): Promise<DiscoveredDriveItem[]> {
+    const res = await fetch(`${this.baseUrl}/api/v1/system/drives`);
+    if (!res.ok) throw new Error("Failed to load system drives");
+    const data = await res.json();
+    return data.drives;
   }
 
   static async browse(mount: string, path = ""): Promise<BrowseResponse> {

@@ -31,7 +31,10 @@ class AetherApp {
   private bindEvents() {
     this.closePlayerBtn.onclick = () => this.closePlayer();
     this.playerModalEl.querySelector(".modal-backdrop")!.addEventListener("click", () => this.closePlayer());
-    this.refreshBtn.onclick = () => this.loadMounts();
+    this.refreshBtn.onclick = () => {
+      this.loadMounts();
+      this.loadDrives();
+    };
 
     this.fileExplorer.onPlayMedia = (mount, path, isHls) => {
       this.openPlayer(mount, path, isHls);
@@ -51,7 +54,7 @@ class AetherApp {
       this.hwAccelBadge.style.color = "var(--danger)";
     }
 
-    await this.loadMounts();
+    await Promise.allSettled([this.loadMounts(), this.loadDrives()]);
     this.registerServiceWorker();
   }
 
@@ -61,6 +64,15 @@ class AetherApp {
       this.fileExplorer.renderMounts(mounts);
     } catch (err: any) {
       console.error("Failed to load mounts:", err);
+    }
+  }
+
+  private async loadDrives() {
+    try {
+      const drives = await AetherApi.getSystemDrives();
+      this.fileExplorer.renderDrives(drives);
+    } catch (err: any) {
+      console.error("Failed to load system drives:", err);
     }
   }
 
