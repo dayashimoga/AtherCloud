@@ -18,6 +18,7 @@
     "hls.js": "^1.5.8"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^1.6.3",
     "typescript": "^5.4.5",
     "vite": "^5.2.11"
   }

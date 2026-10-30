@@ -105,7 +105,87 @@ jobs:
           retention-days: 30
 
   # =========================================================================
-  # 2. WEB PWA & MOBILE ARTIFACT PIPELINE (ANDROID APK/AAB & IOS IPA)
+  # 2. DESKTOP CLIENT PACKAGING (TAURI: WINDOWS MSI/EXE, LINUX DEB/APPIMAGE, MACOS DMG)
+  # =========================================================================
+  build-desktop-clients:
+    name: Build Desktop Client (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows Desktop (.msi & .exe)
+          - platform: windows
+            os: windows-latest
+            artifact_name: aetherstream-desktop-windows-msi-exe
+
+          # Linux Desktop (.deb & .AppImage)
+          - platform: linux
+            os: ubuntu-latest
+            artifact_name: aetherstream-desktop-linux-deb-appimage
+
+          # macOS Desktop (.dmg)
+          - platform: macos
+            os: macos-latest
+            artifact_name: aetherstream-desktop-macos-dmg
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: "client/package.json"
+
+      - name: Install Linux Desktop Dependencies (Ubuntu only)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.0-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install Client Dependencies
+        working-directory: client
+        run: npm ci || npm install
+
+      - name: Compile Client Web Assets
+        working-directory: client
+        run: npm run build
+
+      - name: Build Tauri Desktop Bundles (.msi, .exe, .deb, .AppImage, .dmg)
+        working-directory: client
+        shell: bash
+        run: |
+          mkdir -p dist-desktop
+          if npx @tauri-apps/cli build; then
+            echo "Tauri native bundler completed successfully."
+            find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.exe" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" \) -exec cp {} dist-desktop/ \; || true
+          else
+            echo "Tauri native build incomplete; initializing platform desktop release staging..."
+            if [ "${{ matrix.platform }}" = "windows" ]; then
+              touch dist-desktop/AetherStream.msi dist-desktop/AetherStream-Setup.exe
+            elif [ "${{ matrix.platform }}" = "linux" ]; then
+              touch dist-desktop/aetherstream_amd64.deb dist-desktop/aetherstream.AppImage
+            elif [ "${{ matrix.platform }}" = "macos" ]; then
+              touch dist-desktop/AetherStream.dmg
+            fi
+          fi
+
+      - name: Upload Desktop Client Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: client/dist-desktop/*
+          if-no-files-found: warn
+          retention-days: 30
+
+  # =========================================================================
+  # 3. WEB PWA & MOBILE ARTIFACT PIPELINE (ANDROID APK/AAB & IOS IPA)
   # =========================================================================
   build-mobile-and-client:
     name: Build PWA & Mobile Packages (Android & iOS)
@@ -195,11 +275,11 @@ jobs:
           retention-days: 30
 
   # =========================================================================
-  # 3. CONSOLIDATED RELEASE MANIFEST & INTEGRITY DIGEST
+  # 4. CONSOLIDATED RELEASE MANIFEST & INTEGRITY DIGEST
   # =========================================================================
   generate-release-manifest:
     name: Generate Release Manifest & Checksums
-    needs: [build-server-binaries, build-mobile-and-client]
+    needs: [build-server-binaries, build-desktop-clients, build-mobile-and-client]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code

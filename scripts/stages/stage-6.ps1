@@ -77,7 +77,47 @@ function Test-Subphase-6-1-3 {
 }
 
 function Test-Subphase-6-2-1 {
-    Write-AetherLog "INFO" "Auditing Subphase 6.2.1: Android CI Packaging (APK & AAB)..."
+    Write-AetherLog "INFO" "Auditing Subphase 6.2.1: Tauri Desktop Bundler (.msi, .exe, .deb, .AppImage, .dmg)..."
+    $tauriPath = Join-Path $Script:RepoRoot "client/src-tauri/tauri.conf.json"
+    if (-not (Test-Path $tauriPath)) { throw "tauri.conf.json missing!" }
+    $conf = Get-Content $tauriPath -Raw | ConvertFrom-Json
+    if (-not $conf.tauri.bundle.active) {
+        throw "Tauri bundle configuration is not active!"
+    }
+    $targets = $conf.tauri.bundle.targets
+    $hasMsi = $targets -contains "msi" -or $targets -eq "all"
+    $hasNsis = $targets -contains "nsis" -or $targets -eq "all"
+    $hasDeb = $targets -contains "deb" -or $targets -eq "all"
+    $hasAppImage = $targets -contains "appimage" -or $targets -eq "all"
+    $hasDmg = $targets -contains "dmg" -or $targets -eq "all"
+    if (-not ($hasMsi -and $hasNsis -and $hasDeb -and $hasAppImage -and $hasDmg)) {
+        throw "Tauri bundle targets missing required desktop formats (msi, nsis, deb, appimage, dmg)!"
+    }
+    if (-not $conf.tauri.bundle.windows.wix -or -not $conf.tauri.bundle.windows.nsis) {
+        throw "Tauri windows configuration missing WiX MSI or NSIS definitions!"
+    }
+    if (-not $conf.tauri.bundle.deb -or -not $conf.tauri.bundle.appimage) {
+        throw "Tauri linux configuration missing deb or appimage definitions!"
+    }
+    if (-not $conf.tauri.bundle.macOS.minimumSystemVersion) {
+        throw "Tauri macOS configuration missing minimumSystemVersion definition!"
+    }
+
+    $wfPath = Join-Path $Script:RepoRoot ".github/workflows/build-and-release.yml"
+    $wfContent = Get-Content $wfPath -Raw
+    if (-not ($wfContent -match "build-desktop-clients")) {
+        throw "Desktop client CI bundling job missing in .github/workflows/build-and-release.yml!"
+    }
+    if (-not ($wfContent -match "msi" -and $wfContent -match "deb" -and $wfContent -match "AppImage" -and $wfContent -match "dmg")) {
+        throw "Desktop installer formats (.msi, .deb, .AppImage, .dmg) missing in CI workflow!"
+    }
+
+    Write-AetherLog "SUCCESS" "Tauri desktop bundler configuration verified across Windows (.msi/.exe), Linux (.deb/.AppImage), and macOS (.dmg)."
+    return $true
+}
+
+function Test-Subphase-6-2-2 {
+    Write-AetherLog "INFO" "Auditing Subphase 6.2.2: Android CI Packaging (APK & AAB)..."
     $wfPath = Join-Path $Script:RepoRoot ".github/workflows/build-and-release.yml"
     $content = Get-Content $wfPath -Raw
     if (-not ($content -match "assembleDebug" -and $content -match "bundleRelease")) {
@@ -87,22 +127,14 @@ function Test-Subphase-6-2-1 {
     return $true
 }
 
-function Test-Subphase-6-2-2 {
-    Write-AetherLog "INFO" "Auditing Subphase 6.2.2: iOS CI Packaging (.ipa / .xcarchive)..."
+function Test-Subphase-6-2-3 {
+    Write-AetherLog "INFO" "Auditing Subphase 6.2.3: iOS CI Packaging (.ipa / .xcarchive)..."
     $wfPath = Join-Path $Script:RepoRoot ".github/workflows/build-and-release.yml"
     $content = Get-Content $wfPath -Raw
     if (-not ($content -match "AetherStream-unsigned.ipa")) {
         throw "iOS package generation missing in CI workflow!"
     }
     Write-AetherLog "SUCCESS" "iOS application package (.ipa) CI runner job verified."
-    return $true
-}
-
-function Test-Subphase-6-2-3 {
-    Write-AetherLog "INFO" "Auditing Subphase 6.2.3: Desktop CI Builders (Win, macOS, Linux)..."
-    $tauriPath = Join-Path $Script:RepoRoot "client/src-tauri/tauri.conf.json"
-    if (-not (Test-Path $tauriPath)) { throw "tauri.conf.json missing!" }
-    Write-AetherLog "SUCCESS" "Desktop multi-OS packaging definitions verified."
     return $true
 }
 
@@ -140,19 +172,20 @@ function Test-Subphase-6-3-3 {
 }
 
 $subphases = @(
-    @{ Id = "6.1.1"; FullId = "SUBPHASE_6.1.1"; Task = "TASK-6.1.1"; Func = { Test-Subphase-6-1-1 }; Title = "Multi-Architecture Compilation Matrix"; Desc = "Configured GitHub Actions matrix compiling server for Linux x64/ARM64, Windows x64, macOS Apple Silicon."; Components = @(".github/workflows/build-and-release.yml") },
-    @{ Id = "6.1.2"; FullId = "SUBPHASE_6.1.2"; Task = "TASK-6.1.2"; Func = { Test-Subphase-6-1-2 }; Title = "Embedded FFmpeg Packaging & Download Hooks"; Desc = "Engineered automated FFmpeg binary dependency packaging hooks across target platforms."; Components = @("scripts/mitigation-recipes.md") },
-    @{ Id = "6.1.3"; FullId = "SUBPHASE_6.1.3"; Task = "TASK-6.1.3"; Func = { Test-Subphase-6-1-3 }; Title = "Binary Stripping, Compression & SHA-256 Hashes"; Desc = "Configured compiler LTO, symbol stripping, and automated SHA-256 integrity checksum generation."; Components = @("Cargo.toml", ".github/workflows/build-and-release.yml") },
-    @{ Id = "6.2.1"; FullId = "SUBPHASE_6.2.1"; Task = "TASK-6.2.1"; Func = { Test-Subphase-6-2-1 }; Title = "Android Packaging CI (APKs & AAB)"; Desc = "Configured Gradle CI pipeline compiling PWA into standalone debug/release APKs and Play Store AAB."; Components = @(".github/workflows/build-and-release.yml") },
-    @{ Id = "6.2.2"; FullId = "SUBPHASE_6.2.2"; Task = "TASK-6.2.2"; Func = { Test-Subphase-6-2-2 }; Title = "iOS Application Package CI (.ipa)"; Desc = "Configured Xcode CI workflow bundling universal web assets into unsigned iOS application package."; Components = @(".github/workflows/build-and-release.yml") },
-    @{ Id = "6.2.3"; FullId = "SUBPHASE_6.2.3"; Task = "TASK-6.2.3"; Func = { Test-Subphase-6-2-3 }; Title = "Desktop CI Builders (.msi, .AppImage, .dmg)"; Desc = "Configured desktop compilation pipelines producing Windows MSI/EXE, Linux AppImage, and macOS DMG."; Components = @("client/src-tauri/tauri.conf.json") },
-    @{ Id = "6.3.1"; FullId = "SUBPHASE_6.3.1"; Task = "TASK-6.3.1"; Func = { Test-Subphase-6-3-1 }; Title = "Hook CI Outputs to actions/upload-artifact"; Desc = "Configured automated artifact retention for binary packages, mobile bundles, and checksums."; Components = @(".github/workflows/build-and-release.yml") },
-    @{ Id = "6.3.2"; FullId = "SUBPHASE_6.3.2"; Task = "TASK-6.3.2"; Func = { Test-Subphase-6-3-2 }; Title = "Append Release Hashes & Seal Changelog Ledger"; Desc = "Integrated release checksum append routines into CHANGELOG.md and state.tracker.json."; Components = @(".github/workflows/build-and-release.yml", "CHANGELOG.md") },
-    @{ Id = "6.3.3"; FullId = "SUBPHASE_6.3.3"; Task = "TASK-6.3.3"; Func = { Test-Subphase-6-3-3 }; Title = "Automated E2E Smoke & Stream Verification"; Desc = "Executed end-to-end integration tests verifying drive discovery, range requests, transcode, and streaming."; Components = @("crates/server/tests/security_tests.rs") }
+    @{ Id = "6.1.1"; AltId = "12.1.1"; FullId = "SUBPHASE_12.1.1"; Task = "TASK-12.1.1"; Func = { Test-Subphase-6-1-1 }; Title = "Multi-Architecture Compilation Matrix"; Desc = "Configured GitHub Actions matrix compiling server for Linux x64/ARM64, Windows x64, macOS Apple Silicon."; Components = @(".github/workflows/build-and-release.yml") },
+    @{ Id = "6.1.2"; AltId = "12.1.2"; FullId = "SUBPHASE_12.1.2"; Task = "TASK-12.1.2"; Func = { Test-Subphase-6-1-2 }; Title = "Embedded FFmpeg Packaging & Download Hooks"; Desc = "Engineered automated FFmpeg binary dependency packaging hooks across target platforms."; Components = @("scripts/mitigation-recipes.md") },
+    @{ Id = "6.1.3"; AltId = "12.1.3"; FullId = "SUBPHASE_12.1.3"; Task = "TASK-12.1.3"; Func = { Test-Subphase-6-1-3 }; Title = "Binary Stripping, Compression & SHA-256 Hashes"; Desc = "Configured compiler LTO, symbol stripping, and automated SHA-256 integrity checksum generation."; Components = @("Cargo.toml", ".github/workflows/build-and-release.yml") },
+    @{ Id = "6.2.1"; AltId = "12.2.1"; FullId = "SUBPHASE_12.2.1"; Task = "TASK-12.2.1"; Func = { Test-Subphase-6-2-1 }; Title = "Configure Tauri Desktop Bundler (.msi, .exe, .deb, .AppImage, .dmg)"; Desc = "Configured Tauri desktop bundler generating Windows .msi/.exe, Linux .deb/.AppImage, macOS .dmg."; Components = @("client/src-tauri/tauri.conf.json", ".github/workflows/build-and-release.yml") },
+    @{ Id = "6.2.2"; AltId = "12.2.2"; FullId = "SUBPHASE_12.2.2"; Task = "TASK-12.2.2"; Func = { Test-Subphase-6-2-2 }; Title = "Capacitor Android Packaging CI (APK & AAB)"; Desc = "Configured Gradle CI pipeline compiling PWA into standalone debug/release APKs and Play Store AAB."; Components = @(".github/workflows/build-and-release.yml") },
+    @{ Id = "6.2.3"; AltId = "12.2.3"; FullId = "SUBPHASE_12.2.3"; Task = "TASK-12.2.3"; Func = { Test-Subphase-6-2-3 }; Title = "iOS Application Package CI (.ipa)"; Desc = "Configured Xcode CI workflow bundling universal web assets into unsigned iOS application package."; Components = @(".github/workflows/build-and-release.yml") },
+    @{ Id = "6.3.1"; AltId = "12.3.1"; FullId = "SUBPHASE_12.3.1"; Task = "TASK-12.3.1"; Func = { Test-Subphase-6-3-1 }; Title = "Hook CI Outputs to actions/upload-artifact"; Desc = "Configured automated artifact retention for binary packages, mobile bundles, and checksums."; Components = @(".github/workflows/build-and-release.yml") },
+    @{ Id = "6.3.2"; AltId = "12.3.2"; FullId = "SUBPHASE_12.3.2"; Task = "TASK-12.3.2"; Func = { Test-Subphase-6-3-2 }; Title = "Append Release Hashes & Seal Changelog Ledger"; Desc = "Integrated release checksum append routines into CHANGELOG.md and state.tracker.json."; Components = @(".github/workflows/build-and-release.yml", "CHANGELOG.md") },
+    @{ Id = "6.3.3"; AltId = "12.3.3"; FullId = "SUBPHASE_12.3.3"; Task = "TASK-12.3.3"; Func = { Test-Subphase-6-3-3 }; Title = "Automated E2E Smoke & Stream Verification"; Desc = "Executed end-to-end integration tests verifying drive discovery, range requests, transcode, and streaming."; Components = @("crates/server/tests/security_tests.rs") }
 )
 
 foreach ($entry in $subphases) {
-    if ($Subphase -and $Subphase -ne $entry.Id -and $Subphase -ne $entry.FullId) {
+    $matchSub = ($Subphase -eq $entry.Id -or $Subphase -eq $entry.FullId -or ($entry.ContainsKey('AltId') -and $Subphase -eq $entry.AltId))
+    if ($Subphase -and -not $matchSub) {
         continue
     }
 
@@ -192,7 +225,7 @@ foreach ($entry in $subphases) {
 
 # Update Stage 6 overall status
 $finalState = Get-AetherState
-$stage6 = $finalState.stages | Where-Object { $_.id -eq "STAGE_6" }
+$stage6 = $finalState.stages | Where-Object { $_.id -eq "STAGE_6" -or $_.id -eq "STAGE_12" }
 $allDone = $true
 foreach ($p in $stage6.phases) {
     $phaseDone = $true

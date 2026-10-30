@@ -1,6 +1,6 @@
 [package]
 name = "aetherstream-desktop"
-version = "1.0.0"
+version = "1.2.0"
 description = "AetherStream Desktop Client Shell"
 authors = ["AetherStream Core Team"]
 edition = "2021"
@@ -15,4 +15,3 @@ tauri = { version = "1.5", features = ["http-all"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
-

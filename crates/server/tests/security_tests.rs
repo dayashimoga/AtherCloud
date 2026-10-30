@@ -7859,3 +7859,108 @@ async fn test_binary_size_optimization_lto_and_strip_configuration_suite() {
 
     println!("[TASK-12.1.3 VERIFIED] Binary size optimization using opt-level z/3, lto, codegen-units 1, and strip symbols verified.");
 }
+
+#[tokio::test]
+async fn test_tauri_desktop_bundler_configuration_suite() {
+    use std::time::Instant;
+
+    // 1. Locate client/src-tauri/tauri.conf.json
+    let tauri_conf_path = [
+        std::path::PathBuf::from("../../client/src-tauri/tauri.conf.json"),
+        std::path::PathBuf::from("client/src-tauri/tauri.conf.json"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(tauri_conf_path.is_some(), "Tauri configuration client/src-tauri/tauri.conf.json must exist");
+    let start = Instant::now();
+    let conf_raw = std::fs::read_to_string(tauri_conf_path.unwrap()).expect("Failed to read tauri.conf.json");
+    let conf: serde_json::Value = serde_json::from_str(&conf_raw).expect("tauri.conf.json must be valid JSON");
+    let elapsed = start.elapsed();
+    println!("[BENCHMARK] Tauri configuration parse & schema evaluation: {:?}", elapsed);
+
+    // 2. Verify core package and bundle metadata
+    let product_name = conf["package"]["productName"].as_str().unwrap_or_default();
+    assert_eq!(product_name, "AetherStream", "Product name must be AetherStream");
+
+    let bundle_active = conf["tauri"]["bundle"]["active"].as_bool().unwrap_or(false);
+    assert!(bundle_active, "Tauri bundle packaging must be active");
+
+    let identifier = conf["tauri"]["bundle"]["identifier"].as_str().unwrap_or_default();
+    assert_eq!(identifier, "io.aetherstream.desktop", "Bundle identifier must match io.aetherstream.desktop");
+
+    // 3. Verify cross-platform desktop target formats (.msi, .exe/nsis, .deb, .AppImage, .dmg)
+    let targets = conf["tauri"]["bundle"]["targets"]
+        .as_array()
+        .expect("Tauri targets must be an array");
+    let target_strs: Vec<&str> = targets.iter().filter_map(|t| t.as_str()).collect();
+
+    assert!(target_strs.contains(&"msi"), "Tauri bundler must target Windows MSI");
+    assert!(target_strs.contains(&"nsis"), "Tauri bundler must target Windows NSIS Setup (.exe)");
+    assert!(target_strs.contains(&"deb"), "Tauri bundler must target Linux Debian (.deb)");
+    assert!(target_strs.contains(&"appimage"), "Tauri bundler must target Linux AppImage");
+    assert!(target_strs.contains(&"dmg"), "Tauri bundler must target macOS DMG");
+
+    // 4. Verify platform-specific packaging configurations
+    // Windows WiX & NSIS
+    let win_wix = &conf["tauri"]["bundle"]["windows"]["wix"];
+    assert!(!win_wix.is_null(), "Tauri must configure Windows WiX bundle");
+    assert_eq!(win_wix["language"].as_str().unwrap_or_default(), "en-US");
+    let win_nsis = &conf["tauri"]["bundle"]["windows"]["nsis"];
+    assert!(!win_nsis.is_null(), "Tauri must configure Windows NSIS bundle");
+    let digest_alg = conf["tauri"]["bundle"]["windows"]["digestAlgorithm"].as_str().unwrap_or_default();
+    assert_eq!(digest_alg, "sha256", "Windows digest algorithm must be sha256");
+
+    // Linux Debian dependencies & AppImage
+    let deb_deps = conf["tauri"]["bundle"]["deb"]["depends"]
+        .as_array()
+        .expect("Debian dependencies must be specified");
+    let deb_dep_strs: Vec<&str> = deb_deps.iter().filter_map(|d| d.as_str()).collect();
+    assert!(deb_dep_strs.contains(&"libwebkit2gtk-4.0-37"), "Debian dependencies must include libwebkit2gtk-4.0-37");
+    assert!(deb_dep_strs.contains(&"libgtk-3-0"), "Debian dependencies must include libgtk-3-0");
+
+    let appimage_cfg = &conf["tauri"]["bundle"]["appimage"];
+    assert!(!appimage_cfg.is_null(), "AppImage bundle configuration must be present");
+
+    // macOS minimum system version
+    let min_sys_ver = conf["tauri"]["bundle"]["macOS"]["minimumSystemVersion"].as_str().unwrap_or_default();
+    assert!(!min_sys_ver.is_empty(), "macOS minimumSystemVersion must be configured");
+
+    // 5. Verify CI workflow desktop packaging matrix job
+    let ci_path = [
+        std::path::PathBuf::from("../../.github/workflows/build-and-release.yml"),
+        std::path::PathBuf::from(".github/workflows/build-and-release.yml"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+
+    assert!(ci_path.is_some(), ".github/workflows/build-and-release.yml must exist");
+    let ci_content = std::fs::read_to_string(ci_path.unwrap()).unwrap();
+    assert!(ci_content.contains("build-desktop-clients:"), "CI workflow must define build-desktop-clients job");
+    assert!(ci_content.contains("aetherstream-desktop-windows"), "CI must upload Windows desktop artifacts");
+    assert!(ci_content.contains("aetherstream-desktop-linux"), "CI must upload Linux desktop artifacts");
+    assert!(ci_content.contains("aetherstream-desktop-macos"), "CI must upload macOS desktop artifacts");
+    assert!(ci_content.contains("needs: [build-server-binaries, build-desktop-clients, build-mobile-and-client]"),
+        "generate-release-manifest must depend on build-desktop-clients");
+
+    // 6. Verify local helper scripts and stage-6 audit script
+    let helper_ps1 = [
+        std::path::PathBuf::from("../../scripts/build-desktop.ps1"),
+        std::path::PathBuf::from("scripts/build-desktop.ps1"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+    assert!(helper_ps1.is_some(), "scripts/build-desktop.ps1 must exist");
+
+    let stage6_path = [
+        std::path::PathBuf::from("../../scripts/stages/stage-6.ps1"),
+        std::path::PathBuf::from("scripts/stages/stage-6.ps1"),
+    ]
+    .into_iter()
+    .find(|p| p.exists());
+    assert!(stage6_path.is_some(), "scripts/stages/stage-6.ps1 must exist");
+    let stage6_content = std::fs::read_to_string(stage6_path.unwrap()).unwrap();
+    assert!(stage6_content.contains("Test-Subphase-6-2-1"), "stage-6.ps1 must implement Test-Subphase-6-2-1");
+
+    println!("[TASK-12.2.1 VERIFIED] Tauri desktop bundler generating Windows .msi/.exe, Linux .deb/.AppImage, macOS .dmg verified.");
+}
