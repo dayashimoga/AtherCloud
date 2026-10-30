@@ -10,7 +10,7 @@ use axum::{
 use clap::Parser;
 use serde::Deserialize;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
@@ -27,9 +27,11 @@ use config::ServerConfig;
 use security::hmac_auth::HmacTokenValidator;
 use security::ProblemDetails;
 use storage::disk_watcher::DiskWatcher;
-use storage::mounts::MountRegistry;
+use storage::mount_manager::{MountManager, PermissionMode, ShareRuleRecord, VirtualMountRecord};
+use storage::mounts::{MountPermission, MountRegistry};
 use storage::stream::RangeRequestEngine;
 use storage::upload::ResumableUploadManager;
+use storage::volume_info::VolumeInspector;
 use transcode::pipeline::{HardwareAccel, TranscodePipeline};
 
 #[derive(Parser, Debug)]
@@ -49,6 +51,7 @@ struct CliArgs {
 pub struct AppState {
     pub config: ServerConfig,
     pub mounts: Arc<MountRegistry>,
+    pub mount_manager: Arc<MountManager>,
     pub hw_accel: HardwareAccel,
     pub upload_manager: Arc<ResumableUploadManager>,
     pub disk_watcher: Arc<DiskWatcher>,
@@ -100,6 +103,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("OS Storage Bus & Hot-Plug Event Watcher active");
     }
 
+    let db_path = config.scratch_dir.join("mounts.db");
+    let mount_manager = Arc::new(
+        MountManager::new(&db_path)
+            .unwrap_or_else(|_| MountManager::in_memory().expect("In-memory MountManager")),
+    );
+
+    // Sync persisted SQLite mounts into in-memory MountRegistry
+    if let Ok(persisted_mounts) = mount_manager.list_mounts() {
+        for m in persisted_mounts {
+            let perm = match m.permission_mode {
+                PermissionMode::StreamOnly => MountPermission::StreamOnly,
+                PermissionMode::ReadOnly => MountPermission::Read,
+                PermissionMode::ReadWrite => MountPermission::Write,
+            };
+            let subpaths = m.allowed_subpaths.into_iter().map(PathBuf::from).collect();
+            let _ = mounts.register_with_whitelist(
+                &m.name,
+                PathBuf::from(m.physical_path),
+                perm,
+                subpaths,
+                None,
+            );
+        }
+    }
+
     let mounts_arc = Arc::new(mounts);
     DiskWatcher::spawn_storage_event_dispatcher(disk_watcher.clone(), mounts_arc.clone());
 
@@ -107,7 +135,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_state = AppState {
         config: config.clone(),
-        mounts: mounts_arc,
+        mounts: mounts_arc.clone(),
+        mount_manager: mount_manager.clone(),
         hw_accel,
         upload_manager,
         disk_watcher,
@@ -118,6 +147,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
+
+    let storage_api_state =
+        storage::StorageApiState::new(mounts_arc.clone(), mount_manager.clone());
+    let storage_routes = storage::storage_api_router(storage_api_state);
 
     // Assemble Axum Router
     let mut app = Router::new()
@@ -150,9 +183,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let app = app
+        .with_state(app_state)
+        .merge(storage_routes)
         .layer(cors)
-        .layer(TraceLayer::new_for_http())
-        .with_state(app_state);
+        .layer(TraceLayer::new_for_http());
 
     let bind_addr: SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
     info!("AetherStream Server listening on http://{}", bind_addr);
@@ -182,7 +216,7 @@ async fn list_mounts_handler(State(state): State<AppState>) -> Json<serde_json::
 }
 
 async fn system_drives_handler() -> Json<serde_json::Value> {
-    let drives = MountRegistry::discover_detailed_drives();
+    let drives = VolumeInspector::inspect_volumes();
     Json(serde_json::json!({
         "drives": drives
     }))

@@ -1278,3 +1278,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `TokenAuthority` in `crates/server/src/security/hmac_auth.rs` executing constant-time HMAC-SHA256 signature verification via `mac.verify_slice` (eliminating timing side-channels). Implemented URL-safe unpadded Base64URL scoped token generation and validation, path-component-aware scope boundary enforcement (preventing partial string prefix leaks), granular `TokenPermission` modes (`StreamOnly`, `ReadOnly`, `ReadWrite`), and nonce-based replay shielding. Preserved seamless backwards compatibility for legacy colon-delimited and opaque hex token formats through `HmacTokenValidator`. Verified via `test_constant_time_hmac_scoped_token_authority_and_timing_defense`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_CONSTANT_TIME_HMAC_016
 - **Executor:** Principal Security Architect & Systems Engineer
+
+### [2026-10-30T08:35:00Z] - STAGE_8 / PHASE_8.3 / SUBPHASE_8.3.2
+- **Stage ID:** STAGE_8 (Granular Security Sandbox, Scoped RBAC & Virtual Mount Configuration)
+- **Phase ID:** PHASE_8.3 (Cryptographic Token Authority & REST Management APIs)
+- **Subphase ID:** SUBPHASE_8.3.2 (Axum REST API Endpoints for Drives, Mounts & Shares Management)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/storage/rest_api.rs`
+  - `crates/server/src/storage/mod.rs`
+  - `crates/server/src/storage/mount_manager.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered Axum REST API endpoints in `crates/server/src/storage/rest_api.rs` and wired them into daemon routing (`GET /api/v1/storage/drives`, `GET/POST/DELETE /api/v1/storage/mounts`, `GET/PUT/DELETE /api/v1/storage/mounts/:id`, `GET/POST/DELETE /api/v1/storage/shares`). Enforced OS-critical path quarantine boundary defenses returning HTTP 403 Forbidden with RFC 7807 ProblemDetails payloads without disclosing host filesystem metadata. Handled conflict detection, dynamic unregistration from live `MountRegistry`, and dual SQLite WAL persistence. Verified via `test_storage_drives_mounts_and_shares_rest_api`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_STORAGE_REST_API_017
+- **Executor:** Principal Security Architect & Systems Engineer

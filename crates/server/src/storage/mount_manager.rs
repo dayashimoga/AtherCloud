@@ -18,6 +18,34 @@ pub enum MountManagerError {
     NotFound(String),
 }
 
+impl axum::response::IntoResponse for MountManagerError {
+    fn into_response(self) -> axum::response::Response {
+        let problem = match &self {
+            MountManagerError::NotFound(m) => crate::security::ProblemDetails::mount_not_found(m, None),
+            MountManagerError::InvalidPermission(p) => crate::security::ProblemDetails::new(
+                axum::http::StatusCode::BAD_REQUEST,
+                "https://aetherstream.dev/errors/invalid-permission",
+                "Invalid Permission Mode",
+                format!("Invalid permission mode '{}': must be 'stream_only', 'read_only', or 'read_write'", p),
+            ).with_code("INVALID_PERMISSION"),
+            MountManagerError::Sqlite(e) => {
+                tracing::error!("SQLite error: {}", e);
+                crate::security::ProblemDetails::internal_io_error(None)
+            }
+            MountManagerError::Json(e) => {
+                tracing::error!("JSON serialization error: {}", e);
+                crate::security::ProblemDetails::new(
+                    axum::http::StatusCode::BAD_REQUEST,
+                    "https://aetherstream.dev/errors/malformed-json",
+                    "Malformed JSON Payload",
+                    "Failed to parse or serialize JSON payload.",
+                ).with_code("MALFORMED_JSON")
+            }
+        };
+        problem.into_response()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CachedMountRoute {
     pub mount_id: String,

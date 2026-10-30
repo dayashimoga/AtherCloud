@@ -845,3 +845,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Security Architect & Systems Engineer
 - **Execution Trace:** cargo test --test security_tests test_constant_time_hmac_scoped_token_authority_and_timing_defense
 - **Validation Proof:** Engineered TokenAuthority in crates/server/src/security/hmac_auth.rs with constant-time HMAC-SHA256 signature verification (mac.verify_slice), URL-safe Base64URL scoped token generation, path component boundary scoping, granular TokenPermission modes (StreamOnly, ReadOnly, ReadWrite), and nonce-based replay shielding. Backwards compatibility maintained for HmacTokenValidator. All 34 integration tests passed.
+
+### [2026-10-30T08:35:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-8.3.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Security Architect & Systems Engineer
+- **Execution Trace:** cargo test --test security_tests test_storage_drives_mounts_and_shares_rest_api
+- **Validation Proof:** Engineered Axum REST API endpoints in crates/server/src/storage/rest_api.rs and wired into daemon routing (GET /api/v1/storage/drives, GET/POST/DELETE /api/v1/storage/mounts, GET/PUT/DELETE /api/v1/storage/mounts/:id, GET/POST/DELETE /api/v1/storage/shares). Enforced OS-critical path quarantine boundary defenses returning HTTP 403 Forbidden with RFC 7807 ProblemDetails without leaking host filesystem metadata. Verified dual SQLite WAL and in-memory MountRegistry persistence, dynamic unregistering, and lifecycle management via test_storage_drives_mounts_and_shares_rest_api. All 35 integration tests passed.

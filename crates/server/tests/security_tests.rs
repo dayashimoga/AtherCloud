@@ -2916,3 +2916,267 @@ async fn test_constant_time_hmac_scoped_token_authority_and_timing_defense() {
 
     println!("[TASK-8.3.1 VERIFIED] Constant-time HMAC-SHA256 scoped token generator and validator verified.");
 }
+
+#[tokio::test]
+async fn test_storage_drives_mounts_and_shares_rest_api() {
+    use aetherstream_server::storage::{
+        storage_api_router, CreateMountRequest, CreateShareRuleRequest, MountManager,
+        MountRegistry, StorageApiState, UpdateMountRequest,
+    };
+    use axum::body::to_bytes;
+    use axum::http::{header, Request, StatusCode};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_mounts.db");
+    let physical_root = temp_dir.path().join("media_root");
+    std::fs::create_dir_all(&physical_root).unwrap();
+
+    let mount_manager = Arc::new(MountManager::new(&db_path).unwrap());
+    let mounts = Arc::new(MountRegistry::new());
+    let state = StorageApiState::new(mounts.clone(), mount_manager.clone());
+    let app = storage_api_router(state);
+
+    // 1. GET /api/v1/storage/drives
+    let req = Request::builder()
+        .uri("/api/v1/storage/drives")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.get("drives").is_some());
+    assert!(json["drives"].is_array());
+
+    // 2. POST /api/v1/storage/mounts (Register new virtual mount)
+    let create_payload = CreateMountRequest {
+        id: "mnt_alpha".to_string(),
+        name: "alpha_vault".to_string(),
+        physical_path: physical_root.to_string_lossy().to_string(),
+        permission_mode: Some("read_write".to_string()),
+        allowed_subpaths: Some(vec!["movies".to_string(), "series".to_string()]),
+        drive_serial: Some("DRV-9988".to_string()),
+        description: Some("Alpha Vault Storage".to_string()),
+        expiration_ts: Some(1900000000),
+        password: Some("secret123".to_string()),
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/storage/mounts")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&create_payload).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["mount"]["id"], "mnt_alpha");
+    assert_eq!(json["mount"]["name"], "alpha_vault");
+    assert_eq!(json["mount"]["permission_mode"], "read_write");
+
+    // Verify mount in SQLite WAL and live MountRegistry
+    let persisted = mount_manager.get_mount("mnt_alpha").unwrap().expect("persisted in SQLite");
+    assert_eq!(persisted.name, "alpha_vault");
+    assert!(mounts.check_write_permission("alpha_vault").is_ok());
+
+    // 3. GET /api/v1/storage/mounts (List mounts)
+    let req = Request::builder()
+        .uri("/api/v1/storage/mounts")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let mounts_arr = json["mounts"].as_array().expect("array of mounts");
+    assert!(mounts_arr.iter().any(|m| m["id"] == "mnt_alpha"));
+
+    // 4. GET /api/v1/storage/mounts/:id (Lookup by ID and by Name)
+    let req = Request::builder()
+        .uri("/api/v1/storage/mounts/mnt_alpha")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let req_name = Request::builder()
+        .uri("/api/v1/storage/mounts/alpha_vault")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp_name = app.clone().oneshot(req_name).await.unwrap();
+    assert_eq!(resp_name.status(), StatusCode::OK);
+
+    // 404 on unknown mount
+    let req_missing = Request::builder()
+        .uri("/api/v1/storage/mounts/nonexistent_mount")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp_missing = app.clone().oneshot(req_missing).await.unwrap();
+    assert_eq!(resp_missing.status(), StatusCode::NOT_FOUND);
+    assert_eq!(resp_missing.headers().get(header::CONTENT_TYPE).unwrap(), "application/problem+json");
+    let body_missing = to_bytes(resp_missing.into_body(), usize::MAX).await.unwrap();
+    let prob: serde_json::Value = serde_json::from_slice(&body_missing).unwrap();
+    assert_eq!(prob["code"], "MOUNT_NOT_FOUND");
+
+    // 5. PUT /api/v1/storage/mounts/:id (Update mount configuration)
+    let update_payload = UpdateMountRequest {
+        name: Some("beta_vault".to_string()),
+        physical_path: None,
+        permission_mode: Some("read_only".to_string()),
+        allowed_subpaths: Some(vec!["movies".to_string()]),
+        description: Some("Beta Vault Renamed".to_string()),
+        expiration_ts: Some(1950000000),
+    };
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/api/v1/storage/mounts/mnt_alpha")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&update_payload).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["mount"]["name"], "beta_vault");
+    assert_eq!(json["mount"]["permission_mode"], "read_only");
+
+    // Verify unmounted old name and mounted new name with read-only
+    assert!(mounts.check_write_permission("alpha_vault").is_err());
+    assert!(mounts.check_write_permission("beta_vault").is_err()); // Now read_only
+    assert!(mounts.check_stream_permission("beta_vault").is_ok());
+
+    // 6. POST /api/v1/storage/shares (Create share rule)
+    let share_payload = CreateShareRuleRequest {
+        id: "share_001".to_string(),
+        name: "Public Trailer Share".to_string(),
+        physical_path: physical_root.to_string_lossy().to_string(),
+        permission_mode: Some("stream_only".to_string()),
+        allowed_subpaths: Some(vec!["trailer.mp4".to_string()]),
+        drive_serial: Some("DRV-9988".to_string()),
+        expiration_ts: Some(2000000000),
+        password: Some("sharepass".to_string()),
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/storage/shares")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&share_payload).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["share"]["id"], "share_001");
+    assert_eq!(json["share"]["permission_mode"], "stream_only");
+
+    // 7. GET /api/v1/storage/shares (List share rules)
+    let req = Request::builder()
+        .uri("/api/v1/storage/shares")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let shares_arr = json["shares"].as_array().expect("array of shares");
+    assert!(shares_arr.iter().any(|s| s["id"] == "share_001"));
+
+    // 8. DELETE /api/v1/storage/shares/:id (Delete share rule)
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/api/v1/storage/shares/share_001")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Delete again returns 404
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/api/v1/storage/shares/share_001")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["code"], "SHARE_NOT_FOUND");
+
+    // 9. DELETE /api/v1/storage/mounts/:id (Delete mount)
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/api/v1/storage/mounts/mnt_alpha")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Verify deleted in SQLite and unmounted in live registry
+    assert!(mount_manager.get_mount("mnt_alpha").unwrap().is_none());
+    assert!(mounts.check_stream_permission("beta_vault").is_err());
+
+    // Delete again returns 404
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/api/v1/storage/mounts/mnt_alpha")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    // 10. Security Boundary Rejection: Quarantined System Paths
+    #[cfg(windows)]
+    let quarantined_target = "C:\\Windows\\System32";
+    #[cfg(not(windows))]
+    let quarantined_target = "/etc";
+
+    let bad_mount_payload = CreateMountRequest {
+        id: "mnt_danger".to_string(),
+        name: "danger_mount".to_string(),
+        physical_path: quarantined_target.to_string(),
+        permission_mode: Some("read_only".to_string()),
+        allowed_subpaths: None,
+        drive_serial: None,
+        description: None,
+        expiration_ts: None,
+        password: None,
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/storage/mounts")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&bad_mount_payload).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(resp.headers().get(header::CONTENT_TYPE).unwrap(), "application/problem+json");
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let prob: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(prob["code"], "PATH_QUARANTINED");
+    assert_eq!(prob["type"], "https://aetherstream.dev/errors/path-quarantined");
+
+    // Also test quarantined target on share rule creation
+    let bad_share_payload = CreateShareRuleRequest {
+        id: "share_danger".to_string(),
+        name: "Danger Share".to_string(),
+        physical_path: quarantined_target.to_string(),
+        permission_mode: Some("stream_only".to_string()),
+        allowed_subpaths: None,
+        drive_serial: None,
+        expiration_ts: None,
+        password: None,
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/storage/shares")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&bad_share_payload).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(resp.headers().get(header::CONTENT_TYPE).unwrap(), "application/problem+json");
+
+    println!("[TASK-8.3.2 VERIFIED] Storage drives, virtual mounts, and shares REST API successfully verified.");
+}
