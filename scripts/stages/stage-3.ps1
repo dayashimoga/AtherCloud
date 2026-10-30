@@ -113,10 +113,16 @@ function Test-Subphase-3-2-3 {
     Write-AetherLog "INFO" "Auditing Subphase 3.2.3: Audio Pass-Through & Stereo Downmixing..."
     $pipelineFile = Join-Path $Script:RepoRoot "crates/server/src/transcode/pipeline.rs"
     $content = Get-Content $pipelineFile -Raw
-    if (-not ($content -match "-c:a" -and $content -match "aac")) {
+    if (-not ($content -match "-c:a" -and $content -match "aac" -and $content -match "AudioTranscodeStrategy")) {
         throw "Audio transcoding or downmixing flags missing in pipeline.rs!"
     }
-    Write-AetherLog "SUCCESS" "Audio stereo AAC downmixing verified for universal browser playback."
+
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $testOut = cargo test --test security_tests test_audio_passthrough_and_stereo_downmix -- --nocapture 2>&1
+    $ErrorActionPreference = $prev
+    if ($LASTEXITCODE -ne 0) { throw "Audio transcode and downmix test failed: $testOut" }
+
+    Write-AetherLog "SUCCESS" "Audio pass-through and dynamic 5.1/7.1 stereo AAC downmixing verified for universal browser playback."
     return $true
 }
 

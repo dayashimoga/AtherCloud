@@ -877,3 +877,96 @@ fn test_jit_segmenter_and_lru_ring_buffer() {
     assert_eq!(ring.len(), 0);
     assert!(ring.is_empty());
 }
+
+#[test]
+fn test_audio_passthrough_and_stereo_downmix() {
+    use aetherstream_server::transcode::pipeline::{
+        AudioTranscodeStrategy, HardwareAccel, MediaMetadata, TranscodePipeline,
+    };
+    use aetherstream_server::transcode::profiles::STANDARD_RENDITION_LADDER;
+    use std::path::Path;
+
+    let profile = &STANDARD_RENDITION_LADDER[1]; // 720p_med (audio bitrate: 128 kbps)
+
+    // 1. Stereo AAC source -> PassThrough (-c:a copy)
+    let meta_aac_stereo = MediaMetadata {
+        container: "mp4".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(1280),
+        height: Some(720),
+        framerate: Some(30.0),
+        bitrate_kbps: Some(2500),
+        audio_codec: Some("aac".to_string()),
+        audio_channels: Some(2),
+        gop_size: Some(60),
+        duration_secs: Some(100.0),
+    };
+    let strat_passthrough = AudioTranscodeStrategy::determine(&meta_aac_stereo);
+    assert_eq!(strat_passthrough, AudioTranscodeStrategy::PassThrough);
+    assert_eq!(strat_passthrough.ffmpeg_flags(128), vec!["-c:a", "copy"]);
+
+    let args_pt = TranscodePipeline::build_ffmpeg_args_with_metadata(
+        Path::new("video.mp4"),
+        Path::new("/tmp/hls"),
+        HardwareAccel::Nvenc,
+        profile,
+        &meta_aac_stereo,
+    );
+    assert!(args_pt.contains(&"-c:a".to_string()));
+    assert!(args_pt.contains(&"copy".to_string()));
+
+    // 2. 5.1 Surround sound source (e.g. AC-3 6 channels) -> DownmixSurroundToStereo
+    let meta_5_1 = MediaMetadata {
+        container: "mkv".to_string(),
+        video_codec: Some("hevc".to_string()),
+        width: Some(1920),
+        height: Some(1080),
+        framerate: Some(24.0),
+        bitrate_kbps: Some(8000),
+        audio_codec: Some("ac3".to_string()),
+        audio_channels: Some(6),
+        gop_size: Some(48),
+        duration_secs: Some(5000.0),
+    };
+    let strat_5_1 = AudioTranscodeStrategy::determine(&meta_5_1);
+    assert_eq!(strat_5_1, AudioTranscodeStrategy::DownmixSurroundToStereo);
+
+    let flags_5_1 = strat_5_1.ffmpeg_flags(128);
+    assert!(flags_5_1.contains(&"-c:a".to_string()));
+    assert!(flags_5_1.contains(&"aac".to_string()));
+    assert!(flags_5_1.contains(&"-ac".to_string()));
+    assert!(flags_5_1.contains(&"2".to_string()));
+    assert!(flags_5_1.contains(&"-af".to_string()));
+    assert!(flags_5_1.contains(&"aresample=matrix_encoding=dplii".to_string()));
+
+    let args_5_1 = TranscodePipeline::build_ffmpeg_args_with_metadata(
+        Path::new("movie.mkv"),
+        Path::new("/tmp/hls"),
+        HardwareAccel::Nvenc,
+        profile,
+        &meta_5_1,
+    );
+    assert!(args_5_1.contains(&"aresample=matrix_encoding=dplii".to_string()));
+
+    // 3. 7.1 Surround sound source (8 channels) -> DownmixSurroundToStereo
+    let mut meta_7_1 = meta_5_1.clone();
+    meta_7_1.audio_channels = Some(8);
+    let strat_7_1 = AudioTranscodeStrategy::determine(&meta_7_1);
+    assert_eq!(strat_7_1, AudioTranscodeStrategy::DownmixSurroundToStereo);
+
+    // 4. Stereo Opus or FLAC source -> TranscodeToStereoAac
+    let mut meta_flac = meta_aac_stereo.clone();
+    meta_flac.audio_codec = Some("flac".to_string());
+    let strat_flac = AudioTranscodeStrategy::determine(&meta_flac);
+    assert_eq!(strat_flac, AudioTranscodeStrategy::TranscodeToStereoAac);
+    let flags_flac = strat_flac.ffmpeg_flags(128);
+    assert!(flags_flac.contains(&"aac".to_string()));
+    assert!(!flags_flac.contains(&"aresample=matrix_encoding=dplii".to_string()));
+
+    // 5. Video with no audio -> NoAudio (-an)
+    let mut meta_silent = meta_aac_stereo.clone();
+    meta_silent.audio_codec = None;
+    let strat_silent = AudioTranscodeStrategy::determine(&meta_silent);
+    assert_eq!(strat_silent, AudioTranscodeStrategy::NoAudio);
+    assert_eq!(strat_silent.ffmpeg_flags(128), vec!["-an"]);
+}

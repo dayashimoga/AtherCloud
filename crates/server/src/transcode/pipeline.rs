@@ -99,6 +99,69 @@ impl LruSegmentRingBuffer {
     }
 }
 
+/// Strategy for processing media audio during adaptive bitrate streaming
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AudioTranscodeStrategy {
+    /// Audio is already stereo AAC; copy directly with zero CPU transcoding overhead
+    PassThrough,
+    /// Multi-channel surround sound (5.1 or 7.1) downmixed to 2-channel stereo AAC
+    DownmixSurroundToStereo,
+    /// Non-AAC stereo codec (e.g. MP3, Opus, FLAC, AC-3) transcoded to standard AAC
+    TranscodeToStereoAac,
+    /// Source media has no audio track
+    NoAudio,
+}
+
+impl AudioTranscodeStrategy {
+    /// Determines the optimal audio processing strategy given media metadata
+    pub fn determine(meta: &MediaMetadata) -> Self {
+        let codec = match meta.audio_codec.as_deref() {
+            Some(c) => c.to_lowercase(),
+            None => return AudioTranscodeStrategy::NoAudio,
+        };
+        let channels = meta.audio_channels.unwrap_or(2);
+
+        if channels > 2 {
+            AudioTranscodeStrategy::DownmixSurroundToStereo
+        } else if codec == "aac" || codec == "mp4a" {
+            AudioTranscodeStrategy::PassThrough
+        } else {
+            AudioTranscodeStrategy::TranscodeToStereoAac
+        }
+    }
+
+    /// Emits FFmpeg CLI switches implementing this audio strategy
+    pub fn ffmpeg_flags(&self, target_bitrate_kbps: u32) -> Vec<String> {
+        match self {
+            AudioTranscodeStrategy::PassThrough => vec![
+                "-c:a".to_string(),
+                "copy".to_string(),
+            ],
+            AudioTranscodeStrategy::DownmixSurroundToStereo => vec![
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-b:a".to_string(),
+                format!("{}k", target_bitrate_kbps.min(192)),
+                "-ac".to_string(),
+                "2".to_string(),
+                "-af".to_string(),
+                "aresample=matrix_encoding=dplii".to_string(),
+            ],
+            AudioTranscodeStrategy::TranscodeToStereoAac => vec![
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-b:a".to_string(),
+                format!("{}k", target_bitrate_kbps),
+                "-ac".to_string(),
+                "2".to_string(),
+            ],
+            AudioTranscodeStrategy::NoAudio => vec![
+                "-an".to_string(),
+            ],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HardwareAccel {
     Nvenc,
@@ -507,6 +570,36 @@ impl TranscodePipeline {
         accel: HardwareAccel,
         profile: &RenditionProfile,
     ) -> Vec<String> {
+        Self::build_ffmpeg_args_with_strategy(
+            input_file,
+            output_dir,
+            accel,
+            profile,
+            AudioTranscodeStrategy::TranscodeToStereoAac,
+        )
+    }
+
+    /// Builds FFmpeg command arguments using source MediaMetadata to automatically determine
+    /// whether audio pass-through or dynamic 5.1/7.1 stereo downmixing should be engaged.
+    pub fn build_ffmpeg_args_with_metadata(
+        input_file: &Path,
+        output_dir: &Path,
+        accel: HardwareAccel,
+        profile: &RenditionProfile,
+        meta: &MediaMetadata,
+    ) -> Vec<String> {
+        let strategy = AudioTranscodeStrategy::determine(meta);
+        Self::build_ffmpeg_args_with_strategy(input_file, output_dir, accel, profile, strategy)
+    }
+
+    /// Builds FFmpeg command arguments with an explicit AudioTranscodeStrategy
+    pub fn build_ffmpeg_args_with_strategy(
+        input_file: &Path,
+        output_dir: &Path,
+        accel: HardwareAccel,
+        profile: &RenditionProfile,
+        audio_strategy: AudioTranscodeStrategy,
+    ) -> Vec<String> {
         let segment_pattern = output_dir.join(format!("{}_%05d.ts", profile.tag));
         let playlist_path = output_dir.join("index.m3u8");
 
@@ -550,15 +643,8 @@ impl TranscodePipeline {
             "veryfast".to_string(),
         ]);
 
-        // Audio codec
-        args.extend(vec![
-            "-c:a".to_string(),
-            "aac".to_string(),
-            "-b:a".to_string(),
-            format!("{}k", profile.audio_bitrate_kbps),
-            "-ac".to_string(),
-            "2".to_string(),
-        ]);
+        // Audio flags driven by dynamic transcode strategy
+        args.extend(audio_strategy.ffmpeg_flags(profile.audio_bitrate_kbps));
 
         // HLS packaging arguments
         args.extend(vec![
