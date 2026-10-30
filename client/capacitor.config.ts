@@ -1,4 +1,14 @@
-import { CapacitorConfig } from "@capacitor/cli";
+export interface CapacitorConfig {
+  appId: string;
+  appName: string;
+  webDir: string;
+  server?: {
+    androidScheme?: string;
+    cleartext?: boolean;
+    url?: string;
+  };
+  plugins?: Record<string, any>;
+}
 
 const config: CapacitorConfig = {
   appId: "io.aetherstream.app",
