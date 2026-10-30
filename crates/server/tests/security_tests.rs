@@ -1216,5 +1216,20 @@ fn test_cross_platform_volume_inspector() {
         assert!(v.total_bytes > 0, "Volume {} must have total_bytes > 0", v.name);
         assert!(!v.name.is_empty(), "Volume must have a non-empty name");
         assert!(!v.filesystem.is_empty(), "Volume {} must have filesystem info", v.name);
+        assert!(v.available_bytes <= v.total_bytes, "Available bytes must be <= total bytes for {}", v.name);
+        assert!(v.mount_point.exists(), "Mount point {:?} must exist on host", v.mount_point);
+
+        println!(
+            "[VOLUME PROBED] Name: {} | Mount: {:?} | FS: {} | Label: {:?} | Cap: {:.2} GB / {:.2} GB | Removable: {} | Type: {:?} | Serial: {:?}",
+            v.name,
+            v.mount_point,
+            v.filesystem,
+            v.filesystem_label,
+            (v.available_bytes as f64) / 1_000_000_000.0,
+            (v.total_bytes as f64) / 1_000_000_000.0,
+            v.is_removable,
+            v.media_type,
+            v.serial_number
+        );
     }
 }

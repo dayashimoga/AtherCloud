@@ -1031,3 +1031,18 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Integrated `sysinfo v0.40` and native Win32/Unix storage inspection APIs (`GetDriveTypeW`, `GetVolumeInformationW`, `GetDiskFreeSpaceExW`, `GetLogicalDrives`) in `VolumeInspector`. Rewired `MountRegistry::discover_detailed_drives()` to dynamically probe physical volumes, serial numbers, disk geometry, and media types instead of static drive letter heuristics. Validated via `test_cross_platform_volume_inspector`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_VOLUME_INSPECTOR_001
 - **Executor:** Principal Systems & Rust Distributed Storage Engineer
+
+### [2026-10-30T05:12:00Z] - STAGE_7 / PHASE_7.1 / SUBPHASE_7.1.2
+- **Stage ID:** STAGE_7 (Core Daemon Refactor, OS Storage Bus & Dynamic Mount Engine)
+- **Phase ID:** PHASE_7.1 (Asynchronous Host Storage Discovery Engine)
+- **Subphase ID:** SUBPHASE_7.1.2 (Extract Volume Filesystem Labels, Serials, Capacity & Media Types)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/Cargo.toml`
+  - `crates/server/src/storage/volume_info.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Enhanced `VolumeInspector` with hardware-level storage bus inspection via `DeviceIoControl` (`IOCTL_STORAGE_QUERY_PROPERTY`), extracting physical bus types (`BusTypeNvme`, `BusTypeSata`, `BusTypeUsb`, `BusTypeAtapi`), hardware drive serial numbers, volume labels via `GetVolumeInformationW`, and total/available capacity metrics with Linux `/sys/block` rotational/removable checks. Verified via integration test `test_cross_platform_volume_inspector`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_VOLUME_METRICS_002
+- **Executor:** Principal Systems & Rust Distributed Storage Engineer

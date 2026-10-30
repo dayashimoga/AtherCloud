@@ -740,3 +740,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Systems & Rust Distributed Storage Engineer
 - **Execution Trace:** cargo test --test security_tests test_cross_platform_volume_inspector
 - **Validation Proof:** Implemented VolumeInspector combining sysinfo v0.40 and native OS APIs (GetDriveTypeW, GetVolumeInformationW, GetDiskFreeSpaceExW) extracting volume name, geometry, and storage media types. Passed test suite with exit code 0.
+
+### [2026-10-30T05:12:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-7.1.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Systems & Rust Distributed Storage Engineer
+- **Execution Trace:** cargo test --test security_tests test_cross_platform_volume_inspector
+- **Validation Proof:** Enhanced VolumeInspector with hardware-level storage query properties (DeviceIoControl IOCTL_STORAGE_QUERY_PROPERTY, GetVolumeInformationW), extracting filesystem labels, hardware serial numbers, bus media types (NvmeSsd, SataSsd, RemovableUsb, OpticalDrive), mount points, and exact total/available capacity. All assertions verified.
