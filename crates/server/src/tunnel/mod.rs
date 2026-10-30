@@ -1,5 +1,6 @@
 pub mod binary_manager;
 pub mod edge_router;
+pub mod heartbeat;
 pub mod mdns;
 pub mod supervisor;
 pub mod url_parser;
@@ -11,6 +12,10 @@ pub use binary_manager::{
 pub use edge_router::{
     edge_routing_middleware, is_loopback_ip, is_private_lan_ip, ClientNetworkContext,
     EdgeRoutingClassifier, EdgeRoutingConfig, IngressRouteDecision, IngressType,
+};
+pub use heartbeat::{
+    HeartbeatError, HeartbeatEvent, TunnelHealthState, TunnelHeartbeatConfig,
+    TunnelHeartbeatMetrics, TunnelHeartbeatWorker,
 };
 pub use mdns::{
     build_mdns_response, decode_dns_name, detect_local_ip, encode_dns_name, parse_mdns_query,

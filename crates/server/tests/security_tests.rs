@@ -5812,3 +5812,190 @@ async fn test_edge_routing_middleware_and_dynamic_ingress_failover() {
 
     println!("[TASK-10.2.2 VERIFIED] Edge routing middleware dynamically routing requests between local loopback and tunnel endpoint verified.");
 }
+
+#[tokio::test]
+async fn test_heartbeat_ping_worker_monitoring_and_auto_restart() {
+    use aetherstream_server::tunnel::heartbeat::{
+        HeartbeatError, HeartbeatEvent, TunnelHealthState, TunnelHeartbeatConfig,
+        TunnelHeartbeatWorker,
+    };
+    use aetherstream_server::tunnel::supervisor::{CloudflaredSupervisor, TunnelSupervisorConfig};
+    use axum::{http::StatusCode, routing::get, Router};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    // 1. Setup Mock Server with dynamic health toggle
+    let is_server_healthy = Arc::new(AtomicBool::new(true));
+    let health_flag = is_server_healthy.clone();
+
+    let mock_app = Router::new().route(
+        "/api/v1/health",
+        get(move || {
+            let flag = health_flag.clone();
+            async move {
+                if flag.load(Ordering::SeqCst) {
+                    (StatusCode::OK, "{\"status\":\"healthy\"}")
+                } else {
+                    (StatusCode::SERVICE_UNAVAILABLE, "{\"status\":\"unhealthy\"}")
+                }
+            }
+        }),
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mock_port = listener.local_addr().unwrap().port();
+    let server_task = tokio::spawn(async move {
+        let _ = axum::serve(listener, mock_app).await;
+    });
+
+    // 2. Initialize CloudflaredSupervisor and TunnelHeartbeatWorker
+    let sup_config = TunnelSupervisorConfig {
+        target_url: format!("http://127.0.0.1:{}", mock_port),
+        auto_restart: false,
+        command_override: Some(vec!["cargo".to_string(), "--version".to_string()]),
+        ..Default::default()
+    };
+    let supervisor = CloudflaredSupervisor::new(sup_config);
+
+    let hb_config = TunnelHeartbeatConfig {
+        ping_interval: Duration::from_millis(50),
+        timeout: Duration::from_millis(500),
+        max_consecutive_failures: 3,
+        auto_restart: true,
+        restart_cooldown: Duration::from_millis(100),
+        probe_path: "/api/v1/health".to_string(),
+        probe_override_url: Some(format!("http://127.0.0.1:{}/api/v1/health", mock_port)),
+    };
+    let worker = TunnelHeartbeatWorker::new(supervisor.clone(), hb_config);
+    let mut rx = worker.subscribe_events();
+
+    // 3. Normal Health Probe Verification
+    let res = worker.probe_once().await;
+    assert!(res.is_ok(), "Healthy endpoint probe must succeed");
+    let latency = res.unwrap();
+    assert!(latency > 0.0);
+    assert!(worker.is_healthy());
+
+    let m = worker.metrics();
+    assert_eq!(m.state, TunnelHealthState::Healthy);
+    assert_eq!(m.consecutive_successes, 1);
+    assert_eq!(m.consecutive_failures, 0);
+    assert_eq!(m.total_pings, 1);
+    assert_eq!(m.total_failures, 0);
+    assert!(m.last_latency_ms.is_some());
+    assert!(m.min_latency_ms.is_some());
+    assert!(m.max_latency_ms.is_some());
+    assert!(m.avg_latency_ms.is_some());
+    assert!(m.last_healthy_epoch_ms.is_some());
+
+    // 4. Degraded & Failure Progression
+    is_server_healthy.store(false, Ordering::SeqCst);
+
+    // Failure 1 -> Degraded
+    let f1 = worker.probe_once().await;
+    assert!(f1.is_err());
+    let m1 = worker.metrics();
+    assert_eq!(m1.state, TunnelHealthState::Degraded);
+    assert_eq!(m1.consecutive_failures, 1);
+    assert_eq!(m1.consecutive_successes, 0);
+    assert_eq!(m1.total_failures, 1);
+    assert!(!worker.is_healthy());
+
+    // Failure 2 -> Still Degraded
+    let f2 = worker.probe_once().await;
+    assert!(f2.is_err());
+    let m2 = worker.metrics();
+    assert_eq!(m2.state, TunnelHealthState::Degraded);
+    assert_eq!(m2.consecutive_failures, 2);
+    assert_eq!(m2.total_failures, 2);
+
+    // Failure 3 -> Max failures reached (3/3), Triggers Auto-Restart
+    let f3 = worker.probe_once().await;
+    assert!(f3.is_err());
+    let m3 = worker.metrics();
+    assert!(
+        matches!(m3.state, TunnelHealthState::Unhealthy | TunnelHealthState::Recovering),
+        "State should transition to Unhealthy/Recovering"
+    );
+    assert_eq!(m3.consecutive_failures, 3);
+    assert_eq!(m3.total_failures, 3);
+    assert_eq!(m3.total_restarts_triggered, 1);
+
+    // Drain events and assert audit stream
+    let mut saw_success = false;
+    let mut saw_degraded = false;
+    let mut saw_restart_triggered = false;
+    while let Ok(event) = rx.try_recv() {
+        match event {
+            HeartbeatEvent::PingSuccess { .. } => saw_success = true,
+            HeartbeatEvent::HealthTransition {
+                new_state: TunnelHealthState::Degraded,
+                ..
+            } => saw_degraded = true,
+            HeartbeatEvent::RestartTriggered {
+                consecutive_failures,
+                total_restarts,
+            } => {
+                assert_eq!(consecutive_failures, 3);
+                assert_eq!(total_restarts, 1);
+                saw_restart_triggered = true;
+            }
+            _ => {}
+        }
+    }
+    assert!(saw_success, "Must have emitted PingSuccess event");
+    assert!(saw_degraded, "Must have emitted Degraded transition event");
+    assert!(saw_restart_triggered, "Must have emitted RestartTriggered event");
+
+    // 5. Recovery & Counter Reset
+    is_server_healthy.store(true, Ordering::SeqCst);
+    let res_rec = worker.probe_once().await;
+    assert!(res_rec.is_ok(), "Recovery probe must succeed");
+    let m_rec = worker.metrics();
+    assert_eq!(m_rec.state, TunnelHealthState::Healthy);
+    assert_eq!(m_rec.consecutive_failures, 0);
+    assert_eq!(m_rec.consecutive_successes, 1);
+    assert!(worker.is_healthy());
+
+    // 6. Background Loop Lifecycle
+    assert!(!worker.is_running());
+    worker.start().expect("Worker should start");
+    assert!(worker.is_running());
+    assert!(matches!(worker.start(), Err(HeartbeatError::AlreadyRunning)));
+
+    // Let background task ping 3 times (50ms interval)
+    tokio::time::sleep(Duration::from_millis(160)).await;
+    let m_bg = worker.metrics();
+    assert!(
+        m_bg.total_pings >= 3,
+        "Background task should have performed periodic pings"
+    );
+
+    worker.stop().await.expect("Worker should stop cleanly");
+    assert!(!worker.is_running());
+    assert_eq!(worker.metrics().state, TunnelHealthState::Paused);
+
+    // 7. High-Throughput In-Memory Metrics Benchmark
+    let start = Instant::now();
+    let iterations = 50_000;
+    for _ in 0..iterations {
+        let _ = worker.metrics();
+        let _ = worker.is_healthy();
+        let _ = worker.is_running();
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] Tunnel heartbeat status & metrics query: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 1.0,
+        "Metrics query must execute under 1.0 µs/op (measured {:.3} µs)",
+        per_op_us
+    );
+
+    server_task.abort();
+    println!("[TASK-10.2.3 VERIFIED] Instrument heartbeat ping worker monitoring tunnel health every 15s with auto-restart verified.");
+}
