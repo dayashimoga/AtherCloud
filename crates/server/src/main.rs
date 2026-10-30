@@ -124,6 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/mounts", get(list_mounts_handler))
         .route("/api/v1/system/drives", get(system_drives_handler))
         .route("/api/v1/storage/events", get(storage_events_sse_handler))
+        .route("/api/v1/storage/telemetry", get(storage_telemetry_handler))
         .route("/api/v1/browse/:mount", get(browse_root_handler))
         .route("/api/v1/browse/:mount/*path", get(browse_path_handler))
         .route("/api/v1/stream/:mount/*path", get(stream_file_handler))
@@ -506,4 +507,9 @@ async fn storage_events_sse_handler(
         .header(axum::http::header::CONNECTION, "keep-alive")
         .body(axum::body::Body::from_stream(stream))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+async fn storage_telemetry_handler() -> Response {
+    let snapshot = storage::StorageTelemetryEngine::global().snapshot();
+    (StatusCode::OK, Json(snapshot)).into_response()
 }

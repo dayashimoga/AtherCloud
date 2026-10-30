@@ -1763,3 +1763,90 @@ async fn test_concurrent_multipart_resumable_upload_and_atomic_assembly() {
         total_size, num_chunks, full_expected_hash
     );
 }
+
+#[tokio::test]
+async fn test_storage_telemetry_latency_and_bus_utilization() {
+    use aetherstream_server::storage::telemetry::StorageTelemetryEngine;
+    use aetherstream_server::storage::{RangeRequestEngine, ResumableUploadManager};
+    use axum::http::HeaderMap;
+
+    let engine = StorageTelemetryEngine::global();
+
+    // 1. Test Active Stream Lease lifecycle
+    let init_active = engine.active_stream_count();
+    {
+        let _lease1 = engine.acquire_stream_lease();
+        assert_eq!(
+            engine.active_stream_count(),
+            init_active + 1,
+            "Lease acquisition must increment active count"
+        );
+        {
+            let _lease2 = engine.acquire_stream_lease();
+            assert_eq!(
+                engine.active_stream_count(),
+                init_active + 2,
+                "Nested lease acquisition must increment active count"
+            );
+        }
+        assert_eq!(
+            engine.active_stream_count(),
+            init_active + 1,
+            "Dropping inner lease must decrement active count"
+        );
+    }
+    assert_eq!(
+        engine.active_stream_count(),
+        init_active,
+        "Dropping all leases must restore base active count"
+    );
+
+    // 2. Direct telemetry recording test on isolated engine instance
+    let local_engine = StorageTelemetryEngine::new();
+    let snap_before = local_engine.snapshot();
+    local_engine.record_read(1024 * 1024, 1200); // 1 MiB read in 1200 µs
+    local_engine.record_write(512 * 1024, 2400); // 512 KiB write in 2400 µs
+
+    let snap_after = local_engine.snapshot();
+    assert_eq!(snap_after.total_read_ops, snap_before.total_read_ops + 1);
+    assert_eq!(snap_after.total_write_ops, snap_before.total_write_ops + 1);
+    assert_eq!(snap_after.total_streamed_bytes, 1024 * 1024);
+    assert_eq!(snap_after.total_uploaded_bytes, 512 * 1024);
+    assert_eq!(snap_after.last_read_latency_micros, 1200);
+    assert_eq!(snap_after.last_write_latency_micros, 2400);
+    assert!(snap_after.avg_read_latency_micros > 0);
+    assert!(snap_after.avg_write_latency_micros > 0);
+
+    // 3. End-to-end integration: read via RangeRequestEngine and write via ResumableUploadManager
+    let temp_dir = tempfile::tempdir().unwrap();
+    let sample_file = temp_dir.path().join("telemetry_stream_test.bin");
+    tokio::fs::write(&sample_file, vec![0xABu8; 128 * 1024]).await.unwrap();
+
+    let pre_read_ops = engine.snapshot().total_read_ops;
+    let _resp = RangeRequestEngine::stream_file(&sample_file, &HeaderMap::new()).await;
+    let post_read_ops = engine.snapshot().total_read_ops;
+    assert!(post_read_ops >= pre_read_ops + 1, "RangeRequestEngine must record read op");
+
+    let upload_target = temp_dir.path().join("telemetry_upload_target.bin");
+    let pre_write_ops = engine.snapshot().total_write_ops;
+    let _write_res = ResumableUploadManager::write_chunk(&upload_target, 0, "", &[0xCDu8; 64 * 1024]).await;
+    let post_write_ops = engine.snapshot().total_write_ops;
+    assert!(post_write_ops >= pre_write_ops + 1, "ResumableUploadManager must record write op");
+
+    // 4. Verify snapshot serialization & disk bus utilization format
+    let snap_final = engine.snapshot();
+    let json_val = serde_json::to_value(&snap_final).expect("Serialize telemetry snapshot");
+    assert!(json_val.get("disk_bus_utilization_pct").is_some());
+    assert!(json_val.get("disk_bus_read_bytes_per_sec").is_some());
+    assert!(json_val.get("disk_bus_write_bytes_per_sec").is_some());
+
+    println!(
+        "[TELEMETRY VERIFIED] Active Streams: {}, Read Ops: {}, Write Ops: {}, Avg Read Latency: {} µs, Avg Write Latency: {} µs, Bus Util: {:.2}%",
+        snap_final.active_stream_count,
+        snap_final.total_read_ops,
+        snap_final.total_write_ops,
+        snap_final.avg_read_latency_micros,
+        snap_final.avg_write_latency_micros,
+        snap_final.disk_bus_utilization_pct
+    );
+}

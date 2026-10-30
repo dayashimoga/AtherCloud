@@ -23,6 +23,7 @@ impl RangeRequestEngine {
     /// Serves a physical file as a high-performance zero-copy byte-range stream (HTTP 206)
     /// or full representation (HTTP 200) strictly compliant with RFC 7233 using bounded 64 KiB buffers.
     pub async fn stream_file(file_path: &Path, headers: &HeaderMap) -> Response {
+        let start_instant = std::time::Instant::now();
         let meta = match tokio::fs::metadata(file_path).await {
             Ok(m) => m,
             Err(e) => {
@@ -91,6 +92,8 @@ impl RangeRequestEngine {
 
                     ACTIVE_STREAM_COUNT.fetch_add(1, Ordering::Relaxed);
                     TOTAL_STREAMED_BYTES.fetch_add(chunk_len, Ordering::Relaxed);
+                    let elapsed_micros = start_instant.elapsed().as_micros() as u64;
+                    crate::storage::StorageTelemetryEngine::global().record_read(chunk_len, elapsed_micros);
 
                     let resp = Response::builder()
                         .status(StatusCode::PARTIAL_CONTENT)
@@ -118,6 +121,8 @@ impl RangeRequestEngine {
 
         ACTIVE_STREAM_COUNT.fetch_add(1, Ordering::Relaxed);
         TOTAL_STREAMED_BYTES.fetch_add(file_size, Ordering::Relaxed);
+        let elapsed_micros = start_instant.elapsed().as_micros() as u64;
+        crate::storage::StorageTelemetryEngine::global().record_read(file_size, elapsed_micros);
 
         Response::builder()
             .status(StatusCode::OK)

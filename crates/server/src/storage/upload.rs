@@ -165,6 +165,7 @@ impl ResumableUploadManager {
             tokio::fs::create_dir_all(parent).await?;
         }
 
+        let write_start = std::time::Instant::now();
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -173,6 +174,9 @@ impl ResumableUploadManager {
 
         file.write_all(data).await?;
         file.flush().await?;
+
+        let elapsed = write_start.elapsed().as_micros() as u64;
+        crate::storage::StorageTelemetryEngine::global().record_write(data.len() as u64, elapsed);
 
         let new_size = file.metadata().await?.len();
         Ok(new_size)
@@ -221,6 +225,7 @@ impl ResumableUploadManager {
         }
 
         // 3. Write chunk at calculated byte offset using dedicated handle
+        let write_start = std::time::Instant::now();
         let offset = (chunk_index as u64) * chunk_size;
         let mut file = OpenOptions::new()
             .write(true)
@@ -230,6 +235,9 @@ impl ResumableUploadManager {
         file.seek(SeekFrom::Start(offset)).await?;
         file.write_all(data).await?;
         file.flush().await?;
+
+        let elapsed = write_start.elapsed().as_micros() as u64;
+        crate::storage::StorageTelemetryEngine::global().record_write(data.len() as u64, elapsed);
 
         // 4. Update session tracking under quick write lock
         let mut sessions = self.sessions.write().await;

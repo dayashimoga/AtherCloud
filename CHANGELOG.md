@@ -1142,3 +1142,21 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered resumable chunked upload manager in `crates/server/src/storage/upload.rs` with multi-part slice concurrency, destination file disk pre-allocation (`set_len`), asynchronous Web Crypto-compatible SHA-256 hashing (with worker pool offloading for large chunks), missing chunk discovery (`get_missing_chunks`), and atomic file assembly with whole-file SHA-256 validation. Added Axum HTTP route `/api/v1/upload/:mount/status/:upload_id`. Verified via `test_concurrent_multipart_resumable_upload_and_atomic_assembly`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_MULTIPART_UPLOAD_008
 - **Executor:** Principal Systems & Rust Distributed Storage Engineer
+
+### [2026-10-30T06:30:00Z] - STAGE_7 / PHASE_7.3 / SUBPHASE_7.3.3
+- **Stage ID:** STAGE_7 (Core Daemon Refactor, OS Storage Bus & Dynamic Mount Engine)
+- **Phase ID:** PHASE_7.3 (High-Performance Concurrent File I/O Engine)
+- **Subphase ID:** SUBPHASE_7.3.3 (System Telemetry for I/O Latency, Active Streams & Disk Bus Utilization)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/storage/telemetry.rs` [CREATED]
+  - `crates/server/src/storage/mod.rs`
+  - `crates/server/src/storage/stream.rs`
+  - `crates/server/src/storage/upload.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `StorageTelemetryEngine` in `crates/server/src/storage/telemetry.rs` instrumenting end-to-end I/O metrics: tracking active reading client streams via RAII `StreamLease` guards, recording individual and cumulative read/write latency in microseconds, and computing real-time disk bus bandwidth throughput rates (B/s) and bus utilization percentage. Wired telemetry recording into `RangeRequestEngine` and `ResumableUploadManager`. Exposed Axum REST telemetry endpoint `GET /api/v1/storage/telemetry`. Marked Stage 1 (Stage 7) complete. Verified via `test_storage_telemetry_latency_and_bus_utilization`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_STORAGE_TELEMETRY_009
+- **Executor:** Principal Systems & Rust Distributed Storage Engineer
