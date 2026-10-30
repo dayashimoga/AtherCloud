@@ -685,3 +685,69 @@ Encoders:
     assert!(!args_cpu.contains(&"-hwaccel".to_string()));
     assert!(args_cpu.contains(&"libx264".to_string()));
 }
+
+#[test]
+fn test_adaptive_profile_definitions() {
+    use aetherstream_server::transcode::profiles::{
+        get_profile_by_tag, select_optimal_profile, STANDARD_RENDITION_LADDER,
+    };
+
+    // 1. Verify all 4 standard profiles exist and adhere to ladder hierarchy
+    assert_eq!(STANDARD_RENDITION_LADDER.len(), 4);
+    let p1080 = get_profile_by_tag("1080p_high").expect("1080p_high must exist");
+    let p720 = get_profile_by_tag("720p_med").expect("720p_med must exist");
+    let p480 = get_profile_by_tag("480p_low").expect("480p_low must exist");
+    let p360 = get_profile_by_tag("360p_min").expect("360p_min must exist");
+
+    assert_eq!(p1080.width, 1920);
+    assert_eq!(p1080.height, 1080);
+    assert_eq!(p1080.bandwidth(), (4500 + 192) * 1000);
+    assert_eq!(p1080.max_fps, 60);
+
+    assert_eq!(p720.width, 1280);
+    assert_eq!(p720.height, 720);
+    assert_eq!(p720.bandwidth(), (2500 + 128) * 1000);
+    assert_eq!(p720.max_fps, 60);
+
+    assert_eq!(p480.width, 854);
+    assert_eq!(p480.height, 480);
+    assert_eq!(p480.bandwidth(), (1200 + 96) * 1000);
+    assert_eq!(p480.max_fps, 30);
+
+    assert_eq!(p360.width, 640);
+    assert_eq!(p360.height, 360);
+    assert_eq!(p360.bandwidth(), (600 + 64) * 1000);
+    assert_eq!(p360.max_fps, 30);
+
+    // 2. Bitrate maxrate and buffer size rate-control formulas
+    assert!(p1080.maxrate_kbps() > p1080.video_bitrate_kbps);
+    assert_eq!(p1080.bufsize_kbps(), p1080.video_bitrate_kbps * 2);
+
+    // 3. HLS RFC 8216 Stream-Inf line format
+    let stream_inf = p720.to_stream_inf("https://stream.aether.local/hls");
+    assert!(stream_inf.contains("#EXT-X-STREAM-INF:BANDWIDTH="));
+    assert!(stream_inf.contains("RESOLUTION=1280x720"));
+    assert!(stream_inf.contains("FRAME-RATE=60.000"));
+    assert!(stream_inf.contains("CODECS=\"avc1.4d401f,mp4a.40.2\""));
+    assert!(stream_inf.contains("https://stream.aether.local/hls/720p_med/index.m3u8"));
+
+    // 4. ABR profile selection under various bandwidth budgets and source constraints
+    // High bandwidth (10 Mbps) on 1080p source -> selects 1080p
+    let sel_high = select_optimal_profile(10_000_000, 1080);
+    assert_eq!(sel_high.tag, "1080p_high");
+
+    // Moderate bandwidth (3.5 Mbps) on 1080p source -> selects 720p
+    let sel_mod = select_optimal_profile(3_500_000, 1080);
+    assert_eq!(sel_mod.tag, "720p_med");
+
+    // High bandwidth (10 Mbps) on 720p source -> bounded by source height (no upscaling to 1080p)
+    let sel_bounded = select_optimal_profile(10_000_000, 720);
+    assert_eq!(sel_bounded.tag, "720p_med");
+
+    // Low bandwidth (800 kbps) -> selects 360p
+    let sel_low = select_optimal_profile(800_000, 1080);
+    assert_eq!(sel_low.tag, "360p_min");
+
+    // Non-existent tag lookup
+    assert!(get_profile_by_tag("unknown_rendition").is_none());
+}

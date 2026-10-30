@@ -2,4 +2,6 @@ pub mod pipeline;
 pub mod profiles;
 
 pub use pipeline::{HardwareAccel, MediaMetadata, TranscodePipeline};
-pub use profiles::{RenditionProfile, STANDARD_RENDITION_LADDER};
+pub use profiles::{
+    get_profile_by_tag, select_optimal_profile, RenditionProfile, STANDARD_RENDITION_LADDER,
+};

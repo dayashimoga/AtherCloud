@@ -72,7 +72,13 @@ function Test-Subphase-3-1-3 {
             throw "Missing rendition profile: $p"
         }
     }
-    Write-AetherLog "SUCCESS" "Standard ABR rendition profiles verified (1080p, 720p, 480p, 360p)."
+
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $testOut = cargo test --test security_tests test_adaptive_profile_definitions -- --nocapture 2>&1
+    $ErrorActionPreference = $prev
+    if ($LASTEXITCODE -ne 0) { throw "Adaptive profile definitions test failed: $testOut" }
+
+    Write-AetherLog "SUCCESS" "Standard ABR rendition profiles verified (1080p, 720p, 480p, 360p) with optimal rate control."
     return $true
 }
 
