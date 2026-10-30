@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/upload/:mount/chunk", post(upload_chunk_handler))
         .route("/api/v1/upload/:mount/complete", post(complete_upload_handler))
         .route(
-            "/api/v1/transcode/hls/:mount/*path/master.m3u8",
+            "/api/v1/transcode/hls/:mount/*path",
             get(hls_master_manifest_handler),
         )
         .layer(cors)
@@ -392,7 +392,11 @@ async fn complete_upload_handler(
 async fn hls_master_manifest_handler(
     AxPath((mount, subpath)): AxPath<(String, String)>,
 ) -> Response {
-    let base_prefix = format!("/api/v1/transcode/hls/{}/{}", mount, subpath);
+    let clean_subpath = subpath
+        .strip_suffix("/master.m3u8")
+        .or_else(|| subpath.strip_suffix("master.m3u8"))
+        .unwrap_or(&subpath);
+    let base_prefix = format!("/api/v1/transcode/hls/{}/{}", mount, clean_subpath);
     let manifest = TranscodePipeline::generate_master_manifest(&base_prefix);
 
     Response::builder()
