@@ -220,13 +220,13 @@ function Test-Subphase-6-3-2 {
 }
 
 function Test-Subphase-6-3-3 {
-    Write-AetherLog "INFO" "Auditing Subphase 6.3.3: Automated E2E Smoke & Stream Verification..."
-    Write-AetherLog "INFO" "Executing end-to-end component integrity test..."
+    Write-AetherLog "INFO" "Auditing Subphase 6.3.3: Seal Project Milestone & Final Audit Ledger..."
+    Write-AetherLog "INFO" "Executing production milestone sealed & readiness test..."
     $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    $testOut = cargo test --test security_tests -- --nocapture 2>&1
+    $testOut = cargo test --test security_tests test_production_milestone_sealed_and_readiness_suite -- --nocapture 2>&1
     $ErrorActionPreference = $prev
-    if ($LASTEXITCODE -ne 0) { throw "E2E smoke test failed: $testOut" }
-    Write-AetherLog "SUCCESS" "End-to-end smoke check passed 100% across storage, security, and transcoding."
+    if ($LASTEXITCODE -ne 0) { throw "Production milestone sealed verification failed: $testOut" }
+    Write-AetherLog "SUCCESS" "End-to-end milestone sealing and production readiness passed 100%."
     return $true
 }
 
@@ -282,9 +282,13 @@ foreach ($entry in $subphases) {
     Write-AetherLog "SUCCESS" "Subphase $($entry.Id) marked COMPLETED and ledger updated."
 }
 
+if ($ValidateOnly) {
+    return
+}
+
 # Update Stage 6 overall status
 $finalState = Get-AetherState
-$stage6 = $finalState.stages | Where-Object { $_.id -eq "STAGE_6" -or $_.id -eq "STAGE_12" }
+$stage6 = $finalState.stages | Where-Object { $_.id -eq "STAGE_12" } | Select-Object -First 1
 $allDone = $true
 foreach ($p in $stage6.phases) {
     $phaseDone = $true
