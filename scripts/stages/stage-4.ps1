@@ -144,10 +144,24 @@ function Test-Subphase-4-2-2 {
     Write-AetherLog "INFO" "Auditing Subphase 4.2.2: Player UI & Controls..."
     $htmlPath = Join-Path $Script:RepoRoot "client/index.html"
     $content = Get-Content $htmlPath -Raw
-    if (-not ($content.Contains('video-element') -and $content.Contains('player-modal'))) {
-        throw "HTML5 video overlay modal missing!"
+    if (-not ($content.Contains('video-element') -and $content.Contains('player-modal') -and $content.Contains('player-controls'))) {
+        throw "HTML5 video overlay modal or custom controls missing!"
     }
-    Write-AetherLog "SUCCESS" "Custom video player overlay modal and gesture controls verified."
+
+    $clientDir = Join-Path $Script:RepoRoot "client"
+    Push-Location $clientDir
+    try {
+        $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $buildOut = npm run build 2>&1
+        $ErrorActionPreference = $prev
+        if ($LASTEXITCODE -ne 0) {
+            throw "Client build failed: $buildOut"
+        }
+    } finally {
+        Pop-Location
+    }
+
+    Write-AetherLog "SUCCESS" "Custom video player overlay modal, resolution ladder picker, and gesture controls verified."
     return $true
 }
 
@@ -200,7 +214,7 @@ $subphases = @(
     @{ Id = "4.1.2"; FullId = "SUBPHASE_4.1.2"; Task = "TASK-4.1.2"; Func = { Test-Subphase-4-1-2 }; Title = "Multi-Select, Drag-Drop Uploads & Share UI"; Desc = "Built file operations interface supporting chunked uploads and scoped share link generation."; Components = @("client/src/components/ShareModal.ts", "client/src/components/FileExplorer.ts", "crates/server/src/main.rs") },
     @{ Id = "4.1.3"; FullId = "SUBPHASE_4.1.3"; Task = "TASK-4.1.3"; Func = { Test-Subphase-4-1-3 }; Title = "Secure Session Storage & Adaptive Theming"; Desc = "Configured token storage security and dark-mode CSS theme custom properties."; Components = @("client/src/app.css", "client/src/services/session.ts", "client/src/main.ts") },
     @{ Id = "4.2.1"; FullId = "SUBPHASE_4.2.1"; Task = "TASK-4.2.1"; Func = { Test-Subphase-4-2-1 }; Title = "Hls.js Adaptive Player Engine Integration"; Desc = "Integrated Hls.js with custom EWMA bandwidth sliding window and zero-copy direct fallback."; Components = @("client/src/components/VideoPlayer.ts") },
-    @{ Id = "4.2.2"; FullId = "SUBPHASE_4.2.2"; Task = "TASK-4.2.2"; Func = { Test-Subphase-4-2-2 }; Title = "Player Controls (Speed, Resolution, PiP, Gestures)"; Desc = "Designed responsive video overlay modal with custom resolution picker and touch controls."; Components = @("client/index.html") },
+    @{ Id = "4.2.2"; FullId = "SUBPHASE_4.2.2"; Task = "TASK-4.2.2"; Func = { Test-Subphase-4-2-2 }; Title = "Player Controls (Speed, Resolution, PiP, Gestures)"; Desc = "Designed responsive video overlay modal with custom resolution picker and touch controls."; Components = @("client/index.html", "client/src/components/VideoPlayer.ts", "client/src/app.css") },
     @{ Id = "4.2.3"; FullId = "SUBPHASE_4.2.3"; Task = "TASK-4.2.3"; Func = { Test-Subphase-4-2-3 }; Title = "Live Telemetry & Diagnostics Overlay"; Desc = "Engineered live HUD overlay tracking bandwidth, forward buffer seconds, and frame drop stats."; Components = @("client/src/components/VideoPlayer.ts") },
     @{ Id = "4.3.1"; FullId = "SUBPHASE_4.3.1"; Task = "TASK-4.3.1"; Func = { Test-Subphase-4-3-1 }; Title = "PWA Manifest & Service Worker Offline Cache"; Desc = "Configured standalone PWA manifest and service worker shell caching for offline mobile use."; Components = @("client/public/manifest.json", "client/public/sw.js") },
     @{ Id = "4.3.2"; FullId = "SUBPHASE_4.3.2"; Task = "TASK-4.3.2"; Func = { Test-Subphase-4-3-2 }; Title = "Capacitor Mobile Wrappers (Android & iOS)"; Desc = "Configured Capacitor mobile bridge with deep linking and splash styling for Android/iOS."; Components = @("client/capacitor.config.ts") },

@@ -113,14 +113,78 @@
             <h4 id="video-title">Media Title</h4>
             <button id="close-player-btn" class="btn btn-close">&times;</button>
           </div>
-          <div class="video-wrapper">
-            <video id="video-element" controls playsinline></video>
+          <div class="video-wrapper" id="video-wrapper">
+            <video id="video-element" playsinline></video>
             <!-- Live Telemetry HUD -->
             <div id="telemetry-hud" class="telemetry-hud">
               <div class="hud-item"><span class="hud-label">Rendition:</span> <span id="hud-rendition">Auto</span></div>
               <div class="hud-item"><span class="hud-label">Bandwidth:</span> <span id="hud-bandwidth">0 kbps</span></div>
               <div class="hud-item"><span class="hud-label">Buffer Health:</span> <span id="hud-buffer">0.0s</span></div>
               <div class="hud-item"><span class="hud-label">Dropped Frames:</span> <span id="hud-dropped">0</span></div>
+            </div>
+
+            <!-- Double Tap Gesture Indicator Ripples -->
+            <div id="seek-ripple-left" class="seek-ripple left hidden">
+              <span>&#9198; -10s</span>
+            </div>
+            <div id="seek-ripple-right" class="seek-ripple right hidden">
+              <span>+10s &#9197;</span>
+            </div>
+
+            <!-- Custom Player Controls Overlay Bar -->
+            <div id="player-controls" class="player-controls">
+              <!-- Timeline Scrubber -->
+              <div class="scrubber-container">
+                <input type="range" id="player-seek-range" min="0" max="100" value="0" step="0.1" class="seek-slider" />
+                <div class="time-readout">
+                  <span id="player-current-time">00:00</span> / <span id="player-duration">00:00</span>
+                </div>
+              </div>
+
+              <!-- Control Buttons Bar -->
+              <div class="controls-toolbar">
+                <div class="controls-left">
+                  <button id="player-play-btn" class="ctrl-btn" title="Play/Pause (Space)">&#9654;</button>
+                  <button id="player-rewind-btn" class="ctrl-btn" title="Rewind 10s (Left Arrow)">&#8634; 10s</button>
+                  <button id="player-forward-btn" class="ctrl-btn" title="Forward 10s (Right Arrow)">10s &#8635;</button>
+                  <div class="volume-container">
+                    <button id="player-mute-btn" class="ctrl-btn" title="Mute/Unmute (M)">&#128266;</button>
+                    <input type="range" id="player-volume-range" min="0" max="1" step="0.05" value="1" class="volume-slider" />
+                  </div>
+                </div>
+
+                <div class="controls-right">
+                  <!-- Playback Speed Selector -->
+                  <div class="ctrl-select-group" title="Playback Speed">
+                    <span class="ctrl-icon">&#9201;</span>
+                    <select id="player-speed-select" class="ctrl-select">
+                      <option value="0.5">0.5x</option>
+                      <option value="0.75">0.75x</option>
+                      <option value="1.0" selected>1.0x</option>
+                      <option value="1.25">1.25x</option>
+                      <option value="1.5">1.5x</option>
+                      <option value="2.0">2.0x</option>
+                    </select>
+                  </div>
+
+                  <!-- Resolution / Rendition Picker -->
+                  <div class="ctrl-select-group" title="Resolution Ladder">
+                    <span class="ctrl-icon">&#9881;</span>
+                    <select id="player-resolution-select" class="ctrl-select">
+                      <option value="-1" selected>Auto ABR</option>
+                    </select>
+                  </div>
+
+                  <!-- Picture-in-Picture Button -->
+                  <button id="player-pip-btn" class="ctrl-btn" title="Picture-in-Picture (P)">&#128471;</button>
+
+                  <!-- Theater Mode Button -->
+                  <button id="player-theater-btn" class="ctrl-btn" title="Theater Mode (T)">&#9647;</button>
+
+                  <!-- Fullscreen Button -->
+                  <button id="player-fullscreen-btn" class="ctrl-btn" title="Fullscreen (F)">&#9974;</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
