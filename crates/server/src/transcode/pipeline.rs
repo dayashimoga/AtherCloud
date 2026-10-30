@@ -495,12 +495,28 @@ impl TranscodePipeline {
 
     /// Probes the local system environment for available FFmpeg binary and hardware acceleration support
     pub async fn probe_hardware() -> HardwareAccel {
-        super::gpu_probe::GpuProbeEngine::probe_system().await.primary_accel
+        if let Some(ladder) = super::gpu_probe::get_validated_ladder() {
+            return ladder.active_accel;
+        }
+        let (_report, ladder) = Self::probe_and_validate_hardware().await;
+        ladder.active_accel
     }
 
     /// Performs full dynamic GPU capability introspection across NVENC, QuickSync, VideoToolbox, VA-API, and CPU fallback
     pub async fn probe_capabilities() -> super::gpu_probe::GpuCapabilityReport {
-        super::gpu_probe::GpuProbeEngine::probe_system().await
+        if let Some(report) = super::gpu_probe::get_capability_report() {
+            return report;
+        }
+        let (report, _ladder) = Self::probe_and_validate_hardware().await;
+        report
+    }
+
+    /// Performs full dynamic GPU capability probe followed by 1-frame transcode dry-run validation with clean ladder failover
+    pub async fn probe_and_validate_hardware() -> (
+        super::gpu_probe::GpuCapabilityReport,
+        super::gpu_probe::ValidatedEncoderLadder,
+    ) {
+        super::gpu_probe::GpuProbeEngine::probe_and_validate_system().await
     }
 
     /// Generates an RFC 8216 compliant HLS Master Manifest string linking all rendition profiles

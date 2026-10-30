@@ -866,3 +866,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
 - **Execution Trace:** cargo test --test security_tests test_gpu_probe_engine_and_hardware_acceleration_ladder
 - **Validation Proof:** Engineered GpuProbeEngine and GpuCapabilityReport in crates/server/src/transcode/gpu_probe.rs implementing deterministic hardware acceleration ladder prioritizing NVENC -> QuickSync (QSV) -> Apple VideoToolbox -> VA-API -> Software CPU fallback. Implemented multi-codec inspection for H.264, HEVC, and AV1 across platform device buses (/dev/dri/renderD128, /dev/dri/card0) and CLI binaries. Integrated with TranscodePipeline capabilities detection. Verified 37/37 integration tests passing.
+
+### [2026-10-30T08:15:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-9.1.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
+- **Execution Trace:** cargo test --test security_tests test_encoder_initialization_one_frame_dry_run_and_clean_failover
+- **Validation Proof:** Engineered 1-frame transcode dry-run validation with clean ladder failover in GpuProbeEngine (validate_ladder_with_executor, validate_ladder, probe_and_validate_system). Implemented synthetic lavfi testsrc dry-run execution, failure diagnostics, dynamic candidate disqualification, clean failover down to QuickSync, VideoToolbox, VA-API, and Software CPU fallback. Integrated startup dry-run into TranscodePipeline and main.rs with thread-safe memory caching. Verified 38/38 integration tests passing.

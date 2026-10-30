@@ -3558,3 +3558,172 @@ Encoders:
 
     println!("[TASK-9.1.1 VERIFIED] Dynamic GPU probe with NVENC, VAAPI, VideoToolbox, QSV, and CPU fallback verified.");
 }
+
+#[tokio::test]
+async fn test_encoder_initialization_one_frame_dry_run_and_clean_failover() {
+    use aetherstream_server::transcode::gpu_probe::{
+        get_capability_report, get_validated_ladder, GpuProbeEngine,
+    };
+    use aetherstream_server::transcode::pipeline::{HardwareAccel, TranscodePipeline};
+    use std::time::Instant;
+
+    // 1. Happy Path: Candidate NVENC encoder successfully completes 1-frame dry-run
+    let happy_hwaccels = "Hardware acceleration methods:\ncuda\nqsv\n";
+    let happy_encoders = r#"
+Encoders:
+ V..... h264_nvenc           NVIDIA NVENC H.264 (codec h264)
+ V..... h264_qsv             Intel Quick Sync Video H.264 (codec h264)
+ V..... libx264              libx264 Software CPU (codec h264)
+"#;
+    let mut happy_report = GpuProbeEngine::parse_capabilities(happy_hwaccels, happy_encoders);
+    assert_eq!(happy_report.primary_accel, HardwareAccel::Nvenc);
+
+    let happy_ladder = GpuProbeEngine::validate_ladder_with_executor(
+        &mut happy_report,
+        |encoder, accel| async move {
+            assert_eq!(encoder, "h264_nvenc");
+            assert_eq!(accel, HardwareAccel::Nvenc);
+            Ok(())
+        },
+    )
+    .await;
+
+    assert_eq!(happy_ladder.active_accel, HardwareAccel::Nvenc);
+    assert_eq!(happy_ladder.active_h264_encoder, "h264_nvenc");
+    assert!(!happy_ladder.failover_occurred);
+    assert_eq!(happy_ladder.dry_run_history.len(), 1);
+    assert!(happy_ladder.dry_run_history[0].success);
+    assert_eq!(happy_ladder.dry_run_history[0].exit_code, Some(0));
+    assert!(happy_report.nvenc.available);
+
+    // 2. Hardware Failover: NVENC dry-run fails (CUDA driver mismatch) -> Failover to QuickSync (QSV)
+    let failover_hwaccels = "Hardware acceleration methods:\ncuda\nqsv\n";
+    let failover_encoders = r#"
+Encoders:
+ V..... h264_nvenc           NVIDIA NVENC H.264 (codec h264)
+ V..... h264_qsv             Intel Quick Sync Video H.264 (codec h264)
+ V..... libx264              libx264 Software CPU (codec h264)
+"#;
+    let mut failover_report = GpuProbeEngine::parse_capabilities(failover_hwaccels, failover_encoders);
+    assert_eq!(failover_report.primary_accel, HardwareAccel::Nvenc);
+
+    let failover_ladder = GpuProbeEngine::validate_ladder_with_executor(
+        &mut failover_report,
+        |encoder, accel| async move {
+            if accel == HardwareAccel::Nvenc {
+                Err("Cannot load nvcuda.dll / CUDA driver version is insufficient for NVENC".to_string())
+            } else if accel == HardwareAccel::QuickSync {
+                assert_eq!(encoder, "h264_qsv");
+                Ok(())
+            } else {
+                Err("Unexpected fallback".to_string())
+            }
+        },
+    )
+    .await;
+
+    assert_eq!(failover_ladder.active_accel, HardwareAccel::QuickSync);
+    assert_eq!(failover_ladder.active_h264_encoder, "h264_qsv");
+    assert!(failover_ladder.failover_occurred, "Failover must be flagged when NVENC fails dry run");
+    assert_eq!(failover_ladder.dry_run_history.len(), 2);
+    // Entry 0: NVENC failure
+    assert!(!failover_ladder.dry_run_history[0].success);
+    assert_eq!(failover_ladder.dry_run_history[0].accel, HardwareAccel::Nvenc);
+    assert!(failover_ladder.dry_run_history[0]
+        .error_message
+        .as_ref()
+        .unwrap()
+        .contains("CUDA driver version is insufficient"));
+    // Entry 1: QuickSync success
+    assert!(failover_ladder.dry_run_history[1].success);
+    assert_eq!(failover_ladder.dry_run_history[1].accel, HardwareAccel::QuickSync);
+    // Report must update: NVENC marked unavailable, primary accel updated to QuickSync
+    assert!(!failover_report.nvenc.available);
+    assert!(failover_report.qsv.available);
+    assert_eq!(failover_report.primary_accel, HardwareAccel::QuickSync);
+
+    // 3. Cascading Failover: All hardware encoders fail dry-run -> Safe ladder drop to Software CPU (libx264)
+    let all_hw_encoders = r#"
+Encoders:
+ V..... h264_nvenc           NVIDIA NVENC H.264 (codec h264)
+ V..... h264_qsv             Intel Quick Sync Video H.264 (codec h264)
+ V..... h264_videotoolbox    VideoToolbox H.264 (codec h264)
+ V..... h264_vaapi           VA-API H.264 (codec h264)
+ V..... libx264              libx264 Software CPU (codec h264)
+"#;
+    let mut cascade_report = GpuProbeEngine::parse_capabilities(
+        "Hardware acceleration methods:\ncuda\nqsv\nvideotoolbox\nvaapi\n",
+        all_hw_encoders,
+    );
+    assert_eq!(cascade_report.primary_accel, HardwareAccel::Nvenc);
+
+    let cascade_ladder = GpuProbeEngine::validate_ladder_with_executor(
+        &mut cascade_report,
+        |_encoder, accel| async move {
+            match accel {
+                HardwareAccel::Nvenc => Err("NVENC init failed: out of memory".to_string()),
+                HardwareAccel::QuickSync => Err("QSV init failed: device busy".to_string()),
+                HardwareAccel::VideoToolbox => Err("VideoToolbox init failed: permission denied".to_string()),
+                HardwareAccel::Vaapi => Err("VA-API init failed: cannot open /dev/dri/renderD128".to_string()),
+                HardwareAccel::SoftwareCpu => Ok(()),
+            }
+        },
+    )
+    .await;
+
+    assert_eq!(cascade_ladder.active_accel, HardwareAccel::SoftwareCpu);
+    assert_eq!(cascade_ladder.active_h264_encoder, "libx264");
+    assert!(cascade_ladder.failover_occurred);
+    assert_eq!(cascade_ladder.dry_run_history.len(), 5);
+    // All 4 hardware accelerators must be recorded as failed
+    for i in 0..4 {
+        assert!(!cascade_ladder.dry_run_history[i].success);
+    }
+    // CPU fallback is recorded as success
+    assert!(cascade_ladder.dry_run_history[4].success);
+    assert_eq!(cascade_ladder.dry_run_history[4].accel, HardwareAccel::SoftwareCpu);
+    assert_eq!(cascade_report.primary_accel, HardwareAccel::SoftwareCpu);
+    assert!(!cascade_report.nvenc.available);
+    assert!(!cascade_report.qsv.available);
+    assert!(!cascade_report.videotoolbox.available);
+    assert!(!cascade_report.vaapi.available);
+    assert!(cascade_report.cpu_fallback.available);
+
+    // 4. Runtime Startup Integration: TranscodePipeline validation probe & global memory caching
+    let (live_report, live_ladder) = TranscodePipeline::probe_and_validate_hardware().await;
+    assert!(!live_ladder.active_h264_encoder.is_empty());
+    assert!(!live_ladder.validation_timestamp.is_empty());
+
+    let cached_ladder = get_validated_ladder();
+    assert!(cached_ladder.is_some(), "Validated ladder must be cached in memory");
+    assert_eq!(cached_ladder.unwrap().active_accel, live_ladder.active_accel);
+
+    let cached_report = get_capability_report();
+    assert!(cached_report.is_some(), "Capability report must be cached in memory");
+    assert_eq!(cached_report.unwrap().primary_accel, live_report.primary_accel);
+
+    // TranscodePipeline::probe_hardware() must return the active validated accelerator
+    let active_hw = TranscodePipeline::probe_hardware().await;
+    assert_eq!(active_hw, live_ladder.active_accel);
+
+    // 5. Telemetry & Lookup Benchmark: Sub-microsecond cached retrieval
+    let bench_iterations = 20_000;
+    let bench_start = Instant::now();
+    for _ in 0..bench_iterations {
+        let val = get_validated_ladder();
+        assert!(val.is_some());
+    }
+    let elapsed = bench_start.elapsed();
+    let per_op_nanos = (elapsed.as_secs_f64() * 1_000_000_000.0) / (bench_iterations as f64);
+    println!(
+        "[LADDER CACHE TELEMETRY] {} lookups in {:?} (avg {:.2} ns/op)",
+        bench_iterations, elapsed, per_op_nanos
+    );
+    assert!(
+        per_op_nanos < 5000.0,
+        "Cached validated ladder lookup must be sub-5µs (got {:.2} ns)",
+        per_op_nanos
+    );
+
+    println!("[TASK-9.1.2 VERIFIED] 1-frame transcode dry-run encoder validation and clean ladder failover verified.");
+}

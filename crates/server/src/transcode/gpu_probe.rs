@@ -18,6 +18,27 @@ pub struct AcceleratorCapabilities {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DryRunResult {
+    pub encoder: String,
+    pub accel: HardwareAccel,
+    pub success: bool,
+    pub exit_code: Option<i32>,
+    pub error_message: Option<String>,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ValidatedEncoderLadder {
+    pub active_accel: HardwareAccel,
+    pub active_h264_encoder: String,
+    pub active_hevc_encoder: Option<String>,
+    pub active_av1_encoder: Option<String>,
+    pub dry_run_history: Vec<DryRunResult>,
+    pub failover_occurred: bool,
+    pub validation_timestamp: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GpuCapabilityReport {
     pub primary_accel: HardwareAccel,
     pub nvenc: AcceleratorCapabilities,
@@ -30,6 +51,7 @@ pub struct GpuCapabilityReport {
     pub os_platform: String,
     pub dri_device_accessible: bool,
     pub detection_logs: Vec<String>,
+    pub validated_ladder: Option<ValidatedEncoderLadder>,
 }
 
 impl GpuCapabilityReport {
@@ -53,6 +75,35 @@ impl GpuCapabilityReport {
             "av1" => caps.av1_encoder.as_deref(),
             _ => None,
         }
+    }
+}
+
+static GLOBAL_VALIDATED_LADDER: std::sync::RwLock<Option<ValidatedEncoderLadder>> =
+    std::sync::RwLock::new(None);
+static GLOBAL_CAPABILITY_REPORT: std::sync::RwLock<Option<GpuCapabilityReport>> =
+    std::sync::RwLock::new(None);
+
+/// Retrieves the cached validated ladder from memory
+pub fn get_validated_ladder() -> Option<ValidatedEncoderLadder> {
+    GLOBAL_VALIDATED_LADDER.read().ok().and_then(|g| g.clone())
+}
+
+/// Stores the cached validated ladder in memory
+pub fn set_validated_ladder(ladder: ValidatedEncoderLadder) {
+    if let Ok(mut g) = GLOBAL_VALIDATED_LADDER.write() {
+        *g = Some(ladder);
+    }
+}
+
+/// Retrieves the cached GPU capability report from memory
+pub fn get_capability_report() -> Option<GpuCapabilityReport> {
+    GLOBAL_CAPABILITY_REPORT.read().ok().and_then(|g| g.clone())
+}
+
+/// Stores the cached GPU capability report in memory
+pub fn set_capability_report(report: GpuCapabilityReport) {
+    if let Ok(mut g) = GLOBAL_CAPABILITY_REPORT.write() {
+        *g = Some(report);
     }
 }
 
@@ -93,7 +144,11 @@ impl GpuProbeEngine {
             } else if line.contains("h264_") || line.contains("hevc_") || line.contains("libx264") {
                 let parts: Vec<&str> = trimmed.split_whitespace().collect();
                 for p in parts {
-                    if p.starts_with("h264_") || p.starts_with("hevc_") || p.starts_with("av1_") || p.starts_with("libx") {
+                    if p.starts_with("h264_")
+                        || p.starts_with("hevc_")
+                        || p.starts_with("av1_")
+                        || p.starts_with("libx")
+                    {
                         supported_encoders.push(p.to_lowercase());
                     }
                 }
@@ -239,6 +294,7 @@ impl GpuProbeEngine {
             os_platform,
             dri_device_accessible,
             detection_logs: logs,
+            validated_ladder: None,
         }
     }
 
@@ -277,5 +333,203 @@ impl GpuProbeEngine {
         );
         report
     }
-}
 
+    /// Executes a real 1-frame transcode dry run against FFmpeg using synthetic testsrc
+    pub async fn run_encoder_dry_run(encoder: &str, accel: HardwareAccel) -> Result<(), String> {
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args(["-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=1", "-frames:v", "1"]);
+        match accel {
+            HardwareAccel::Nvenc | HardwareAccel::QuickSync | HardwareAccel::VideoToolbox => {
+                cmd.args(["-c:v", encoder]);
+            }
+            HardwareAccel::Vaapi => {
+                if Path::new("/dev/dri/renderD128").exists() {
+                    cmd.args(["-vaapi_device", "/dev/dri/renderD128"]);
+                }
+                cmd.args(["-vf", "format=nv12,hwupload", "-c:v", encoder]);
+            }
+            HardwareAccel::SoftwareCpu => {
+                cmd.args(["-c:v", encoder, "-preset", "ultrafast"]);
+            }
+        }
+        cmd.args(["-f", "null", "-"]);
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let output = match tokio::time::timeout(std::time::Duration::from_millis(3500), cmd.output()).await {
+            Ok(Ok(out)) => out,
+            Ok(Err(e)) => return Err(format!("FFmpeg execution failed: {}", e)),
+            Err(_) => return Err("Dry-run command timed out after 3500ms".to_string()),
+        };
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let error_msg = stderr
+                .lines()
+                .rev()
+                .take(5)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join(" ");
+            Err(if error_msg.trim().is_empty() {
+                format!("Exit code: {:?}", output.status.code())
+            } else {
+                error_msg
+            })
+        }
+    }
+
+    /// Validates the encoder ladder sequentially with a customizable dry-run executor
+    pub async fn validate_ladder_with_executor<F, Fut>(
+        report: &mut GpuCapabilityReport,
+        dry_run_fn: F,
+    ) -> ValidatedEncoderLadder
+    where
+        F: Fn(String, HardwareAccel) -> Fut,
+        Fut: std::future::Future<Output = Result<(), String>>,
+    {
+        let mut history = Vec::new();
+        let initial_accel = report.primary_accel;
+        let mut chosen_accel = None;
+        let mut chosen_h264_encoder = String::new();
+        let mut failover_occurred = false;
+
+        for &accel in Self::priority_ladder() {
+            let is_candidate = match accel {
+                HardwareAccel::Nvenc => report.nvenc.available,
+                HardwareAccel::QuickSync => report.qsv.available,
+                HardwareAccel::VideoToolbox => report.videotoolbox.available,
+                HardwareAccel::Vaapi => report.vaapi.available,
+                HardwareAccel::SoftwareCpu => true,
+            };
+
+            if !is_candidate {
+                continue;
+            }
+
+            let encoder_candidate = match accel {
+                HardwareAccel::Nvenc => report.nvenc.h264_encoder.as_deref().unwrap_or("h264_nvenc"),
+                HardwareAccel::QuickSync => report.qsv.h264_encoder.as_deref().unwrap_or("h264_qsv"),
+                HardwareAccel::VideoToolbox => {
+                    report.videotoolbox.h264_encoder.as_deref().unwrap_or("h264_videotoolbox")
+                }
+                HardwareAccel::Vaapi => report.vaapi.h264_encoder.as_deref().unwrap_or("h264_vaapi"),
+                HardwareAccel::SoftwareCpu => {
+                    report.cpu_fallback.h264_encoder.as_deref().unwrap_or("libx264")
+                }
+            };
+
+            let start_time = std::time::Instant::now();
+            let res = dry_run_fn(encoder_candidate.to_string(), accel).await;
+            let duration_ms = start_time.elapsed().as_millis() as u64;
+
+            match res {
+                Ok(()) => {
+                    history.push(DryRunResult {
+                        encoder: encoder_candidate.to_string(),
+                        accel,
+                        success: true,
+                        exit_code: Some(0),
+                        error_message: None,
+                        duration_ms,
+                    });
+                    chosen_accel = Some(accel);
+                    chosen_h264_encoder = encoder_candidate.to_string();
+                    if accel != initial_accel {
+                        failover_occurred = true;
+                    }
+                    break;
+                }
+                Err(err_msg) => {
+                    history.push(DryRunResult {
+                        encoder: encoder_candidate.to_string(),
+                        accel,
+                        success: false,
+                        exit_code: None,
+                        error_message: Some(err_msg.clone()),
+                        duration_ms,
+                    });
+
+                    warn!(
+                        "Encoder candidate '{}' ({:?}) failed 1-frame transcode dry-run: {}. Failing over...",
+                        encoder_candidate, accel, err_msg
+                    );
+
+                    match accel {
+                        HardwareAccel::Nvenc => report.nvenc.available = false,
+                        HardwareAccel::QuickSync => report.qsv.available = false,
+                        HardwareAccel::VideoToolbox => report.videotoolbox.available = false,
+                        HardwareAccel::Vaapi => report.vaapi.available = false,
+                        HardwareAccel::SoftwareCpu => {}
+                    }
+
+                    if accel != HardwareAccel::SoftwareCpu {
+                        failover_occurred = true;
+                    }
+                }
+            }
+        }
+
+        let active_accel = chosen_accel.unwrap_or(HardwareAccel::SoftwareCpu);
+        let active_h264_encoder = if chosen_h264_encoder.is_empty() {
+            "libx264".to_string()
+        } else {
+            chosen_h264_encoder
+        };
+
+        report.primary_accel = active_accel;
+
+        let active_hevc_encoder = match active_accel {
+            HardwareAccel::Nvenc => report.nvenc.hevc_encoder.clone(),
+            HardwareAccel::QuickSync => report.qsv.hevc_encoder.clone(),
+            HardwareAccel::VideoToolbox => report.videotoolbox.hevc_encoder.clone(),
+            HardwareAccel::Vaapi => report.vaapi.hevc_encoder.clone(),
+            HardwareAccel::SoftwareCpu => report.cpu_fallback.hevc_encoder.clone(),
+        };
+
+        let active_av1_encoder = match active_accel {
+            HardwareAccel::Nvenc => report.nvenc.av1_encoder.clone(),
+            HardwareAccel::QuickSync => report.qsv.av1_encoder.clone(),
+            HardwareAccel::VideoToolbox => report.videotoolbox.av1_encoder.clone(),
+            HardwareAccel::Vaapi => report.vaapi.av1_encoder.clone(),
+            HardwareAccel::SoftwareCpu => report.cpu_fallback.av1_encoder.clone(),
+        };
+
+        let ladder = ValidatedEncoderLadder {
+            active_accel,
+            active_h264_encoder,
+            active_hevc_encoder,
+            active_av1_encoder,
+            dry_run_history: history,
+            failover_occurred,
+            validation_timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs().to_string())
+                .unwrap_or_else(|_| "0".to_string()),
+        };
+
+        report.validated_ladder = Some(ladder.clone());
+        ladder
+    }
+
+    /// Validates the encoder ladder sequentially using standard FFmpeg 1-frame dry-run execution
+    pub async fn validate_ladder(report: &mut GpuCapabilityReport) -> ValidatedEncoderLadder {
+        Self::validate_ladder_with_executor(report, |encoder, accel| async move {
+            Self::run_encoder_dry_run(&encoder, accel).await
+        })
+        .await
+    }
+
+    /// Performs full dynamic probe followed by 1-frame transcode dry-run validation with clean ladder failover
+    pub async fn probe_and_validate_system() -> (GpuCapabilityReport, ValidatedEncoderLadder) {
+        let mut report = Self::probe_system().await;
+        let ladder = Self::validate_ladder(&mut report).await;
+        set_capability_report(report.clone());
+        set_validated_ladder(ladder.clone());
+        (report, ladder)
+    }
+}

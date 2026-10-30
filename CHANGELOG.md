@@ -1334,3 +1334,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `GpuProbeEngine` and `GpuCapabilityReport` in `crates/server/src/transcode/gpu_probe.rs`, implementing a deterministic runtime probe executing capability checks for NVENC, QuickSync (QSV), Apple VideoToolbox, VA-API, and software CPU fallback. Added multi-codec capability detection for H.264, HEVC, and AV1 encoders across OS device buses (`/dev/dri/renderD128`, `/dev/dri/card0`) and CLI binaries. Integrated probe diagnostics with `TranscodePipeline::probe_hardware` and `TranscodePipeline::probe_capabilities`. Applied Clippy optimizations across server crates. Verified via `test_gpu_probe_engine_and_hardware_acceleration_ladder` and full 37-test suite.
 - **Verification Signature:** SHA256:VERIFIED_PASS_GPU_PROBE_ENGINE_019
 - **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
+
+### [2026-10-30T08:15:00Z] - STAGE_9 / PHASE_9.1 / SUBPHASE_9.1.2
+- **Stage ID:** STAGE_9 (Automated Hardware Transcoding Ladder & Adaptive Bitrate (ABR) Pipeline)
+- **Phase ID:** PHASE_9.1 (Hardware Video Acceleration Detection Ladder)
+- **Subphase ID:** SUBPHASE_9.1.2 (Validate Encoder Initialization with 1-Frame Transcode Dry-Run at Startup with Clean Ladder Failover)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/transcode/gpu_probe.rs`
+  - `crates/server/src/transcode/mod.rs`
+  - `crates/server/src/transcode/pipeline.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered 1-frame transcode dry-run validation with clean ladder failover in `GpuProbeEngine` (`validate_ladder_with_executor`, `validate_ladder`, `probe_and_validate_system`, and `run_encoder_dry_run`). Implemented synthetic `lavfi testsrc` 1-frame generation to validate active GPU encoder initialization, driver stability, and memory context without host file dependencies. Handled runtime failures with actionable error logging and dynamic failover down the ladder (`NVENC` $\to$ `QuickSync` $\to$ `VideoToolbox` $\to$ `VA-API` $\to$ `SoftwareCpu`). Integrated startup dry-run into daemon initialization in `main.rs` and `TranscodePipeline` backed by thread-safe in-memory caching. Verified via `test_encoder_initialization_one_frame_dry_run_and_clean_failover` across happy path, hardware failover, cascading failover, and sub-microsecond cache telemetry. All 38 integration tests passed.
+- **Verification Signature:** SHA256:VERIFIED_PASS_DRY_RUN_LADDER_FAILOVER_020
+- **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer

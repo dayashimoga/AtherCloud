@@ -69,9 +69,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting AetherStream Core Daemon v1.0.0-PROD...");
 
-    // Probe hardware acceleration
-    let hw_accel = TranscodePipeline::probe_hardware().await;
-    info!("Hardware Acceleration Strategy: {:?}", hw_accel);
+    // Probe and validate hardware acceleration ladder with 1-frame transcode dry-run
+    let (_gpu_report, validated_ladder) = TranscodePipeline::probe_and_validate_hardware().await;
+    let hw_accel = validated_ladder.active_accel;
+    info!(
+        "Hardware Acceleration Strategy: {:?} (Active Encoder: {}, Failover Occurred: {})",
+        hw_accel, validated_ladder.active_h264_encoder, validated_ladder.failover_occurred
+    );
 
     // Load configuration
     let config = ServerConfig {
