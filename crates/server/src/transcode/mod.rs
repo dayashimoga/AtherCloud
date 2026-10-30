@@ -1,6 +1,8 @@
+pub mod offline;
 pub mod pipeline;
 pub mod profiles;
 
+pub use offline::{OfflineTranscodeJob, OfflineTranscodeWorker, TranscodeJobStatus};
 pub use pipeline::{
     AudioTranscodeStrategy, CachedSegment, DiskCacheConfig, DiskCacheSupervisor, HardwareAccel,
     LruSegmentRingBuffer, MediaMetadata, TranscodePipeline,

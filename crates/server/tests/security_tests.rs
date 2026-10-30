@@ -1021,3 +1021,87 @@ async fn test_disk_cache_quota_and_lru_eviction() {
     let (ttl_evicted, _) = DiskCacheSupervisor::sweep_cache(&ttl_config).await.unwrap();
     assert!(ttl_evicted >= 1, "TTL sweep must purge all expired segments");
 }
+
+#[tokio::test]
+async fn test_offline_transcode_worker_and_lifecycle() {
+    use aetherstream_server::transcode::offline::{OfflineTranscodeWorker, TranscodeJobStatus};
+    use aetherstream_server::transcode::pipeline::{HardwareAccel, MediaMetadata};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let source_file = temp_dir.path().join("source_movie.mkv");
+    let target_dir = temp_dir.path().join("hls_bundle");
+    tokio::fs::write(&source_file, b"dummy source video bits")
+        .await
+        .unwrap();
+
+    let meta = MediaMetadata {
+        container: "mkv".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(1280),
+        height: Some(720),
+        framerate: Some(30.0),
+        bitrate_kbps: Some(2500),
+        audio_codec: Some("aac".to_string()),
+        audio_channels: Some(2),
+        gop_size: Some(60),
+        duration_secs: Some(120.0),
+    };
+
+    let worker = OfflineTranscodeWorker::new();
+
+    // 1. Enqueue offline transcode job
+    let job_id = worker
+        .enqueue_job(
+            source_file.clone(),
+            target_dir.clone(),
+            HardwareAccel::Nvenc,
+            Some(&meta),
+        )
+        .await;
+
+    assert_eq!(
+        worker.get_job_status(&job_id).await,
+        Some(TranscodeJobStatus::Queued)
+    );
+
+    // 2. Process the job
+    let result = worker
+        .process_next_job()
+        .await
+        .expect("Job must be present in queue");
+    let completed_job = result.expect("Job processing must succeed");
+
+    assert!(matches!(
+        completed_job.status,
+        TranscodeJobStatus::Completed { .. }
+    ));
+    if let TranscodeJobStatus::Completed {
+        profiles_rendered, ..
+    } = completed_job.status
+    {
+        assert_eq!(profiles_rendered.len(), 3); // 720p, 480p, 360p (no 1080p upscaling)
+        assert!(profiles_rendered.contains(&"720p_med".to_string()));
+        assert!(!profiles_rendered.contains(&"1080p_high".to_string()));
+    }
+
+    // 3. Verify on-disk static HLS bundle outputs
+    assert!(target_dir.join("master.m3u8").exists());
+    assert!(target_dir.join("720p_med").join("index.m3u8").exists());
+    assert!(target_dir.join("480p_low").join("index.m3u8").exists());
+    assert!(target_dir.join("360p_min").join("index.m3u8").exists());
+
+    // 4. Test cancellation
+    let cancel_job_id = worker
+        .enqueue_job(
+            source_file,
+            temp_dir.path().join("cancel_dir"),
+            HardwareAccel::SoftwareCpu,
+            None,
+        )
+        .await;
+    assert!(worker.cancel_job(&cancel_job_id).await);
+    assert_eq!(
+        worker.get_job_status(&cancel_job_id).await,
+        Some(TranscodeJobStatus::Cancelled)
+    );
+}

@@ -145,7 +145,21 @@ function Test-Subphase-3-3-1 {
 
 function Test-Subphase-3-3-2 {
     Write-AetherLog "INFO" "Auditing Subphase 3.3.2: Background Offline Transcode Pre-rendering..."
-    Write-AetherLog "SUCCESS" "Offline transcode profile generation specifications verified."
+    $offlineFile = Join-Path $Script:RepoRoot "crates/server/src/transcode/offline.rs"
+    if (-not (Test-Path $offlineFile)) {
+        throw "Offline transcode engine missing at offline.rs!"
+    }
+    $content = Get-Content $offlineFile -Raw
+    if (-not ($content -match "OfflineTranscodeWorker" -and $content -match "process_next_job")) {
+        throw "OfflineTranscodeWorker missing in offline.rs!"
+    }
+
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $testOut = cargo test --test security_tests test_offline_transcode_worker_and_lifecycle -- --nocapture 2>&1
+    $ErrorActionPreference = $prev
+    if ($LASTEXITCODE -ne 0) { throw "Offline transcode worker test failed: $testOut" }
+
+    Write-AetherLog "SUCCESS" "Offline transcode worker pipeline verified for zero-CPU playback."
     return $true
 }
 
@@ -163,7 +177,7 @@ $subphases = @(
     @{ Id = "3.2.2"; FullId = "SUBPHASE_3.2.2"; Task = "TASK-3.2.2"; Func = { Test-Subphase-3-2-2 }; Title = "JIT 2-4s Segmenting & Rolling Ring Buffer"; Desc = "Built asynchronous FFmpeg segmenter emitting 4-second transport streams with delete_segments rolling cache."; Components = @("crates/server/src/transcode/pipeline.rs") },
     @{ Id = "3.2.3"; FullId = "SUBPHASE_3.2.3"; Task = "TASK-3.2.3"; Func = { Test-Subphase-3-2-3 }; Title = "Audio Pass-Through & Dynamic Stereo Downmixing"; Desc = "Configured dynamic audio channel downmixing ensuring 5.1/7.1 surround compatibility across mobile devices."; Components = @("crates/server/src/transcode/pipeline.rs") },
     @{ Id = "3.3.1"; FullId = "SUBPHASE_3.3.1"; Task = "TASK-3.3.1"; Func = { Test-Subphase-3-3-1 }; Title = "Automated Disk Cache Quota & LRU Eviction"; Desc = "Implemented background segment eviction actor maintaining transcode scratch storage within quota limits."; Components = @("crates/server/src/transcode/pipeline.rs") },
-    @{ Id = "3.3.2"; FullId = "SUBPHASE_3.3.2"; Task = "TASK-3.3.2"; Func = { Test-Subphase-3-3-2 }; Title = "Background Offline Transcode Pre-rendering"; Desc = "Built offline ABR pre-transcoding profile pipelines enabling zero-CPU streaming during active playback."; Components = @("crates/server/src/transcode/profiles.rs") },
+    @{ Id = "3.3.2"; FullId = "SUBPHASE_3.3.2"; Task = "TASK-3.3.2"; Func = { Test-Subphase-3-3-2 }; Title = "Background Offline Transcode Pre-rendering"; Desc = "Built offline ABR pre-transcoding profile pipelines enabling zero-CPU streaming during active playback."; Components = @("crates/server/src/transcode/offline.rs") },
     @{ Id = "3.3.3"; FullId = "SUBPHASE_3.3.3"; Task = "TASK-3.3.3"; Func = { Test-Subphase-3-3-3 }; Title = "Video Pipeline Stress & Seek Latency Tests"; Desc = "Validated rapid random seeking latency (<200ms) and bufferless playback under simulated network fluctuations."; Components = @("scripts/stages/stage-3.ps1") }
 )
 
