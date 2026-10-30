@@ -179,7 +179,12 @@ class AetherApp {
   }
 
   private registerServiceWorker() {
-    if ("serviceWorker" in navigator && window.location.protocol === "https:") {
+    if (
+      "serviceWorker" in navigator &&
+      (window.location.protocol === "https:" ||
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1")
+    ) {
       navigator.serviceWorker
         .register("/sw.js")
         .then(() => console.log("[PWA] Service Worker registered"))

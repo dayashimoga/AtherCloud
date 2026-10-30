@@ -1,6 +1,12 @@
 // AetherStream PWA Service Worker
 const CACHE_NAME = "aetherstream-v1.0.0";
-const SHELL_ASSETS = ["/", "/index.html", "/manifest.json"];
+const SHELL_ASSETS = [
+  "/",
+  "/index.html",
+  "/manifest.json",
+  "/icon-192.png",
+  "/icon-512.png"
+];
 
 self.addEventListener("install", (evt) => {
   evt.waitUntil(
@@ -23,11 +29,24 @@ self.addEventListener("activate", (evt) => {
 });
 
 self.addEventListener("fetch", (evt) => {
-  // Do not cache API stream or dynamic transcode endpoints in Service Worker cache
-  if (evt.request.url.includes("/api/v1/stream") || evt.request.url.includes("/api/v1/transcode")) {
+  // Never cache live streaming segments, dynamic transcode, or chunked upload endpoints
+  if (
+    evt.request.url.includes("/api/v1/stream") ||
+    evt.request.url.includes("/api/v1/transcode") ||
+    evt.request.url.includes("/api/v1/upload")
+  ) {
     return;
   }
 
+  // Network-first for other API calls, cache fallback
+  if (evt.request.url.includes("/api/")) {
+    evt.respondWith(
+      fetch(evt.request).catch(() => caches.match(evt.request))
+    );
+    return;
+  }
+
+  // Cache-first for static shell assets
   evt.respondWith(
     caches.match(evt.request).then((cached) => cached || fetch(evt.request))
   );
