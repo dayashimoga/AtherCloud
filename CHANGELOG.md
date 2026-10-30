@@ -1222,3 +1222,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `PathSandbox` in `crates/server/src/security/sandbox.rs` executing strict canonicalization via `dunce::canonicalize`. Implemented comprehensive security filters blocking null byte injection (`\0`, `%00`), relative and percent-encoded directory traversals (`../`, `%2e%2e`), symlink boundary escapes resolving outside sandbox mount roots, Windows UNC paths (`\\server\share`), NT device namespaces (`\\.\`, `\??\`, `GlobalRoot`, `PhysicalDrive`), and legacy DOS reserved device names (`CON`, `NUL`, `AUX`, `PRN`, `COM1`..`COM9`, `LPT1`..`LPT9`). Verified via `test_canonical_path_sandbox_and_traversal_defenses`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_PATH_SANDBOX_013
 - **Executor:** Principal Security Architect & Systems Engineer
+
+### [2026-10-30T07:45:00Z] - STAGE_8 / PHASE_8.2 / SUBPHASE_8.2.2
+- **Stage ID:** STAGE_8 (Granular Security Sandbox, Scoped RBAC & Virtual Mount Configuration)
+- **Phase ID:** PHASE_8.2 (Canonical Path Sandboxing & Traversal Defenses)
+- **Subphase ID:** SUBPHASE_8.2.2 (Subpath Whitelist Validation & Syscall Interception)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/security/sandbox.rs`
+  - `crates/server/src/storage/mounts.rs`
+  - `crates/server/src/storage/mount_manager.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered pure in-memory `validate_subpath_whitelist` and safe file read/metadata/open syscall interception wrappers in `PathSandbox` (`resolve_sandboxed_path_with_whitelist`, `sandboxed_metadata_with_whitelist`, `open_sandboxed_file_with_whitelist`, `read_sandboxed_file_with_whitelist`). Integrated subpath whitelist policy enforcement into `MountRegistry::resolve_safe_path`, `list_directory`, and `MountManager::authorize_path`, guaranteeing that unwhitelisted subpaths are intercepted with HTTP 403 Forbidden before executing any file metadata or read syscalls. Enforced privacy filtering in directory listings so unwhitelisted sibling directories are hidden. Verified via `test_whitelist_subpath_validation_and_syscall_interception`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_WHITELIST_VALIDATION_014
+- **Executor:** Principal Security Architect & Systems Engineer

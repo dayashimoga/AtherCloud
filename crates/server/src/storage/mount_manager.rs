@@ -262,32 +262,23 @@ impl MountManager {
             }
         }
 
-        // 2. Traversal defenses: null bytes, parent traversal, UNC/root prefixes
-        let subpath_str = requested_subpath.to_string_lossy();
-        if subpath_str.contains('\0') || subpath_str.contains("%00") {
-            return Err(RouteAuthError::PathTraversal("Null byte injection detected".into()));
-        }
-
-        for comp in requested_subpath.components() {
-            match comp {
-                std::path::Component::ParentDir => {
-                    return Err(RouteAuthError::PathTraversal(subpath_str.into_owned()));
+        // 2. Traversal defenses and subpath whitelist verification via PathSandbox
+        if let Err(e) = crate::security::PathSandbox::validate_subpath_whitelist(
+            &route.allowed_subpaths,
+            requested_subpath,
+        ) {
+            return match e {
+                crate::security::SandboxError::SubpathForbidden(p) => {
+                    Err(RouteAuthError::SubpathForbidden(p.to_string_lossy().into_owned()))
                 }
-                std::path::Component::RootDir | std::path::Component::Prefix(_) => {
-                    return Err(RouteAuthError::PathTraversal(subpath_str.into_owned()));
+                crate::security::SandboxError::NullByteInjection(s)
+                | crate::security::SandboxError::DirectoryTraversal(s)
+                | crate::security::SandboxError::UncDeviceBypass(s)
+                | crate::security::SandboxError::ReservedDeviceName(s) => {
+                    Err(RouteAuthError::PathTraversal(s))
                 }
-                _ => {}
-            }
-        }
-
-        // 3. Whitelist check: If allowed_subpaths is non-empty, path must match or be a child of whitelist
-        if !route.allowed_subpaths.is_empty() {
-            let matches_whitelist = route.allowed_subpaths.iter().any(|allowed| {
-                requested_subpath.starts_with(allowed) || requested_subpath == allowed
-            });
-            if !matches_whitelist {
-                return Err(RouteAuthError::SubpathForbidden(subpath_str.into_owned()));
-            }
+                _ => Err(RouteAuthError::SubpathForbidden(requested_subpath.to_string_lossy().into_owned())),
+            };
         }
 
         let canonical_target = route.physical_root.join(requested_subpath);

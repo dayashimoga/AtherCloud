@@ -2403,3 +2403,171 @@ fn test_canonical_path_sandbox_and_traversal_defenses() {
 
     println!("[PATH SANDBOX VERIFIED] Successfully validated dunce canonicalization, null byte, traversal, UNC, and device defenses.");
 }
+
+#[tokio::test]
+async fn test_whitelist_subpath_validation_and_syscall_interception() {
+    use aetherstream_server::security::sandbox::{PathSandbox, SandboxError};
+    use aetherstream_server::storage::mounts::{MountError, MountPermission, MountRegistry};
+    use std::path::{Path, PathBuf};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let mount_root = temp_dir.path();
+
+    // Setup directory structure
+    let public_dir = mount_root.join("public").join("trailers");
+    let private_dir = mount_root.join("private");
+    std::fs::create_dir_all(&public_dir).unwrap();
+    std::fs::create_dir_all(&private_dir).unwrap();
+
+    let public_file = public_dir.join("teaser.mp4");
+    std::fs::write(&public_file, b"valid whitelisted trailer content").unwrap();
+
+    let private_file = private_dir.join("vault.key");
+    std::fs::write(&private_file, b"SUPER_SECRET_PRIVATE_KEY").unwrap();
+
+    let whitelist = vec![
+        PathBuf::from("public/trailers"),
+        PathBuf::from("public/movies"),
+    ];
+
+    // 1. Pure in-memory whitelist validation
+    assert!(PathSandbox::validate_subpath_whitelist(&whitelist, Path::new("public/trailers")).is_ok());
+    assert!(PathSandbox::validate_subpath_whitelist(&whitelist, Path::new("public/trailers/teaser.mp4")).is_ok());
+    assert!(PathSandbox::validate_subpath_whitelist(&whitelist, Path::new("public/movies/action/film.mp4")).is_ok());
+
+    // Forbidden sibling directory
+    let forbidden_res = PathSandbox::validate_subpath_whitelist(&whitelist, Path::new("private/vault.key"));
+    match forbidden_res {
+        Err(SandboxError::SubpathForbidden(p)) => assert_eq!(p, Path::new("private/vault.key")),
+        _ => panic!("Expected SubpathForbidden for private/vault.key"),
+    }
+
+    // Forbidden prefix without path boundary (e.g. public_other)
+    let non_boundary_res = PathSandbox::validate_subpath_whitelist(&whitelist, Path::new("public_other/trailers/clip.mp4"));
+    match non_boundary_res {
+        Err(SandboxError::SubpathForbidden(_)) => {}
+        _ => panic!("Expected SubpathForbidden for partial string prefix without path separator"),
+    }
+
+    // Traversal blocked before whitelist evaluation
+    let traversal_res = PathSandbox::validate_subpath_whitelist(&whitelist, Path::new("public/trailers/../../private/vault.key"));
+    match traversal_res {
+        Err(SandboxError::DirectoryTraversal(_)) => {}
+        _ => panic!("Expected DirectoryTraversal for traversal attack"),
+    }
+
+    // Null byte blocked before whitelist evaluation
+    let null_res = PathSandbox::validate_subpath_whitelist(&whitelist, Path::new("public/trailers/clip.mp4%00.exe"));
+    match null_res {
+        Err(SandboxError::NullByteInjection(_)) => {}
+        _ => panic!("Expected NullByteInjection error"),
+    }
+
+    // Empty whitelist permits all subpaths
+    let empty_whitelist: Vec<PathBuf> = vec![];
+    assert!(PathSandbox::validate_subpath_whitelist(&empty_whitelist, Path::new("any/subpath/file.mp4")).is_ok());
+
+    // 2. Syscall Interception Verification
+    // Reading whitelisted file succeeds
+    let read_data = PathSandbox::read_sandboxed_file_with_whitelist(
+        mount_root,
+        Path::new("public/trailers/teaser.mp4"),
+        &whitelist,
+    ).expect("Read whitelisted file");
+    assert_eq!(read_data, b"valid whitelisted trailer content");
+
+    // Reading whitelisted metadata succeeds
+    let metadata = PathSandbox::sandboxed_metadata_with_whitelist(
+        mount_root,
+        Path::new("public/trailers/teaser.mp4"),
+        &whitelist,
+    ).expect("Metadata of whitelisted file");
+    assert_eq!(metadata.len(), b"valid whitelisted trailer content".len() as u64);
+
+    // Opening whitelisted file descriptor succeeds
+    assert!(PathSandbox::open_sandboxed_file_with_whitelist(
+        mount_root,
+        Path::new("public/trailers/teaser.mp4"),
+        &whitelist,
+    ).is_ok());
+
+    // Interception of forbidden existing file
+    let forbidden_read = PathSandbox::read_sandboxed_file_with_whitelist(
+        mount_root,
+        Path::new("private/vault.key"),
+        &whitelist,
+    );
+    match forbidden_read {
+        Err(SandboxError::SubpathForbidden(_)) => {}
+        _ => panic!("Expected SubpathForbidden intercepting read syscall on private/vault.key"),
+    }
+
+    let forbidden_meta = PathSandbox::sandboxed_metadata_with_whitelist(
+        mount_root,
+        Path::new("private/vault.key"),
+        &whitelist,
+    );
+    match forbidden_meta {
+        Err(SandboxError::SubpathForbidden(_)) => {}
+        _ => panic!("Expected SubpathForbidden intercepting metadata syscall on private/vault.key"),
+    }
+
+    // Interception on non-existent forbidden file (must return SubpathForbidden, NEVER NotFound/IoError)
+    let non_existent_forbidden = PathSandbox::read_sandboxed_file_with_whitelist(
+        mount_root,
+        Path::new("private/non_existent.txt"),
+        &whitelist,
+    );
+    match non_existent_forbidden {
+        Err(SandboxError::SubpathForbidden(p)) => {
+            assert_eq!(p, Path::new("private/non_existent.txt"));
+            println!("[SYSCALL INTERCEPTION VERIFIED] Successfully intercepted read syscall prior to filesystem lookup.");
+        }
+        _ => panic!("Expected SubpathForbidden, proving syscall was intercepted before filesystem lookup"),
+    }
+
+    // 3. MountRegistry Integration & Directory Listing Privacy
+    let registry = MountRegistry::new();
+    registry.register_with_whitelist(
+        "secure_vault",
+        mount_root.to_path_buf(),
+        MountPermission::Read,
+        vec![PathBuf::from("public/trailers")],
+        Some("Public Media Whitelist".into()),
+    ).expect("Register mount with whitelist");
+
+    let mounts_info = registry.list_mounts();
+    assert_eq!(mounts_info.len(), 1);
+    let allowed_list = mounts_info[0]["allowed_subpaths"].as_array().expect("allowed_subpaths array");
+    assert_eq!(allowed_list.len(), 1);
+
+    // Valid path resolution
+    let safe_resolved = registry.resolve_safe_path("secure_vault", Path::new("public/trailers/teaser.mp4"));
+    assert!(safe_resolved.is_ok());
+
+    // Forbidden path resolution fails before syscall
+    let safe_forbidden = registry.resolve_safe_path("secure_vault", Path::new("private/vault.key"));
+    match safe_forbidden {
+        Err(MountError::SubpathForbidden(p)) => assert_eq!(p, "private/vault.key"),
+        _ => panic!("Expected MountError::SubpathForbidden"),
+    }
+
+    // Directory listing inside whitelisted directory succeeds
+    let items = registry.list_directory("secure_vault", Path::new("public/trailers")).expect("List allowed subpath");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].name, "teaser.mp4");
+
+    // Directory listing of forbidden directory fails
+    let forbidden_dir_list = registry.list_directory("secure_vault", Path::new("private"));
+    match forbidden_dir_list {
+        Err(MountError::SubpathForbidden(p)) => assert_eq!(p, "private"),
+        _ => panic!("Expected MountError::SubpathForbidden when listing forbidden directory"),
+    }
+
+    // Directory listing of root filters unwhitelisted directory ("private" is completely hidden!)
+    let root_items = registry.list_directory("secure_vault", Path::new("")).expect("List root directory");
+    assert_eq!(root_items.len(), 1);
+    assert_eq!(root_items[0].name, "public"); // Only "public" is exposed, "private" is suppressed!
+
+    println!("[TASK-8.2.2 VERIFIED] Complete subpath whitelist validation and file read/metadata syscall interception verified.");
+}

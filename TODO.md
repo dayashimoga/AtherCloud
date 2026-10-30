@@ -824,3 +824,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Security Architect & Systems Engineer
 - **Execution Trace:** cargo test --test security_tests test_canonical_path_sandbox_and_traversal_defenses
 - **Validation Proof:** Engineered PathSandbox in crates/server/src/security/sandbox.rs using dunce::canonicalize. Prevented null byte injections (\0, %00), directory traversal sequences (../, %2e%2e, ..%2f), symlink escapes resolving outside mount root, Windows UNC network paths (\\server\share), NT device namespaces (\\.\, \??\, GlobalRoot, PhysicalDrive), and DOS reserved device names (CON, NUL, AUX, PRN, COM1..9, LPT1..9). All 31 integration tests passed.
+
+### [2026-10-30T07:45:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-8.2.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Security Architect & Systems Engineer
+- **Execution Trace:** cargo test --test security_tests test_whitelist_subpath_validation_and_syscall_interception
+- **Validation Proof:** Engineered pure in-memory validate_subpath_whitelist and safe read/metadata/open syscall interception wrappers in PathSandbox. Integrated subpath whitelist validation into MountRegistry::resolve_safe_path, list_directory, and MountManager::authorize_path, guaranteeing unwhitelisted file reads and directory listings are intercepted with HTTP 403 Forbidden before executing any filesystem syscall. All 32 integration tests passed.

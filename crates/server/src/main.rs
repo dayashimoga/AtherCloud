@@ -460,11 +460,17 @@ async fn complete_upload_handler(
 
 async fn hls_master_manifest_handler(
     AxPath((mount, subpath)): AxPath<(String, String)>,
+    State(state): State<AppState>,
 ) -> Response {
     let clean_subpath = subpath
         .strip_suffix("/master.m3u8")
         .or_else(|| subpath.strip_suffix("master.m3u8"))
         .unwrap_or(&subpath);
+
+    if let Err(e) = state.mounts.resolve_safe_path(&mount, Path::new(clean_subpath)) {
+        return e.into_response();
+    }
+
     let base_prefix = format!("/api/v1/transcode/hls/{}/{}", mount, clean_subpath);
     let manifest = TranscodePipeline::generate_master_manifest(&base_prefix);
 

@@ -19,6 +19,8 @@ pub enum SandboxError {
     Io(#[from] std::io::Error),
     #[error("Security violation: OS-critical system path is quarantined: '{0}'")]
     QuarantinedPath(PathBuf),
+    #[error("Security violation: Requested subpath '{0}' is not in mount's allowed whitelist")]
+    SubpathForbidden(PathBuf),
 }
 
 pub struct PathSandbox;
@@ -133,6 +135,218 @@ impl PathSandbox {
 
             Ok(combined)
         }
+    }
+
+    /// Normalizes subpath into relative components stripping leading root/prefixes
+    pub fn normalize_subpath(path: &Path) -> PathBuf {
+        let mut normalized = PathBuf::new();
+        for comp in path.components() {
+            match comp {
+                Component::Normal(c) => normalized.push(c),
+                Component::CurDir => {}
+                _ => {}
+            }
+        }
+        normalized
+    }
+
+    /// Checks if a prefix path matches component-by-component against target path
+    pub fn is_component_prefix(target: &Path, prefix: &Path) -> bool {
+        let target_comps: Vec<_> = target.components().collect();
+        let prefix_comps: Vec<_> = prefix.components().collect();
+
+        if prefix_comps.len() > target_comps.len() {
+            return false;
+        }
+
+        for (i, p_comp) in prefix_comps.iter().enumerate() {
+            let t_comp = &target_comps[i];
+            #[cfg(windows)]
+            {
+                let p_str = p_comp.as_os_str().to_string_lossy().to_lowercase();
+                let t_str = t_comp.as_os_str().to_string_lossy().to_lowercase();
+                if p_str != t_str {
+                    return false;
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                if p_comp != t_comp {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Intercepts and validates requested subpaths against the mount's `allowed_subpaths` whitelist
+    /// BEFORE executing any file metadata or read syscall.
+    ///
+    /// - If `allowed_subpaths` is empty, access is unrestricted within the mount root.
+    /// - If non-empty, the requested subpath must match or be a descendant of at least one whitelist entry.
+    /// - Pure in-memory lexical verification without touching the host filesystem.
+    pub fn validate_subpath_whitelist(
+        allowed_subpaths: &[PathBuf],
+        requested_subpath: &Path,
+    ) -> Result<(), SandboxError> {
+        let subpath_str = requested_subpath.to_string_lossy();
+
+        // 1. Detect null byte injection
+        if subpath_str.contains('\0') || subpath_str.contains("%00") || subpath_str.contains("\\0") {
+            error!("Null byte injection attempt in whitelist check: '{}'", subpath_str);
+            return Err(SandboxError::NullByteInjection(subpath_str.into_owned()));
+        }
+
+        // 2. Reject Windows UNC or device namespaces
+        if Self::is_unc_or_device_namespace(&subpath_str) {
+            error!("Windows UNC/device bypass in whitelist check: '{}'", subpath_str);
+            return Err(SandboxError::UncDeviceBypass(subpath_str.into_owned()));
+        }
+
+        // 3. Inspect for traversal sequences
+        let lower = subpath_str.to_lowercase();
+        if lower.contains("%2e%2e")
+            || lower.contains("%2e.")
+            || lower.contains(".%2e")
+            || lower.contains("..%2f")
+            || lower.contains("..%5c")
+        {
+            error!("Encoded directory traversal in whitelist check: '{}'", subpath_str);
+            return Err(SandboxError::DirectoryTraversal(subpath_str.into_owned()));
+        }
+
+        for comp in requested_subpath.components() {
+            match comp {
+                Component::ParentDir => {
+                    error!("Parent traversal ('..') in whitelist check: '{}'", subpath_str);
+                    return Err(SandboxError::DirectoryTraversal(subpath_str.into_owned()));
+                }
+                Component::RootDir | Component::Prefix(_) => {
+                    error!("Absolute/prefix root in whitelist check: '{}'", subpath_str);
+                    return Err(SandboxError::DirectoryTraversal(subpath_str.into_owned()));
+                }
+                Component::Normal(os_str) => {
+                    let comp_str = os_str.to_string_lossy();
+                    if Self::is_dos_device_name(&comp_str) {
+                        return Err(SandboxError::ReservedDeviceName(comp_str.into_owned()));
+                    }
+                }
+                Component::CurDir => {}
+            }
+        }
+
+        // 4. If whitelist is empty, all subpaths within mount root are authorized
+        if allowed_subpaths.is_empty() {
+            return Ok(());
+        }
+
+        let req_norm = Self::normalize_subpath(requested_subpath);
+
+        // 5. Match against allowed subpaths
+        for allowed in allowed_subpaths {
+            let allowed_norm = Self::normalize_subpath(allowed);
+            if allowed_norm.as_os_str().is_empty() {
+                return Ok(());
+            }
+            if Self::is_component_prefix(&req_norm, &allowed_norm) {
+                return Ok(());
+            }
+        }
+
+        warn!(
+            "Subpath whitelist violation: requested subpath '{}' not in allowed whitelist {:?}",
+            requested_subpath.display(),
+            allowed_subpaths
+        );
+        Err(SandboxError::SubpathForbidden(requested_subpath.to_path_buf()))
+    }
+
+    /// Evaluates if a given subpath is an allowed subpath, descendant of an allowed subpath,
+    /// or an ancestor folder leading to an allowed subpath (used for virtual folder hierarchy browsing).
+    pub fn is_allowed_or_ancestor(allowed_subpaths: &[PathBuf], requested_subpath: &Path) -> bool {
+        if allowed_subpaths.is_empty() {
+            return true;
+        }
+
+        let subpath_str = requested_subpath.to_string_lossy();
+        if subpath_str.contains('\0')
+            || subpath_str.contains("%00")
+            || subpath_str.contains("..")
+            || Self::is_unc_or_device_namespace(&subpath_str)
+        {
+            return false;
+        }
+
+        let req_norm = Self::normalize_subpath(requested_subpath);
+        for allowed in allowed_subpaths {
+            let allowed_norm = Self::normalize_subpath(allowed);
+            if allowed_norm.as_os_str().is_empty() {
+                return true;
+            }
+            // Descendant or exact match
+            if Self::is_component_prefix(&req_norm, &allowed_norm) {
+                return true;
+            }
+            // Ancestor directory leading to allowed subpath
+            if Self::is_component_prefix(&allowed_norm, &req_norm) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Validates requested subpath against the mount whitelist and then strictly resolves
+    /// the sandboxed canonical target path.
+    pub fn resolve_sandboxed_path_with_whitelist(
+        base_root: &Path,
+        requested_subpath: &Path,
+        allowed_subpaths: &[PathBuf],
+    ) -> Result<PathBuf, SandboxError> {
+        // Intercept and validate whitelist BEFORE executing any file metadata or read syscall
+        Self::validate_subpath_whitelist(allowed_subpaths, requested_subpath)?;
+        Self::resolve_sandboxed_path(base_root, requested_subpath)
+    }
+
+    /// Retrieves file metadata only after subpath whitelist verification and sandbox resolution.
+    /// Intercepts and blocks the metadata syscall if the subpath is not whitelisted.
+    pub fn sandboxed_metadata_with_whitelist(
+        base_root: &Path,
+        requested_subpath: &Path,
+        allowed_subpaths: &[PathBuf],
+    ) -> Result<std::fs::Metadata, SandboxError> {
+        let safe_path = Self::resolve_sandboxed_path_with_whitelist(base_root, requested_subpath, allowed_subpaths)?;
+        if !safe_path.exists() {
+            return Err(SandboxError::NotFound(safe_path));
+        }
+        std::fs::metadata(&safe_path).map_err(SandboxError::Io)
+    }
+
+    /// Opens a file for reading only after subpath whitelist verification and sandbox resolution.
+    /// Intercepts and blocks the open syscall if the subpath is not whitelisted.
+    pub fn open_sandboxed_file_with_whitelist(
+        base_root: &Path,
+        requested_subpath: &Path,
+        allowed_subpaths: &[PathBuf],
+    ) -> Result<std::fs::File, SandboxError> {
+        let safe_path = Self::resolve_sandboxed_path_with_whitelist(base_root, requested_subpath, allowed_subpaths)?;
+        if !safe_path.exists() {
+            return Err(SandboxError::NotFound(safe_path));
+        }
+        std::fs::File::open(&safe_path).map_err(SandboxError::Io)
+    }
+
+    /// Reads an entire file only after subpath whitelist verification and sandbox resolution.
+    /// Intercepts and blocks the read syscall if the subpath is not whitelisted.
+    pub fn read_sandboxed_file_with_whitelist(
+        base_root: &Path,
+        requested_subpath: &Path,
+        allowed_subpaths: &[PathBuf],
+    ) -> Result<Vec<u8>, SandboxError> {
+        let safe_path = Self::resolve_sandboxed_path_with_whitelist(base_root, requested_subpath, allowed_subpaths)?;
+        if !safe_path.exists() {
+            return Err(SandboxError::NotFound(safe_path));
+        }
+        std::fs::read(&safe_path).map_err(SandboxError::Io)
     }
 
     /// Detects Windows UNC paths (e.g. `\\server\share`, `//server/share`) and

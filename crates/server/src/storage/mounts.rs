@@ -9,6 +9,8 @@ pub enum MountError {
     MountNotFound(String),
     #[error("Path traversal detected: path escapes mount root")]
     PathTraversalAttempt,
+    #[error("Security violation: Subpath '{0}' forbidden by mount whitelist policy")]
+    SubpathForbidden(String),
     #[error("Target does not exist: {0}")]
     NotFound(String),
     #[error("I/O error: {0}")]
@@ -26,6 +28,7 @@ impl axum::response::IntoResponse for MountError {
         let (status, msg) = match self {
             MountError::MountNotFound(m) => (StatusCode::NOT_FOUND, format!("Mount '{}' not registered", m)),
             MountError::PathTraversalAttempt => (StatusCode::FORBIDDEN, "Security violation: Path traversal forbidden".to_string()),
+            MountError::SubpathForbidden(p) => (StatusCode::FORBIDDEN, format!("Security violation: Subpath '{}' forbidden by whitelist policy", p)),
             MountError::NotFound(p) => (StatusCode::NOT_FOUND, format!("Resource not found: {}", p)),
             MountError::ReadOnlyMount(m) => (StatusCode::METHOD_NOT_ALLOWED, format!("Mount '{}' is read-only", m)),
             MountError::QuarantinedPath(p) => (StatusCode::FORBIDDEN, format!("Security violation: OS-critical path quarantined ({})", p)),
@@ -80,6 +83,7 @@ pub struct DiscoveredDrive {
 pub struct MountEntry {
     pub base_path: PathBuf,
     pub permission: MountPermission,
+    pub allowed_subpaths: Vec<PathBuf>,
     pub description: Option<String>,
 }
 
@@ -225,6 +229,41 @@ impl MountRegistry {
             MountEntry {
                 base_path: canonical,
                 permission,
+                allowed_subpaths: Vec::new(),
+                description,
+            },
+        );
+        Ok(())
+    }
+
+    /// Registers a virtual mount with a granular subpath whitelist policy
+    pub fn register_with_whitelist(
+        &self,
+        name: &str,
+        path: PathBuf,
+        permission: MountPermission,
+        allowed_subpaths: Vec<PathBuf>,
+        description: Option<String>,
+    ) -> Result<(), MountError> {
+        let canonical = dunce::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if super::PathQuarantine::is_critical_system_path(&canonical) {
+            error!(
+                "Cannot register mount '{}': target {:?} is an OS-critical path and has been quarantined.",
+                name, canonical
+            );
+            return Err(MountError::QuarantinedPath(canonical.to_string_lossy().to_string()));
+        }
+
+        if !path.exists() {
+            let _ = std::fs::create_dir_all(&path);
+        }
+        let mut guard = self.mounts.write().unwrap();
+        guard.insert(
+            name.to_string(),
+            MountEntry {
+                base_path: canonical,
+                permission,
+                allowed_subpaths,
                 description,
             },
         );
@@ -262,6 +301,7 @@ impl MountRegistry {
                     "permission": format!("{:?}", v.permission),
                     "read_only": v.permission == MountPermission::Read || v.permission == MountPermission::StreamOnly,
                     "stream_only": v.permission == MountPermission::StreamOnly,
+                    "allowed_subpaths": v.allowed_subpaths.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>(),
                     "description": v.description,
                     "path_display": v.base_path.to_string_lossy(),
                 })
@@ -323,98 +363,78 @@ impl MountRegistry {
                 .ok_or_else(|| MountError::MountNotFound(mount_id.to_string()))?
         };
 
-        // 1. String-level injection and encoded sequence detection
-        let path_str = relative_path.to_string_lossy();
-        if path_str.contains('\0') {
-            warn!("Null byte injection detected in path: {:?}", relative_path);
-            return Err(MountError::PathTraversalAttempt);
-        }
-
-        let lower = path_str.to_lowercase();
-        if lower.contains("%2e%2e")
-            || lower.contains("..%2f")
-            || lower.contains("..%5c")
-            || lower.contains("%2f..")
-            || lower.contains("%5c..")
-        {
-            warn!("Encoded traversal sequence detected in path: {:?}", relative_path);
-            return Err(MountError::PathTraversalAttempt);
-        }
-
-        // 2. Lexical component checks for malicious parent navigation or root-prefixing
+        // 1. Quarantined component check
         for comp in relative_path.components() {
-            match comp {
-                Component::ParentDir => {
-                    warn!("Parent directory traversal sequence detected in requested path: {:?}", relative_path);
-                    return Err(MountError::PathTraversalAttempt);
+            if let Component::Normal(os_str) = comp {
+                let name = os_str.to_string_lossy();
+                if super::PathQuarantine::is_quarantined_name(&name) {
+                    warn!("Quarantine intercept: Blocked access to quarantined component '{}'", name);
+                    return Err(MountError::QuarantinedPath(name.to_string()));
                 }
-                Component::RootDir | Component::Prefix(_) => {
-                    warn!("Absolute or prefix path sequence detected in requested relative path: {:?}", relative_path);
-                    return Err(MountError::PathTraversalAttempt);
-                }
-                Component::Normal(os_str) => {
-                    let name = os_str.to_string_lossy();
-                    if super::PathQuarantine::is_quarantined_name(&name) {
-                        warn!("Quarantine intercept: Blocked access to quarantined component '{}'", name);
-                        return Err(MountError::QuarantinedPath(name.to_string()));
-                    }
-                }
-                _ => {}
             }
         }
 
-        // 3. Synthesize tentative target path
-        let candidate = entry.base_path.join(relative_path);
-
-        // 3. If file exists, canonicalize and verify boundary confinement
-        if candidate.exists() {
-            let canonical_target = dunce::canonicalize(&candidate)
-                .map_err(|e| MountError::IoError(e))?;
-
-            if !canonical_target.starts_with(&entry.base_path) {
-                error!(
-                    "Path traversal exploit averted! Canonical target {:?} escapes mount base {:?}",
-                    canonical_target, entry.base_path
-                );
-                return Err(MountError::PathTraversalAttempt);
+        // 2. Whitelist validation and sandbox resolution
+        match crate::security::PathSandbox::resolve_sandboxed_path_with_whitelist(
+            &entry.base_path,
+            relative_path,
+            &entry.allowed_subpaths,
+        ) {
+            Ok(p) => {
+                if super::PathQuarantine::is_critical_system_path(&p) {
+                    return Err(MountError::QuarantinedPath(p.to_string_lossy().to_string()));
+                }
+                Ok(p)
             }
-
-            if super::PathQuarantine::is_critical_system_path(&canonical_target) {
-                warn!(
-                    "Quarantine boundary enforced: Blocked access to OS-critical path {:?} within mount '{}'",
-                    canonical_target, mount_id
-                );
-                return Err(MountError::QuarantinedPath(canonical_target.to_string_lossy().to_string()));
+            Err(crate::security::SandboxError::SubpathForbidden(p)) => {
+                Err(MountError::SubpathForbidden(p.to_string_lossy().to_string()))
             }
-
-            Ok(canonical_target)
-        } else {
-            // For non-existent targets (e.g. prospective upload path), verify normalized parent
-            let normalized = candidate;
-            let parent_canonical = match normalized.parent() {
-                Some(p) if p.exists() => dunce::canonicalize(p)?,
-                _ => entry.base_path.clone(),
-            };
-
-            if !parent_canonical.starts_with(&entry.base_path) {
-                return Err(MountError::PathTraversalAttempt);
+            Err(crate::security::SandboxError::QuarantinedPath(p)) => {
+                Err(MountError::QuarantinedPath(p.to_string_lossy().to_string()))
             }
-
-            if super::PathQuarantine::is_critical_system_path(&normalized) {
-                warn!(
-                    "Quarantine boundary enforced: Blocked prospective OS-critical target {:?}",
-                    normalized
-                );
-                return Err(MountError::QuarantinedPath(normalized.to_string_lossy().to_string()));
+            Err(crate::security::SandboxError::NullByteInjection(_))
+            | Err(crate::security::SandboxError::DirectoryTraversal(_))
+            | Err(crate::security::SandboxError::SymlinkEscape(_, _))
+            | Err(crate::security::SandboxError::UncDeviceBypass(_))
+            | Err(crate::security::SandboxError::ReservedDeviceName(_)) => {
+                Err(MountError::PathTraversalAttempt)
             }
-
-            Ok(normalized)
+            Err(crate::security::SandboxError::NotFound(p)) => {
+                Err(MountError::NotFound(p.to_string_lossy().to_string()))
+            }
+            Err(crate::security::SandboxError::Io(e)) => Err(MountError::IoError(e)),
         }
     }
 
     /// Lists directory contents securely with rich metadata
     pub fn list_directory(&self, mount_id: &str, subpath: &Path) -> Result<Vec<FileMetadata>, MountError> {
-        let safe_dir = self.resolve_safe_path(mount_id, subpath)?;
+        let entry = {
+            let guard = self.mounts.read().unwrap();
+            guard
+                .get(mount_id)
+                .cloned()
+                .ok_or_else(|| MountError::MountNotFound(mount_id.to_string()))?
+        };
+
+        // Whitelist check for browse: must be allowed descendant, exact match, or ancestor
+        if !entry.allowed_subpaths.is_empty() {
+            if !crate::security::PathSandbox::is_allowed_or_ancestor(&entry.allowed_subpaths, subpath) {
+                return Err(MountError::SubpathForbidden(subpath.to_string_lossy().to_string()));
+            }
+        }
+
+        let safe_dir = crate::security::PathSandbox::resolve_sandboxed_path(&entry.base_path, subpath)
+            .map_err(|e| match e {
+                crate::security::SandboxError::QuarantinedPath(p) => {
+                    MountError::QuarantinedPath(p.to_string_lossy().to_string())
+                }
+                crate::security::SandboxError::NotFound(p) => {
+                    MountError::NotFound(p.to_string_lossy().to_string())
+                }
+                crate::security::SandboxError::Io(e) => MountError::IoError(e),
+                _ => MountError::PathTraversalAttempt,
+            })?;
+
         if !safe_dir.is_dir() {
             return Err(MountError::NotFound(safe_dir.to_string_lossy().to_string()));
         }
@@ -422,9 +442,9 @@ impl MountRegistry {
         let mut results = Vec::new();
         let read_dir = std::fs::read_dir(&safe_dir)?;
 
-        for entry in read_dir.flatten() {
-            let meta = entry.metadata()?;
-            let name = entry.file_name().to_string_lossy().to_string();
+        for item in read_dir.flatten() {
+            let meta = item.metadata()?;
+            let name = item.file_name().to_string_lossy().to_string();
 
             // Skip hidden or governance/git files
             if name.starts_with('.') {
@@ -432,14 +452,22 @@ impl MountRegistry {
             }
 
             // Exclude or quarantine OS-critical paths from raw unmanaged listing
-            if !super::PathQuarantine::can_expose_in_unmanaged_listing(&safe_dir, &name, &entry.path()) {
+            if !super::PathQuarantine::can_expose_in_unmanaged_listing(&safe_dir, &name, &item.path()) {
                 continue;
+            }
+
+            // If mount has allowed_subpaths whitelist, filter items so unwhitelisted items are hidden
+            if !entry.allowed_subpaths.is_empty() {
+                let item_subpath = subpath.join(&name);
+                if !crate::security::PathSandbox::is_allowed_or_ancestor(&entry.allowed_subpaths, &item_subpath) {
+                    continue;
+                }
             }
 
             let mime = if meta.is_dir() {
                 "inode/directory".to_string()
             } else {
-                mime_guess::from_path(entry.path())
+                mime_guess::from_path(item.path())
                     .first_or_octet_stream()
                     .to_string()
             };
