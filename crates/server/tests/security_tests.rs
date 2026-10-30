@@ -17,7 +17,7 @@ fn test_path_traversal_prevention() {
     std::fs::write(&safe_file, b"sample media data").unwrap();
 
     let mut registry = MountRegistry::new();
-    registry.register("media", mount_root.clone(), false, None);
+    assert!(registry.register("media", mount_root.clone(), false, None).is_ok());
 
     // 1. Valid path must resolve
     let resolved = registry.resolve_safe_path("media", Path::new("sample.mp4"));
@@ -280,24 +280,24 @@ fn test_virtual_mount_permissions_and_sqlite_schema() {
     let root = temp_dir.path().to_path_buf();
 
     let mut registry = MountRegistry::new();
-    registry.register_with_permission(
+    assert!(registry.register_with_permission(
         "media_ro",
         root.clone(),
         aetherstream_server::storage::mounts::MountPermission::Read,
         Some("Read-Only Storage".into()),
-    );
-    registry.register_with_permission(
+    ).is_ok());
+    assert!(registry.register_with_permission(
         "media_rw",
         root.clone(),
         aetherstream_server::storage::mounts::MountPermission::Write,
         Some("Read-Write Storage".into()),
-    );
-    registry.register_with_permission(
+    ).is_ok());
+    assert!(registry.register_with_permission(
         "media_stream",
         root.clone(),
         aetherstream_server::storage::mounts::MountPermission::StreamOnly,
         Some("Stream-Only Media".into()),
-    );
+    ).is_ok());
 
     // Verify write permissions
     assert!(registry.check_write_permission("media_rw").is_ok(), "Write permitted on RW mount");
@@ -1232,4 +1232,75 @@ fn test_cross_platform_volume_inspector() {
             v.serial_number
         );
     }
+}
+
+#[test]
+fn test_os_critical_path_quarantine_and_exclusion() {
+    use aetherstream_server::storage::PathQuarantine;
+    use aetherstream_server::storage::mounts::{MountError, MountRegistry};
+    use std::path::Path;
+
+    // 1. Verify critical system path detector
+    assert!(PathQuarantine::is_critical_system_path(Path::new("C:\\Windows")));
+    assert!(PathQuarantine::is_critical_system_path(Path::new("C:\\Windows\\System32\\cmd.exe")));
+    assert!(PathQuarantine::is_critical_system_path(Path::new("C:\\Recovery")));
+    assert!(PathQuarantine::is_critical_system_path(Path::new("C:\\$Recycle.Bin")));
+    assert!(PathQuarantine::is_critical_system_path(Path::new("C:\\System Volume Information")));
+    assert!(PathQuarantine::is_critical_system_path(Path::new("/proc/cpuinfo")));
+    assert!(PathQuarantine::is_critical_system_path(Path::new("/sys/block")));
+    assert!(PathQuarantine::is_critical_system_path(Path::new("/etc/shadow")));
+    assert!(PathQuarantine::is_critical_system_path(Path::new("/dev/sda")));
+    assert!(PathQuarantine::is_critical_system_path(Path::new("/System/Library")));
+
+    // Non-critical paths must not be flagged
+    assert!(!PathQuarantine::is_critical_system_path(Path::new("D:\\Movies\\action.mp4")));
+    assert!(!PathQuarantine::is_critical_system_path(Path::new("C:\\Users\\daya\\Videos")));
+    assert!(!PathQuarantine::is_critical_system_path(Path::new("/home/user/media")));
+
+    // 2. Reject registering OS-critical system path as a virtual mount
+    let mut registry = MountRegistry::new();
+    let reg_win = registry.register("win_sys", std::path::PathBuf::from("C:\\Windows"), true, None);
+    assert!(reg_win.is_err(), "Registering C:\\Windows as mount must be rejected");
+    match reg_win {
+        Err(MountError::QuarantinedPath(p)) => {
+            println!("[QUARANTINE ENFORCED] Blocked mount registration of OS-critical path: {}", p);
+        }
+        other => panic!("Expected QuarantinedPath error, got: {:?}", other),
+    }
+
+    // 3. Test unmanaged listing exclusion on a root volume
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path();
+
+    // Create safe directories
+    std::fs::create_dir_all(root.join("movies")).unwrap();
+    std::fs::create_dir_all(root.join("music")).unwrap();
+    std::fs::write(root.join("video.mp4"), b"test").unwrap();
+
+    // Create directories/files matching quarantined names
+    std::fs::create_dir_all(root.join("Windows")).unwrap();
+    std::fs::create_dir_all(root.join("$Recycle.Bin")).unwrap();
+    std::fs::create_dir_all(root.join("System Volume Information")).unwrap();
+    std::fs::write(root.join("pagefile.sys"), b"swap").unwrap();
+
+    // Register test mount
+    assert!(registry.register("test_root", root.to_path_buf(), false, None).is_ok());
+
+    // Verify resolve_safe_path blocks quarantined targets directly
+    let win_res = registry.resolve_safe_path("test_root", Path::new("Windows/system32"));
+    assert!(win_res.is_err(), "Resolving quarantined Windows directory must be rejected");
+
+    // Verify unmanaged listing filter excludes quarantined files/dirs
+    let entries = registry.list_directory("test_root", Path::new("")).unwrap();
+    let entry_names: Vec<String> = entries.into_iter().map(|e| e.name).collect();
+
+    println!("[UNMANAGED LISTING] Filtered entries: {:?}", entry_names);
+    assert!(entry_names.contains(&"movies".to_string()), "Safe directory 'movies' must be present");
+    assert!(entry_names.contains(&"music".to_string()), "Safe directory 'music' must be present");
+    assert!(entry_names.contains(&"video.mp4".to_string()), "Safe file 'video.mp4' must be present");
+
+    assert!(!entry_names.contains(&"Windows".to_string()), "OS-critical 'Windows' directory must be quarantined");
+    assert!(!entry_names.contains(&"$Recycle.Bin".to_string()), "'$Recycle.Bin' must be quarantined");
+    assert!(!entry_names.contains(&"System Volume Information".to_string()), "'System Volume Information' must be quarantined");
+    assert!(!entry_names.contains(&"pagefile.sys".to_string()), "'pagefile.sys' must be quarantined");
 }

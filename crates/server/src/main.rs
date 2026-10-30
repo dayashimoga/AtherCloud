@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
-use tracing::{info, Level};
+use tracing::{info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 mod config;
@@ -75,13 +75,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize Mount Registry
     let mut mounts = MountRegistry::new();
     for (name, mount_cfg) in &config.mounts {
-        mounts.register(
+        match mounts.register(
             name,
             mount_cfg.path.clone(),
             mount_cfg.read_only,
             mount_cfg.description.clone(),
-        );
-        info!("Registered Virtual Mount '{}' -> {:?}", name, mount_cfg.path);
+        ) {
+            Ok(_) => info!("Registered Virtual Mount '{}' -> {:?}", name, mount_cfg.path),
+            Err(e) => warn!("Skipped registering Virtual Mount '{}': {}", name, e),
+        }
     }
 
     // Launch background segment cleanup sweeper

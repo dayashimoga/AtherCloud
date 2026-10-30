@@ -1046,3 +1046,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Enhanced `VolumeInspector` with hardware-level storage bus inspection via `DeviceIoControl` (`IOCTL_STORAGE_QUERY_PROPERTY`), extracting physical bus types (`BusTypeNvme`, `BusTypeSata`, `BusTypeUsb`, `BusTypeAtapi`), hardware drive serial numbers, volume labels via `GetVolumeInformationW`, and total/available capacity metrics with Linux `/sys/block` rotational/removable checks. Verified via integration test `test_cross_platform_volume_inspector`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_VOLUME_METRICS_002
 - **Executor:** Principal Systems & Rust Distributed Storage Engineer
+
+### [2026-10-30T05:25:00Z] - STAGE_7 / PHASE_7.1 / SUBPHASE_7.1.3
+- **Stage ID:** STAGE_7 (Core Daemon Refactor, OS Storage Bus & Dynamic Mount Engine)
+- **Phase ID:** PHASE_7.1 (Asynchronous Host Storage Discovery Engine)
+- **Subphase ID:** SUBPHASE_7.1.3 (Exclude or Quarantine OS-Critical Paths from Unmanaged Listing)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/storage/quarantine.rs` [CREATED]
+  - `crates/server/src/storage/mod.rs`
+  - `crates/server/src/storage/mounts.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Implemented `PathQuarantine` engine protecting host OS stability. Enforced quarantine barriers preventing direct mount registration of system critical directories (`C:\Windows`, `/System`, `/proc`, `/sys`, `/etc`), intercepted canonical path traversal into quarantined components, and excluded system volume artifacts (`$Recycle.Bin`, `System Volume Information`, `pagefile.sys`) from unmanaged directory listings. Validated via `test_os_critical_path_quarantine_and_exclusion`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_PATH_QUARANTINE_003
+- **Executor:** Principal Systems & Rust Distributed Storage Engineer

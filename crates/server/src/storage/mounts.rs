@@ -15,6 +15,8 @@ pub enum MountError {
     IoError(#[from] std::io::Error),
     #[error("Mount '{0}' is read-only")]
     ReadOnlyMount(String),
+    #[error("OS-critical system path is quarantined: {0}")]
+    QuarantinedPath(String),
 }
 
 impl axum::response::IntoResponse for MountError {
@@ -26,6 +28,7 @@ impl axum::response::IntoResponse for MountError {
             MountError::PathTraversalAttempt => (StatusCode::FORBIDDEN, "Security violation: Path traversal forbidden".to_string()),
             MountError::NotFound(p) => (StatusCode::NOT_FOUND, format!("Resource not found: {}", p)),
             MountError::ReadOnlyMount(m) => (StatusCode::METHOD_NOT_ALLOWED, format!("Mount '{}' is read-only", m)),
+            MountError::QuarantinedPath(p) => (StatusCode::FORBIDDEN, format!("Security violation: OS-critical path quarantined ({})", p)),
             MountError::IoError(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Filesystem I/O error: {}", e)),
         };
         (status, Json(serde_json::json!({ "error": msg }))).into_response()
@@ -179,13 +182,13 @@ impl MountRegistry {
         Self::discover_detailed_drives().into_iter().map(|d| d.path).collect()
     }
 
-    pub fn register(&mut self, name: &str, path: PathBuf, read_only: bool, description: Option<String>) {
+    pub fn register(&mut self, name: &str, path: PathBuf, read_only: bool, description: Option<String>) -> Result<(), MountError> {
         let permission = if read_only {
             MountPermission::Read
         } else {
             MountPermission::Write
         };
-        self.register_with_permission(name, path, permission, description);
+        self.register_with_permission(name, path, permission, description)
     }
 
     pub fn register_with_permission(
@@ -194,11 +197,19 @@ impl MountRegistry {
         path: PathBuf,
         permission: MountPermission,
         description: Option<String>,
-    ) {
+    ) -> Result<(), MountError> {
+        let canonical = dunce::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if super::PathQuarantine::is_critical_system_path(&canonical) {
+            error!(
+                "Cannot register mount '{}': target {:?} is an OS-critical path and has been quarantined.",
+                name, canonical
+            );
+            return Err(MountError::QuarantinedPath(canonical.to_string_lossy().to_string()));
+        }
+
         if !path.exists() {
             let _ = std::fs::create_dir_all(&path);
         }
-        let canonical = dunce::canonicalize(&path).unwrap_or(path);
         self.mounts.insert(
             name.to_string(),
             MountEntry {
@@ -207,6 +218,7 @@ impl MountRegistry {
                 description,
             },
         );
+        Ok(())
     }
 
     pub fn list_mounts(&self) -> Vec<serde_json::Value> {
@@ -304,6 +316,13 @@ impl MountRegistry {
                     warn!("Absolute or prefix path sequence detected in requested relative path: {:?}", relative_path);
                     return Err(MountError::PathTraversalAttempt);
                 }
+                Component::Normal(os_str) => {
+                    let name = os_str.to_string_lossy();
+                    if super::PathQuarantine::is_quarantined_name(&name) {
+                        warn!("Quarantine intercept: Blocked access to quarantined component '{}'", name);
+                        return Err(MountError::QuarantinedPath(name.to_string()));
+                    }
+                }
                 _ => {}
             }
         }
@@ -324,6 +343,14 @@ impl MountRegistry {
                 return Err(MountError::PathTraversalAttempt);
             }
 
+            if super::PathQuarantine::is_critical_system_path(&canonical_target) {
+                warn!(
+                    "Quarantine boundary enforced: Blocked access to OS-critical path {:?} within mount '{}'",
+                    canonical_target, mount_id
+                );
+                return Err(MountError::QuarantinedPath(canonical_target.to_string_lossy().to_string()));
+            }
+
             Ok(canonical_target)
         } else {
             // For non-existent targets (e.g. prospective upload path), verify normalized parent
@@ -335,6 +362,14 @@ impl MountRegistry {
 
             if !parent_canonical.starts_with(&entry.base_path) {
                 return Err(MountError::PathTraversalAttempt);
+            }
+
+            if super::PathQuarantine::is_critical_system_path(&normalized) {
+                warn!(
+                    "Quarantine boundary enforced: Blocked prospective OS-critical target {:?}",
+                    normalized
+                );
+                return Err(MountError::QuarantinedPath(normalized.to_string_lossy().to_string()));
             }
 
             Ok(normalized)
@@ -357,6 +392,11 @@ impl MountRegistry {
 
             // Skip hidden or governance/git files
             if name.starts_with('.') {
+                continue;
+            }
+
+            // Exclude or quarantine OS-critical paths from raw unmanaged listing
+            if !super::PathQuarantine::can_expose_in_unmanaged_listing(&safe_dir, &name, &entry.path()) {
                 continue;
             }
 
