@@ -81,6 +81,11 @@ impl LruSegmentRingBuffer {
         }
     }
 
+    /// Checks if a segment exists in the ring buffer without altering its LRU position
+    pub fn has_segment(&self, name: &str) -> bool {
+        self.segments.contains_key(name)
+    }
+
     pub fn len(&self) -> usize {
         self.segments.len()
     }

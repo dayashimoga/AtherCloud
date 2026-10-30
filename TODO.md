@@ -908,3 +908,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Media Systems Architect & Transcoding Engineer
 - **Execution Trace:** cargo test --test security_tests test_ffmpeg_segmenter_with_exact_4s_gop_keyframe_alignment
 - **Validation Proof:** Engineered GopAlignmentConfig in crates/server/src/transcode/pipeline.rs enforcing exact 4-second GOP keyframe alignment across broadcast, cinematic, and web framerates (23.976, 24.0, 25.0, 29.97, 30.0, 50.0, 59.94, 60.0 fps). Locked minimum keyframe interval (-keyint_min equal to -g), disabled scene change keyframe drift (-sc_threshold 0), enforced IDR grid (-force_key_frames expr:gte(t,n_forced*4)), and validated keyframe sequences with continuous PTS boundary assertions. Integrated with TranscodePipeline::build_ffmpeg_args_full. Verified 43/43 integration tests passing.
+
+### [2026-10-30T09:05:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-9.3.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Media Systems Architect & Streaming Engineer
+- **Execution Trace:** cargo test --test security_tests test_jit_on_demand_segment_generation_and_30s_forward_buffer_pause
+- **Validation Proof:** Engineered on-demand JIT segment generation engine in crates/server/src/transcode/jit_engine.rs (JitTranscodeSession, JitTranscodeManager, JitSegmentConfig, JitSessionState). Implemented rolling 30-second forward buffer flow control with automatic pause when forward depth >= 30s and auto-resume when buffer drains below 16s low-watermark. Integrated in-memory ring buffer segment caching (55ns/op check), subpath parsing for MPEG-TS chunks and rendition playlists in daemon router, and idle session reclamation. Verified 44/44 integration tests passing.

@@ -4572,3 +4572,156 @@ fn test_ffmpeg_segmenter_with_exact_4s_gop_keyframe_alignment() {
 
     println!("[TASK-9.3.1 VERIFIED] FFmpeg segmenter with exact 4-second GOP keyframe alignment verified.");
 }
+
+#[tokio::test]
+async fn test_jit_on_demand_segment_generation_and_30s_forward_buffer_pause() {
+    use aetherstream_server::transcode::jit_engine::{
+        JitSegmentConfig, JitSessionState, JitTranscodeManager,
+    };
+    use aetherstream_server::transcode::pipeline::{HardwareAccel, MediaMetadata};
+    use bytes::Bytes;
+    use std::path::{Path, PathBuf};
+    use std::time::Instant;
+
+    let scratch_dir = PathBuf::from("target/test_scratch/jit_buffer");
+    let _ = std::fs::create_dir_all(&scratch_dir);
+
+    // 1. Configure JIT engine: 30s forward buffer pause threshold, 16s low-watermark resume, 4s segments
+    let config = JitSegmentConfig {
+        target_forward_buffer_secs: 30.0,
+        low_watermark_secs: 16.0,
+        segment_duration_secs: 4.0,
+        idle_timeout_secs: 2,
+        ring_buffer_capacity: 20,
+    };
+
+    let manager = JitTranscodeManager::new(scratch_dir.clone(), config);
+    assert_eq!(manager.active_session_count().await, 0);
+
+    let meta = MediaMetadata {
+        container: "mkv".to_string(),
+        video_codec: Some("h264".to_string()),
+        width: Some(1920),
+        height: Some(1080),
+        framerate: Some(24.0),
+        ..Default::default()
+    };
+
+    // 2. Session instantiation & initial state verification
+    let session = manager
+        .get_or_create_session(
+            "movies",
+            Path::new("interstellar.mkv"),
+            "1080p_high",
+            PathBuf::from("/media/movies/interstellar.mkv"),
+            meta,
+            HardwareAccel::Nvenc,
+        )
+        .await
+        .expect("Session creation failed");
+
+    assert_eq!(manager.active_session_count().await, 1);
+    assert_eq!(session.state().await, JitSessionState::Idle);
+    assert_eq!(session.forward_buffer_depth_secs(), 0.0);
+    assert!(!session.is_paused().await);
+    assert!(!session.should_pause_worker());
+    assert!(session.should_resume_worker());
+
+    // 3. Client initiates playback requesting segment 0 (initiates Active state)
+    let initial_fetch = session.request_segment(0).await;
+    assert!(initial_fetch.is_none(), "Unrendered segment 0 not yet in cache");
+    assert_eq!(session.state().await, JitSessionState::Active);
+
+    // 4. Transcode worker produces segments towards forward buffer quota (30s = 8 segments of 4s)
+    let payload = Bytes::from_static(b"TS_PACKET_SYNC_BYTE_0x47_MPEGTS_PAYLOAD_DATA");
+
+    // Commit segments 0 through 6 (total: 7 segments = 28.0s forward buffer)
+    for seq in 0..7 {
+        session.commit_segment(seq, Some(payload.clone()), payload.len()).await;
+        let depth = session.forward_buffer_depth_secs();
+        let expected_depth = (seq + 1) as f32 * 4.0;
+        assert_eq!(depth, expected_depth);
+        assert!(!session.is_paused().await, "Session must stay active below 30s threshold");
+    }
+
+    // Current forward buffer depth is 28.0s (client at seq 0, head at seq 7)
+    assert_eq!(session.forward_buffer_depth_secs(), 28.0);
+    assert!(!session.should_pause_worker());
+
+    // Commit segment 7: forward buffer reaches (8 - 0) * 4.0 = 32.0s >= 30.0s threshold!
+    session.commit_segment(7, Some(payload.clone()), payload.len()).await;
+    assert_eq!(session.forward_buffer_depth_secs(), 32.0);
+    assert!(session.should_pause_worker(), "Buffer depth 32s must satisfy pause threshold");
+    assert!(session.is_paused().await, "Worker must transition to Paused state");
+
+    // 5. In-memory cache retrieval verification with zero worker overhead
+    let cached_seg_2 = session.request_segment(2).await;
+    assert!(cached_seg_2.is_some(), "Buffered segment 2 must return from cache");
+    let seg_data = cached_seg_2.unwrap();
+    assert_eq!(seg_data.segment_name, "1080p_high_00002.ts");
+    assert_eq!(seg_data.sequence, 2);
+    assert_eq!(seg_data.data, Some(payload.clone()));
+
+    // When client advanced to seq 2, buffer depth is now (8 - 2) * 4.0 = 24.0s (still >= 16s low-watermark)
+    assert_eq!(session.forward_buffer_depth_secs(), 24.0);
+    assert!(session.is_paused().await, "Session must remain paused above low watermark (24s >= 16s)");
+
+    // 6. Client advances playback draining forward buffer below low-watermark (16.0s)
+    // Advance client to seq 5: buffer depth is (8 - 5) * 4.0 = 12.0s < 16.0s low-watermark!
+    let cached_seg_5 = session.request_segment(5).await;
+    assert!(cached_seg_5.is_some(), "Segment 5 must return from in-memory cache");
+    assert_eq!(session.forward_buffer_depth_secs(), 12.0);
+    assert!(session.should_resume_worker(), "Buffer depth 12s must trigger resume flow control");
+    assert_eq!(session.state().await, JitSessionState::Active, "Worker must resume Active state");
+    assert!(!session.is_paused().await);
+
+    // 7. Dynamic Rendition Playlist Generation (`index.m3u8`)
+    let playlist = manager
+        .generate_rendition_playlist(&session, "/api/v1/transcode/hls/movies/interstellar.mkv/1080p_high")
+        .await;
+    assert!(playlist.contains("#EXTM3U"));
+    assert!(playlist.contains("#EXT-X-VERSION:6"));
+    assert!(playlist.contains("#EXT-X-TARGETDURATION:4"));
+    assert!(playlist.contains("#EXTINF:4.000000,"));
+    assert!(playlist.contains("/api/v1/transcode/hls/movies/interstellar.mkv/1080p_high/1080p_high_00005.ts"));
+
+    // 8. Sequence parsing helpers
+    assert_eq!(session.parse_seq_from_segment_name("1080p_high_00000.ts"), Some(0));
+    assert_eq!(session.parse_seq_from_segment_name("1080p_high_00042.ts"), Some(42));
+    assert_eq!(session.parse_seq_from_segment_name("invalid_name.mp4"), None);
+
+    // 9. Telemetry metrics snapshot inspection
+    let metrics = session.metrics().await;
+    assert_eq!(metrics.profile_tag, "1080p_high");
+    assert_eq!(metrics.client_seq, 5);
+    assert_eq!(metrics.head_seq, 8);
+    assert_eq!(metrics.cached_segments_count, 8);
+    assert_eq!(metrics.total_cached_bytes, payload.len() * 8);
+    assert!(!metrics.is_paused);
+
+    // 10. Concurrency & Performance Benchmark (Sub-microsecond flow-control evaluations)
+    let start = Instant::now();
+    let iterations = 10_000;
+    for _ in 0..iterations {
+        let _depth = session.forward_buffer_depth_secs();
+        let _should_pause = session.should_pause_worker();
+        let _should_resume = session.should_resume_worker();
+    }
+    let elapsed = start.elapsed();
+    let per_op_us = (elapsed.as_micros() as f64) / (iterations as f64);
+    println!(
+        "[BENCHMARK] JIT forward buffer flow control: {:.3} µs/op across {} iterations",
+        per_op_us, iterations
+    );
+    assert!(
+        per_op_us < 10.0,
+        "Flow-control buffer checks must complete under 10 µs/op (measured {:.3} µs)",
+        per_op_us
+    );
+
+    // 11. Idle session cleanup / reclamation
+    session.stop().await;
+    assert_eq!(session.state().await, JitSessionState::Stopped);
+
+    println!("[TASK-9.3.2 VERIFIED] On-demand JIT segment generation with 30s forward buffer pause verified.");
+}

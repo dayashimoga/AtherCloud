@@ -55,6 +55,7 @@ pub struct AppState {
     pub hw_accel: HardwareAccel,
     pub upload_manager: Arc<ResumableUploadManager>,
     pub disk_watcher: Arc<DiskWatcher>,
+    pub jit_manager: Arc<transcode::JitTranscodeManager>,
 }
 
 #[tokio::main]
@@ -138,6 +139,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     DiskWatcher::spawn_storage_event_dispatcher(disk_watcher.clone(), mounts_arc.clone());
 
     let upload_manager = Arc::new(ResumableUploadManager::new());
+    let jit_manager = Arc::new(transcode::JitTranscodeManager::new(
+        config.scratch_dir.clone(),
+        transcode::JitSegmentConfig::default(),
+    ));
 
     let app_state = AppState {
         config: config.clone(),
@@ -146,6 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         hw_accel,
         upload_manager,
         disk_watcher,
+        jit_manager,
     };
 
     // CORS configuration
@@ -538,6 +544,100 @@ async fn hls_master_manifest_handler(
     AxPath((mount, subpath)): AxPath<(String, String)>,
     State(state): State<AppState>,
 ) -> Response {
+    if subpath.ends_with(".ts") {
+        // Handle JIT MPEG-TS segment request
+        let parts: Vec<&str> = subpath.split('/').collect();
+        if parts.len() >= 2 {
+            let seg_name = parts[parts.len() - 1];
+            let profile_tag = parts[parts.len() - 2];
+            let media_subpath = parts[..parts.len() - 2].join("/");
+
+            let safe_path = match state.mounts.resolve_safe_path(&mount, Path::new(&media_subpath)) {
+                Ok(p) => p,
+                Err(e) => return e.into_response(),
+            };
+
+            let meta = TranscodePipeline::probe_file(&safe_path).await.unwrap_or_default();
+            if let Ok(session) = state
+                .jit_manager
+                .get_or_create_session(
+                    &mount,
+                    Path::new(&media_subpath),
+                    profile_tag,
+                    safe_path,
+                    meta,
+                    state.hw_accel,
+                )
+                .await
+            {
+                if let Some(seq) = session.parse_seq_from_segment_name(seg_name) {
+                    if let Some(cached) = session.request_segment(seq).await {
+                        if let Some(data) = cached.data {
+                            return Response::builder()
+                                .status(StatusCode::OK)
+                                .header(axum::http::header::CONTENT_TYPE, "video/mp2t")
+                                .header(
+                                    axum::http::header::CACHE_CONTROL,
+                                    "public, max-age=31536000, immutable",
+                                )
+                                .body(data.into())
+                                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+                        }
+                    }
+                }
+            }
+        }
+        return StatusCode::NOT_FOUND.into_response();
+    } else if subpath.ends_with("index.m3u8") {
+        // Handle Rendition Media Playlist request
+        let parts: Vec<&str> = subpath.split('/').collect();
+        if parts.len() >= 2 {
+            let profile_tag = parts[parts.len() - 2];
+            let media_subpath = parts[..parts.len() - 2].join("/");
+
+            let safe_path = match state.mounts.resolve_safe_path(&mount, Path::new(&media_subpath)) {
+                Ok(p) => p,
+                Err(e) => return e.into_response(),
+            };
+
+            let meta = TranscodePipeline::probe_file(&safe_path).await.unwrap_or_default();
+            if let Ok(session) = state
+                .jit_manager
+                .get_or_create_session(
+                    &mount,
+                    Path::new(&media_subpath),
+                    profile_tag,
+                    safe_path,
+                    meta,
+                    state.hw_accel,
+                )
+                .await
+            {
+                let base_prefix = format!(
+                    "/api/v1/transcode/hls/{}/{}/{}",
+                    mount, media_subpath, profile_tag
+                );
+                let playlist = state
+                    .jit_manager
+                    .generate_rendition_playlist(&session, &base_prefix)
+                    .await;
+                return Response::builder()
+                    .status(StatusCode::OK)
+                    .header(
+                        axum::http::header::CONTENT_TYPE,
+                        "application/vnd.apple.mpegurl",
+                    )
+                    .header(
+                        axum::http::header::CACHE_CONTROL,
+                        "no-cache, no-store, must-revalidate",
+                    )
+                    .body(playlist.into())
+                    .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+            }
+        }
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
     let clean_subpath = subpath
         .strip_suffix("/master.m3u8")
         .or_else(|| subpath.strip_suffix("master.m3u8"))

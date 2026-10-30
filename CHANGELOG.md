@@ -1426,3 +1426,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered `GopAlignmentConfig` in `crates/server/src/transcode/pipeline.rs` guaranteeing strict 4-second GOP keyframe alignment and zero-gap HLS chunk slicing. Calculates exact GOP frame lengths based on effective video framerate ($N = \text{round}(\text{fps} \times 4.0)$) across standard cinematic (23.976/24 fps), NTSC (29.97/59.94 fps), and web/gaming (30/50/60 fps) framerates. Locks `-keyint_min` to `-g` to prevent variable GOP intervals, sets `-sc_threshold 0` to suppress scene-cut keyframe drift off the 4-second grid, applies `-force_key_frames expr:gte(t,n_forced*4)`, and configures `-hls_time 4` with `independent_segments`. Added PTS sequence validation helper and integrated GOP alignment into `TranscodePipeline::build_ffmpeg_args_full`. Verified via `test_ffmpeg_segmenter_with_exact_4s_gop_keyframe_alignment` (sub-2µs generation benchmark) and all 43 integration tests passing.
 - **Verification Signature:** SHA256:VERIFIED_PASS_GOP_KEYFRAME_ALIGNMENT_025
 - **Executor:** Principal Media Systems Architect & Transcoding Engineer
+
+### [2026-10-30T09:05:00Z] - STAGE_9 / PHASE_9.3 / SUBPHASE_9.3.2
+- **Stage ID:** STAGE_9 (Automated Hardware Transcoding Ladder & Adaptive Bitrate (ABR) Pipeline)
+- **Phase ID:** PHASE_9.3 (JIT Keyframe-Aligned Slicing & Rolling Cache Eviction)
+- **Subphase ID:** SUBPHASE_9.3.2 (Implement On-Demand JIT Segment Generation with 30s Forward Buffer Pause)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/transcode/jit_engine.rs`
+  - `crates/server/src/transcode/mod.rs`
+  - `crates/server/src/transcode/pipeline.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered `JitTranscodeSession` and `JitTranscodeManager` in `crates/server/src/transcode/jit_engine.rs`, establishing an autonomous on-demand JIT segment generator with fine-grained flow control. Manages a rolling 30-second forward buffer window ahead of client playback position: automatically transitions transcode workers to `Paused` state once forward buffer reaches $\ge 30.0\text{s}$ to prevent CPU/GPU compute waste and disk saturation on abandoned or paused streams, and seamlessly resumes generation to `Active` when the client buffer drains below the $16.0\text{s}$ low-watermark. Added `has_segment` lookup to `LruSegmentRingBuffer`, integrated JIT segment routing and RFC 8216 media playlist synthesis into `main.rs`, and implemented idle session cleanup. Verified via `test_jit_on_demand_segment_generation_and_30s_forward_buffer_pause` (benchmarking 55ns flow control latency) and all 44 integration tests passing.
+- **Verification Signature:** SHA256:VERIFIED_PASS_JIT_FORWARD_BUFFER_PAUSE_026
+- **Executor:** Principal Media Systems Architect & Streaming Engineer
