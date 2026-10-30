@@ -74,11 +74,36 @@ impl RenditionProfile {
     /// Formats an RFC 8216 compliant HLS #EXT-X-STREAM-INF line
     pub fn to_stream_inf(&self, base_uri_prefix: &str) -> String {
         format!(
-            "#EXT-X-STREAM-INF:BANDWIDTH={},RESOLUTION={}x{},FRAME-RATE={:.3},CODECS=\"{}\"\n{}/{}/index.m3u8\n",
+            "#EXT-X-STREAM-INF:BANDWIDTH={},AVERAGE-BANDWIDTH={},RESOLUTION={}x{},FRAME-RATE={:.3},CODECS=\"{}\"\n{}/{}/index.m3u8\n",
+            self.bandwidth(),
             self.bandwidth(),
             self.width,
             self.height,
             self.max_fps as f64,
+            self.codecs_string,
+            base_uri_prefix.trim_end_matches('/'),
+            self.tag
+        )
+    }
+
+    /// Formats an RFC 8216 compliant HLS #EXT-X-STREAM-INF line with custom resolution, framerate, and bandwidth
+    pub fn to_custom_stream_inf(
+        &self,
+        base_uri_prefix: &str,
+        width: u32,
+        height: u32,
+        fps: f64,
+        video_bitrate_kbps: u32,
+    ) -> String {
+        let avg_bw = (video_bitrate_kbps + self.audio_bitrate_kbps) * 1000;
+        let peak_bw = ((video_bitrate_kbps as f64 * 1.15) as u32 + self.audio_bitrate_kbps) * 1000;
+        format!(
+            "#EXT-X-STREAM-INF:BANDWIDTH={},AVERAGE-BANDWIDTH={},RESOLUTION={}x{},FRAME-RATE={:.3},CODECS=\"{}\"\n{}/{}/index.m3u8\n",
+            peak_bw,
+            avg_bw,
+            width,
+            height,
+            fps,
             self.codecs_string,
             base_uri_prefix.trim_end_matches('/'),
             self.tag

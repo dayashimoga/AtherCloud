@@ -887,3 +887,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
 - **Execution Trace:** cargo test --test security_tests test_ffprobe_json_metadata_parser_aspect_ratio_and_audio_layouts
 - **Validation Proof:** Engineered comprehensive FFprobe JSON metadata parser in TranscodePipeline (parse_ffprobe_json, MediaMetadata::calculate_aspect_ratio, MediaMetadata::infer_audio_layout). Extracted video codecs, audio codecs, bitrates, resolutions, display aspect ratios (explicit DAR and greatest common divisor calculations), audio channel layouts (explicit layout names and channel count inference), audio sample rates, and pixel formats. Verified 40/40 integration tests passing.
+
+### [2026-10-30T08:35:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-9.2.2
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Media Systems Architect & Hardware Acceleration Engineer
+- **Execution Trace:** cargo test --test security_tests test_rfc8216_adaptive_master_manifest_compiler_and_upscaling_prevention
+- **Validation Proof:** Engineered RFC 8216 compliant dynamic master playlist compiler in TranscodePipeline (generate_master_manifest_for_media, RenditionProfile::to_custom_stream_inf). Enforced strict upscaling prevention bounding rendition heights by source height, proportional aspect ratio scaling for non-16:9 media (4:3, 2.39:1 widescreen) with macroblock even-width alignment, dynamic bitrate clamping avoiding bitrate inflation, and framerate bounding. Wired into daemon HLS master.m3u8 endpoint with standard MIME types. Verified 41/41 integration tests passing.

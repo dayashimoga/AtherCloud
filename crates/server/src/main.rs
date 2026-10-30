@@ -543,12 +543,16 @@ async fn hls_master_manifest_handler(
         .or_else(|| subpath.strip_suffix("master.m3u8"))
         .unwrap_or(&subpath);
 
-    if let Err(e) = state.mounts.resolve_safe_path(&mount, Path::new(clean_subpath)) {
-        return e.into_response();
-    }
+    let safe_path = match state.mounts.resolve_safe_path(&mount, Path::new(clean_subpath)) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
 
     let base_prefix = format!("/api/v1/transcode/hls/{}/{}", mount, clean_subpath);
-    let manifest = TranscodePipeline::generate_master_manifest(&base_prefix);
+    let manifest = match TranscodePipeline::probe_file(&safe_path).await {
+        Ok(meta) => TranscodePipeline::generate_master_manifest_for_media(&base_prefix, &meta),
+        Err(_) => TranscodePipeline::generate_master_manifest(&base_prefix),
+    };
 
     Response::builder()
         .status(StatusCode::OK)

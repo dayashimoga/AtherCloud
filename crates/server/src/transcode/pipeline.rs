@@ -632,13 +632,56 @@ impl TranscodePipeline {
         manifest
     }
 
-    /// Generates an RFC 8216 compliant dynamic HLS Master Manifest directly from extracted MediaMetadata
+    /// Generates an RFC 8216 compliant dynamic HLS Master Manifest directly from extracted MediaMetadata,
+    /// adapting rendition resolution to source aspect ratio, bounding framerate, and clamping bitrates.
     pub fn generate_master_manifest_for_media(
         base_uri_prefix: &str,
         meta: &MediaMetadata,
     ) -> String {
-        let source_height = meta.height.unwrap_or(1080);
-        Self::generate_dynamic_master_manifest(base_uri_prefix, source_height)
+        let mut manifest = String::from("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-INDEPENDENT-SEGMENTS\n\n");
+
+        let eligible_profiles = meta.filter_rendition_ladder(STANDARD_RENDITION_LADDER);
+
+        let aspect_ratio = match (meta.width, meta.height) {
+            (Some(w), Some(h)) if w > 0 && h > 0 => (w as f64) / (h as f64),
+            _ => 16.0 / 9.0,
+        };
+
+        for profile in eligible_profiles {
+            let target_height = profile.height;
+            let target_width = if let (Some(w), Some(h)) = (meta.width, meta.height) {
+                if (w as f64 / h as f64 - 16.0 / 9.0).abs() < 0.02 {
+                    profile.width
+                } else {
+                    let raw_w = (target_height as f64 * aspect_ratio).round() as u32;
+                    raw_w & !1 // Ensure even width for h264 macroblock alignment
+                }
+            } else {
+                profile.width
+            };
+
+            let effective_fps = meta
+                .framerate
+                .unwrap_or(profile.max_fps as f64)
+                .min(profile.max_fps as f64);
+
+            let effective_video_kbps = if let Some(src_kbps) = meta.bitrate_kbps {
+                profile.video_bitrate_kbps.min(src_kbps as u32)
+            } else {
+                profile.video_bitrate_kbps
+            };
+
+            let stream_inf = profile.to_custom_stream_inf(
+                base_uri_prefix,
+                target_width,
+                target_height,
+                effective_fps,
+                effective_video_kbps,
+            );
+            manifest.push_str(&stream_inf);
+        }
+
+        manifest
     }
 
     /// Builds FFmpeg command arguments for JIT HLS multi-rendition segmentation
