@@ -46,6 +46,9 @@ windows-sys = { version = "0.52", features = [
     "Win32_Graphics_Gdi",
 ] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 tempfile = "3.10"

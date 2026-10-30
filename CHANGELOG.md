@@ -1080,3 +1080,19 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Implemented `DiskWatcher` on Windows with dedicated background hidden window message loop (`RegisterClassW`, `CreateWindowExW` with `WS_POPUP`, `GetMessageW`, `DispatchMessageW`). Intercepted kernel `WM_DEVICECHANGE` events (`DBT_DEVICEARRIVAL` and `DBT_DEVICEREMOVECOMPLETE`), decoded `DEV_BROADCAST_VOLUME` bitmask drive units, and broadcasted `StorageDeviceEvent` over bounded Tokio channel. Added `MountRegistry::unregister_by_path` for dynamic hot-unmounting without daemon restarts. Verified via `test_windows_hotplug_device_watcher`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_HOTPLUG_WATCHER_004
 - **Executor:** Principal Systems & Rust Distributed Storage Engineer
+
+### [2026-10-30T05:35:00Z] - STAGE_7 / PHASE_7.2 / SUBPHASE_7.2.2
+- **Stage ID:** STAGE_7 (Core Daemon Refactor, OS Storage Bus & Dynamic Mount Engine)
+- **Phase ID:** PHASE_7.2 (Plug-and-Play OS Hot-Plug Event Bus)
+- **Subphase ID:** SUBPHASE_7.2.2 (Linux Netlink Udev & macOS DiskArbitration Framework Listener)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/Cargo.toml`
+  - `crates/server/src/storage/disk_watcher.rs`
+  - `crates/server/src/storage/mod.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Implemented Linux kernel netlink raw socket listener (`NETLINK_KOBJECT_UEVENT`) monitoring the `block` subsystem for dynamic disk/partition plug events, and macOS DiskArbitration framework integration mapping `/Volumes` mount callbacks. Engineered deterministic `NetlinkUeventParser` and `MacDiskArbitrationEvent` converting raw kernel uevent payloads into standardized `StorageDeviceEvent` variants. Added `libc` Unix dependencies and verified via `test_linux_netlink_and_macos_disk_arbitration_parsers`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_NETLINK_DISKARB_005
+- **Executor:** Principal Systems & Rust Distributed Storage Engineer

@@ -6,7 +6,10 @@ pub mod stream;
 pub mod upload;
 pub mod volume_info;
 
-pub use disk_watcher::{DiskWatcher, StorageDeviceEvent};
+pub use disk_watcher::{
+    DiskWatcher, MacDiskArbitrationEvent, NetlinkAction, NetlinkBlockEvent, NetlinkUeventParser,
+    StorageDeviceEvent,
+};
 pub use indexer::FileTreeIndexer;
 pub use mounts::MountRegistry;
 pub use quarantine::PathQuarantine;

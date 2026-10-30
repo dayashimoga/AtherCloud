@@ -13,6 +13,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hmac",
+ "libc",
  "mime_guess",
  "reqwest",
  "serde",

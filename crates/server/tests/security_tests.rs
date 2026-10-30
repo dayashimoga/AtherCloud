@@ -1383,3 +1383,62 @@ async fn test_windows_hotplug_device_watcher() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     assert!(!watcher.is_running(), "Watcher must not be running after stop()");
 }
+
+#[test]
+fn test_linux_netlink_and_macos_disk_arbitration_parsers() {
+    use aetherstream_server::storage::disk_watcher::{
+        MacDiskArbitrationEvent, NetlinkAction, NetlinkUeventParser, StorageDeviceEvent,
+    };
+
+    // 1. Test Linux Kernel Netlink Uevent Parser for Block Add
+    let raw_uevent_add = b"add@/devices/pci0000:00/0000:00:14.0/usb2/2-1/2-1:1.0/host4/target4:0:0/4:0:0:0/block/sdb/sdb1\0ACTION=add\0DEVPATH=/devices/pci0000:00/0000:00:14.0/usb2/2-1/2-1:1.0/host4/target4:0:0/4:0:0:0/block/sdb/sdb1\0SUBSYSTEM=block\0DEVNAME=sdb1\0DEVTYPE=partition\0PARTN=1\0MAJOR=8\0MINOR=17\0SEQNUM=3492\0";
+    let parsed_add = NetlinkUeventParser::parse(raw_uevent_add);
+    assert!(parsed_add.is_some(), "Parser must extract block uevent");
+    let event_add = parsed_add.unwrap();
+    assert_eq!(event_add.action, NetlinkAction::Add);
+    assert_eq!(event_add.subsystem, "block");
+    assert_eq!(event_add.devname, "sdb1");
+    assert_eq!(event_add.devtype, Some("partition".to_string()));
+
+    // 2. Test Linux Kernel Netlink Uevent Parser for Block Remove
+    let raw_uevent_remove = b"remove@/devices/pci0000:00/0000:00:14.0/usb2/2-1/2-1:1.0/host4/target4:0:0/4:0:0:0/block/sdb/sdb1\0ACTION=remove\0DEVPATH=/devices/pci0000:00/0000:00:14.0/usb2/2-1/2-1:1.0/host4/target4:0:0/4:0:0:0/block/sdb/sdb1\0SUBSYSTEM=block\0DEVNAME=sdb1\0DEVTYPE=partition\0SEQNUM=3493\0";
+    let parsed_remove = NetlinkUeventParser::parse(raw_uevent_remove);
+    assert!(parsed_remove.is_some(), "Parser must extract block remove uevent");
+    let event_remove = parsed_remove.unwrap();
+    assert_eq!(event_remove.action, NetlinkAction::Remove);
+    assert_eq!(event_remove.devname, "sdb1");
+
+    // 3. Test non-block uevent rejection (e.g. net or input subsystem)
+    let raw_uevent_net = b"add@/devices/pci0000:00/0000:00:1c.4/0000:03:00.0/net/eth0\0ACTION=add\0SUBSYSTEM=net\0DEVNAME=eth0\0SEQNUM=100\0";
+    let parsed_net = NetlinkUeventParser::parse(raw_uevent_net);
+    assert!(parsed_net.is_none(), "Non-block uevents must be ignored");
+
+    // 4. Test macOS DiskArbitration callback event mappings
+    let mac_appeared = MacDiskArbitrationEvent {
+        bsd_name: "disk3s1".to_string(),
+        mount_point: Some("/Volumes/CrucialPortable".to_string()),
+        is_appeared: true,
+    };
+    match mac_appeared.to_storage_device_event() {
+        StorageDeviceEvent::Plugged(vol) => {
+            assert_eq!(vol.filesystem, "APFS");
+            assert_eq!(vol.mount_point, std::path::PathBuf::from("/Volumes/CrucialPortable"));
+            assert_eq!(vol.serial_number, Some("MAC-DA-disk3s1".to_string()));
+            println!("[MACOS DISKARB VERIFIED] Converted DiskAppeared -> {:?}", vol.mount_point);
+        }
+        _ => panic!("Expected StorageDeviceEvent::Plugged"),
+    }
+
+    let mac_disappeared = MacDiskArbitrationEvent {
+        bsd_name: "disk3s1".to_string(),
+        mount_point: Some("/Volumes/CrucialPortable".to_string()),
+        is_appeared: false,
+    };
+    match mac_disappeared.to_storage_device_event() {
+        StorageDeviceEvent::Unplugged(path) => {
+            assert_eq!(path, "/Volumes/CrucialPortable");
+            println!("[MACOS DISKARB VERIFIED] Converted DiskDisappeared -> {}", path);
+        }
+        _ => panic!("Expected StorageDeviceEvent::Unplugged"),
+    }
+}
