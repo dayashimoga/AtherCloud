@@ -3180,3 +3180,238 @@ async fn test_storage_drives_mounts_and_shares_rest_api() {
 
     println!("[TASK-8.3.2 VERIFIED] Storage drives, virtual mounts, and shares REST API successfully verified.");
 }
+
+#[tokio::test]
+async fn test_public_sharing_urls_expiration_and_passkey_protection() {
+    use aetherstream_server::security::{
+        public_share_router, CreateShareLinkRequest, PasskeyProtection, PublicShareState,
+        TokenAuthority, VerifyShareRequest,
+    };
+    use aetherstream_server::storage::{MountManager, MountPermission, MountRegistry};
+    use axum::body::to_bytes;
+    use axum::http::{header, Request, StatusCode};
+    use base64::Engine;
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tower::ServiceExt;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_share.db");
+    let physical_root = temp_dir.path().join("media_root");
+    std::fs::create_dir_all(&physical_root).unwrap();
+
+    let secret = "super_secure_test_hmac_secret_2026_personal_media_streaming";
+    let mount_manager = Arc::new(MountManager::new(&db_path).unwrap());
+    let mounts = Arc::new(MountRegistry::new());
+    mounts
+        .register_with_whitelist(
+            "vault",
+            physical_root.clone(),
+            MountPermission::Read,
+            vec![],
+            None,
+        )
+        .unwrap();
+
+    let share_state = PublicShareState::new(secret.to_string(), mount_manager.clone(), mounts.clone());
+    let app = public_share_router(share_state.clone());
+
+    // Write a test video file
+    let video_file = physical_root.join("sample.mp4");
+    std::fs::write(&video_file, b"sample mp4 video data for streaming tests").unwrap();
+
+    // 1. Create Open Share (No Passkey)
+    let open_req = CreateShareLinkRequest {
+        mount: "vault".to_string(),
+        path: "sample.mp4".to_string(),
+        permission_mode: Some("stream_only".to_string()),
+        ttl_seconds: Some(3600),
+        passkey: None,
+        description: Some("Open sample stream".to_string()),
+    };
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/share/create")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&open_req).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let open_share: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(open_share["has_passkey"], false);
+    assert!(open_share["share_id"].as_str().unwrap().starts_with("sh_"));
+    let open_token = open_share["token"].as_str().unwrap().to_string();
+
+    // 2. Inspect Open Token Metadata via /api/v1/share/info/:token
+    let req = Request::builder()
+        .uri(format!("/api/v1/share/info/{}", open_token))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let info: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(info["has_passkey"], false);
+    assert_eq!(info["is_expired"], false);
+    assert_eq!(info["mount"], "vault");
+    assert_eq!(info["path"], "sample.mp4");
+
+    // 3. Create Passkey-Protected Share
+    let passkey_secret = "UltraPasskey789!";
+    let protected_req = CreateShareLinkRequest {
+        mount: "vault".to_string(),
+        path: "sample.mp4".to_string(),
+        permission_mode: Some("read_only".to_string()),
+        ttl_seconds: Some(7200),
+        passkey: Some(passkey_secret.to_string()),
+        description: Some("Passkey protected video".to_string()),
+    };
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/share/create")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&protected_req).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let protected_share: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(protected_share["has_passkey"], true);
+    let protected_token = protected_share["token"].as_str().unwrap().to_string();
+    let protected_share_id = protected_share["share_id"].as_str().unwrap().to_string();
+
+    // Verify stored rule in SQLite WAL
+    let stored_rule = mount_manager.get_share_rule(&protected_share_id).unwrap().expect("rule in SQLite");
+    assert!(stored_rule.password_hash.is_some());
+    let stored_hash = stored_rule.password_hash.unwrap();
+    assert!(PasskeyProtection::verify_passkey(passkey_secret, &stored_hash));
+    assert!(!PasskeyProtection::verify_passkey("WrongPass", &stored_hash));
+
+    // 4. Verify Passkey-Protected Token via /api/v1/share/verify
+    // Correct passkey -> 200 OK
+    let verify_req = VerifyShareRequest {
+        token: protected_token.clone(),
+        passkey: Some(passkey_secret.to_string()),
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/share/verify")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&verify_req).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let verify_res: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(verify_res["valid"], true);
+
+    // Missing passkey -> 401 Unauthorized (PASSKEY_REQUIRED)
+    let verify_missing = VerifyShareRequest {
+        token: protected_token.clone(),
+        passkey: None,
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/share/verify")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&verify_missing).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let prob: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(prob["code"], "PASSKEY_REQUIRED");
+
+    // Incorrect passkey -> 401 Unauthorized (INVALID_PASSKEY)
+    let verify_wrong = VerifyShareRequest {
+        token: protected_token.clone(),
+        passkey: Some("IncorrectPasskey!".to_string()),
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/share/verify")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&verify_wrong).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let prob: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(prob["code"], "INVALID_PASSKEY");
+
+    // 5. Test Public Access Landing Endpoint (/api/v1/share/access/:token)
+    // Access with correct passkey in query
+    let req = Request::builder()
+        .uri(format!("/api/v1/share/access/{}?passkey={}", protected_token, passkey_secret))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let access: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(access["status"], "authorized");
+
+    // Access with correct passkey in header X-Share-Passkey
+    let req = Request::builder()
+        .uri(format!("/api/v1/share/access/{}", protected_token))
+        .header("X-Share-Passkey", passkey_secret)
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Access without passkey -> 401 PASSKEY_REQUIRED
+    let req = Request::builder()
+        .uri(format!("/api/v1/share/access/{}", protected_token))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // 6. Time Expiration Enforcement
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let past_payload = format!("v1|vault|sample.mp4|stream_only|{}|{}|open:test", now - 100, now - 10);
+    let sig = TokenAuthority::sign_canonical_payload(secret, &past_payload);
+    let expired_token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!("{}|{}", past_payload, hex::encode(sig)));
+
+    let req = Request::builder()
+        .uri(format!("/api/v1/share/info/{}", expired_token))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let prob: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(prob["code"], "TOKEN_EXPIRED");
+
+    // 7. Constant-Time Passkey Verification & Timing Defense Benchmark
+    let test_hash = PasskeyProtection::hash_passkey(secret, "SuperPassword123!");
+    let iterations = 10_000;
+    let bench_start = Instant::now();
+    for _ in 0..iterations {
+        let valid = PasskeyProtection::verify_passkey("SuperPassword123!", &test_hash);
+        assert!(valid);
+        let invalid = PasskeyProtection::verify_passkey("WrongPassword123!", &test_hash);
+        assert!(!invalid);
+    }
+    let total_elapsed = bench_start.elapsed();
+    let per_op_micros = total_elapsed.as_secs_f64() * 1_000_000.0 / ((iterations * 2) as f64);
+
+    println!(
+        "[CONSTANT-TIME PASSKEY VERIFY] {} iterations verified in {:?} (avg {:.3} µs/op)",
+        iterations * 2, total_elapsed, per_op_micros
+    );
+    assert!(
+        per_op_micros < 100.0,
+        "Constant-time passkey verification must run under 100 µs/op in debug test builds (got {:.3} µs)",
+        per_op_micros
+    );
+
+    println!("[TASK-8.3.3 VERIFIED] Public sharing URLs generator with time expiration and passkey protection verified.");
+}

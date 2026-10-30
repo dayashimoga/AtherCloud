@@ -152,6 +152,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         storage::StorageApiState::new(mounts_arc.clone(), mount_manager.clone());
     let storage_routes = storage::storage_api_router(storage_api_state);
 
+    let share_state = security::PublicShareState::new(
+        config.hmac_secret.clone(),
+        mount_manager.clone(),
+        mounts_arc.clone(),
+    );
+    let share_routes = security::public_share_router(share_state);
+
     // Assemble Axum Router
     let mut app = Router::new()
         .route("/api/v1/health", get(health_handler))
@@ -162,7 +169,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/browse/:mount", get(browse_root_handler))
         .route("/api/v1/browse/:mount/*path", get(browse_path_handler))
         .route("/api/v1/stream/:mount/*path", get(stream_file_handler))
-        .route("/api/v1/share/create", post(create_share_link_handler))
         .route("/api/v1/upload/:mount/init", post(init_upload_handler))
         .route("/api/v1/upload/:mount/chunk", post(upload_chunk_handler))
         .route(
@@ -185,6 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = app
         .with_state(app_state)
         .merge(storage_routes)
+        .merge(share_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 
@@ -226,23 +233,62 @@ async fn system_drives_handler() -> Json<serde_json::Value> {
 struct TokenQuery {
     token: Option<String>,
     download: Option<bool>,
+    passkey: Option<String>,
 }
 
 async fn browse_root_handler(
     AxPath(mount): AxPath<String>,
+    Query(query): Query<TokenQuery>,
+    headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Response {
-    browse_internal(&mount, Path::new(""), &state).await
+    browse_internal(&mount, Path::new(""), &query, &headers, &state).await
 }
 
 async fn browse_path_handler(
     AxPath((mount, subpath)): AxPath<(String, String)>,
+    Query(query): Query<TokenQuery>,
+    headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Response {
-    browse_internal(&mount, Path::new(&subpath), &state).await
+    browse_internal(&mount, Path::new(&subpath), &query, &headers, &state).await
 }
 
-async fn browse_internal(mount: &str, subpath: &Path, state: &AppState) -> Response {
+async fn browse_internal(
+    mount: &str,
+    subpath: &Path,
+    query: &TokenQuery,
+    headers: &HeaderMap,
+    state: &AppState,
+) -> Response {
+    if let Some(token) = &query.token {
+        let passkey = query.passkey.as_deref().or_else(|| {
+            headers
+                .get("X-Share-Passkey")
+                .and_then(|h| h.to_str().ok())
+        });
+
+        let share_state = security::PublicShareState::new(
+            state.config.hmac_secret.clone(),
+            state.mount_manager.clone(),
+            state.mounts.clone(),
+        );
+
+        if let Err(auth_err) = security::verify_share_token_and_passkey(&share_state, token, passkey) {
+            return auth_err.into_response();
+        }
+
+        let subpath_str = subpath.to_string_lossy();
+        if let Err(auth_err) = HmacTokenValidator::validate_token(
+            &state.config.hmac_secret,
+            token,
+            mount,
+            &subpath_str,
+        ) {
+            return auth_err.into_response();
+        }
+    }
+
     match state.mounts.list_directory(mount, subpath) {
         Ok(items) => Json(serde_json::json!({
             "mount": mount,
@@ -262,6 +308,22 @@ async fn stream_file_handler(
 ) -> Response {
     // If HMAC token is provided or configured, validate
     if let Some(token) = &query.token {
+        let passkey = query.passkey.as_deref().or_else(|| {
+            headers
+                .get("X-Share-Passkey")
+                .and_then(|h| h.to_str().ok())
+        });
+
+        let share_state = security::PublicShareState::new(
+            state.config.hmac_secret.clone(),
+            state.mount_manager.clone(),
+            state.mounts.clone(),
+        );
+
+        if let Err(auth_err) = security::verify_share_token_and_passkey(&share_state, token, passkey) {
+            return auth_err.into_response();
+        }
+
         if let Err(auth_err) = HmacTokenValidator::validate_token(
             &state.config.hmac_secret,
             token,
@@ -287,49 +349,6 @@ async fn stream_file_handler(
         }
         Err(e) => e.into_response(),
     }
-}
-
-#[derive(Deserialize)]
-struct CreateShareRequest {
-    mount: String,
-    path: String,
-    ttl_seconds: Option<u64>,
-    allow_write: Option<bool>,
-}
-
-async fn create_share_link_handler(
-    State(state): State<AppState>,
-    Json(payload): Json<CreateShareRequest>,
-) -> Response {
-    let ttl = payload.ttl_seconds.unwrap_or(86400); // 24 hours default
-    let allow_write = payload.allow_write.unwrap_or(false);
-
-    let token = HmacTokenValidator::create_token_string(
-        &state.config.hmac_secret,
-        &payload.mount,
-        &payload.path,
-        ttl,
-        allow_write,
-    );
-
-    let clean_path = payload.path.trim_start_matches('/');
-    let stream_url = format!("/api/v1/stream/{}/{}?token={}", payload.mount, clean_path, token);
-    let download_url = format!(
-        "/api/v1/stream/{}/{}?token={}&download=true",
-        payload.mount, clean_path, token
-    );
-
-    (
-        StatusCode::CREATED,
-        Json(serde_json::json!({
-            "token": token,
-            "stream_url": stream_url,
-            "download_url": download_url,
-            "ttl_seconds": ttl,
-            "allow_write": allow_write
-        })),
-    )
-        .into_response()
 }
 
 #[derive(Deserialize)]

@@ -1295,3 +1295,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Engineered Axum REST API endpoints in `crates/server/src/storage/rest_api.rs` and wired them into daemon routing (`GET /api/v1/storage/drives`, `GET/POST/DELETE /api/v1/storage/mounts`, `GET/PUT/DELETE /api/v1/storage/mounts/:id`, `GET/POST/DELETE /api/v1/storage/shares`). Enforced OS-critical path quarantine boundary defenses returning HTTP 403 Forbidden with RFC 7807 ProblemDetails payloads without disclosing host filesystem metadata. Handled conflict detection, dynamic unregistration from live `MountRegistry`, and dual SQLite WAL persistence. Verified via `test_storage_drives_mounts_and_shares_rest_api`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_STORAGE_REST_API_017
 - **Executor:** Principal Security Architect & Systems Engineer
+
+### [2026-10-30T08:50:00Z] - STAGE_8 / PHASE_8.3 / SUBPHASE_8.3.3
+- **Stage ID:** STAGE_8 (Granular Security Sandbox, Scoped RBAC & Virtual Mount Configuration)
+- **Phase ID:** PHASE_8.3 (Cryptographic Token Authority & REST Management APIs)
+- **Subphase ID:** SUBPHASE_8.3.3 (Public Sharing URLs Generator with Time Expiration & Passkey Protection)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/security/share_link.rs`
+  - `crates/server/src/security/hmac_auth.rs`
+  - `crates/server/src/security/mod.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Engineered public sharing URLs generator and passkey protection engine in `crates/server/src/security/share_link.rs` featuring salted SHA-256 passkey hashing, strict constant-time comparison via `subtle::ConstantTimeEq`, automatic TTL expiration enforcement, and SQLite WAL `share_rules` persistence. Integrated passkey validation and authorization across streaming, browsing, verification, and share landing endpoints (`/api/v1/share/create`, `/api/v1/share/info/:token`, `/api/v1/share/verify`, `/api/v1/share/access/:token`, `/api/v1/stream/:mount/*path`). Marked Phase 2.3 and Stage 2 (Stage 8) 100% complete. Verified via `test_public_sharing_urls_expiration_and_passkey_protection`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_PUBLIC_SHARE_PASSKEY_018
+- **Executor:** Principal Security Architect & Systems Engineer

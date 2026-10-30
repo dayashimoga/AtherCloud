@@ -852,3 +852,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Security Architect & Systems Engineer
 - **Execution Trace:** cargo test --test security_tests test_storage_drives_mounts_and_shares_rest_api
 - **Validation Proof:** Engineered Axum REST API endpoints in crates/server/src/storage/rest_api.rs and wired into daemon routing (GET /api/v1/storage/drives, GET/POST/DELETE /api/v1/storage/mounts, GET/PUT/DELETE /api/v1/storage/mounts/:id, GET/POST/DELETE /api/v1/storage/shares). Enforced OS-critical path quarantine boundary defenses returning HTTP 403 Forbidden with RFC 7807 ProblemDetails without leaking host filesystem metadata. Verified dual SQLite WAL and in-memory MountRegistry persistence, dynamic unregistering, and lifecycle management via test_storage_drives_mounts_and_shares_rest_api. All 35 integration tests passed.
+
+### [2026-10-30T08:50:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-8.3.3
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Security Architect & Systems Engineer
+- **Execution Trace:** cargo test --test security_tests test_public_sharing_urls_expiration_and_passkey_protection
+- **Validation Proof:** Engineered public sharing URLs generator and passkey protection engine in crates/server/src/security/share_link.rs with salted SHA-256 passkey hashing, constant-time verification (subtle::ConstantTimeEq), and automatic time expiration. Integrated passkey validation across streaming, browsing, verification, and share landing endpoints. Backed by SQLite WAL share_rules. Marked Phase 2.3 and Stage 2 (Stage 8) 100% complete. All 36 integration tests passed.

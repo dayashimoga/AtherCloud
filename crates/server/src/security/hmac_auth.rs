@@ -84,23 +84,29 @@ pub enum AuthError {
     MountMismatch(String, String),
     #[error("Access denied: token does not grant requested permission level")]
     InsufficientPermission,
+    #[error("Passkey required to access this shared resource")]
+    PasskeyRequired,
+    #[error("Invalid passkey provided")]
+    InvalidPasskey,
     #[error("Internal cryptographic error")]
     InternalError,
 }
 
 impl axum::response::IntoResponse for AuthError {
     fn into_response(self) -> axum::response::Response {
-        let (detail, code) = match &self {
-            AuthError::MissingToken => ("Missing authorization token in query or Authorization header.", "MISSING_TOKEN"),
-            AuthError::MalformedToken(_) => ("Authorization token is malformed.", "MALFORMED_TOKEN"),
-            AuthError::ExpiredToken(_) => ("Authorization token has expired.", "TOKEN_EXPIRED"),
-            AuthError::InvalidSignature => ("Cryptographic HMAC-SHA256 signature verification failed.", "INVALID_SIGNATURE"),
-            AuthError::PathOutOfScope(_, _) => ("Requested subpath is outside authorized token scope.", "PATH_OUT_OF_SCOPE"),
-            AuthError::MountMismatch(_, _) => ("Token scope does not match requested virtual mount.", "MOUNT_MISMATCH"),
-            AuthError::InsufficientPermission => ("Token permissions are insufficient for the requested operation.", "INSUFFICIENT_PERMISSION"),
-            AuthError::InternalError => ("Internal authentication error occurred.", "INTERNAL_AUTH_ERROR"),
+        let (title, detail, code) = match &self {
+            AuthError::MissingToken => ("Token Authorization Failure", "Missing authorization token in query or Authorization header.", "MISSING_TOKEN"),
+            AuthError::MalformedToken(_) => ("Token Authorization Failure", "Authorization token is malformed.", "MALFORMED_TOKEN"),
+            AuthError::ExpiredToken(_) => ("Token Authorization Failure", "Authorization token has expired.", "TOKEN_EXPIRED"),
+            AuthError::InvalidSignature => ("Token Authorization Failure", "Cryptographic HMAC-SHA256 signature verification failed.", "INVALID_SIGNATURE"),
+            AuthError::PathOutOfScope(_, _) => ("Token Authorization Failure", "Requested subpath is outside authorized token scope.", "PATH_OUT_OF_SCOPE"),
+            AuthError::MountMismatch(_, _) => ("Token Authorization Failure", "Token scope does not match requested virtual mount.", "MOUNT_MISMATCH"),
+            AuthError::InsufficientPermission => ("Token Authorization Failure", "Token permissions are insufficient for the requested operation.", "INSUFFICIENT_PERMISSION"),
+            AuthError::PasskeyRequired => ("Passkey Required", "A valid passkey is required to access this resource.", "PASSKEY_REQUIRED"),
+            AuthError::InvalidPasskey => ("Invalid Passkey", "The provided passkey is incorrect.", "INVALID_PASSKEY"),
+            AuthError::InternalError => ("Token Authorization Failure", "Internal authentication error occurred.", "INTERNAL_AUTH_ERROR"),
         };
-        super::ProblemDetails::unauthorized("Token Authorization Failure", detail, code, None).into_response()
+        super::ProblemDetails::unauthorized(title, detail, code, None).into_response()
     }
 }
 
@@ -208,6 +214,12 @@ impl TokenAuthority {
         )
     }
 
+    /// Inspects and parses a token, validating its cryptographic signature and expiration
+    /// without asserting specific mount or path scope boundaries
+    pub fn inspect_token(secret: &str, token_str: &str) -> Result<ScopedTokenClaims, AuthError> {
+        Self::validate_scoped_token(secret, token_str, "*", "*", None)
+    }
+
     fn validate_v1_token(
         secret: &str,
         token_str: &str,
@@ -256,12 +268,12 @@ impl TokenAuthority {
         }
 
         // 3. Mount match
-        if mount_id != requested_mount && mount_id != "*" {
+        if requested_mount != "*" && mount_id != "*" && mount_id != requested_mount {
             return Err(AuthError::MountMismatch(mount_id, requested_mount.to_string()));
         }
 
         // 4. Path prefix scoping (component-aware)
-        if !Self::is_path_within_scope(&path_prefix, requested_path) {
+        if requested_path != "*" && !requested_path.is_empty() && !Self::is_path_within_scope(&path_prefix, requested_path) {
             return Err(AuthError::PathOutOfScope(
                 requested_path.to_string(),
                 path_prefix,
@@ -348,11 +360,11 @@ impl TokenAuthority {
             return Err(AuthError::InvalidSignature);
         }
 
-        if mount_id != requested_mount && mount_id != "*" {
+        if requested_mount != "*" && mount_id != "*" && mount_id != requested_mount {
             return Err(AuthError::MountMismatch(mount_id, requested_mount.to_string()));
         }
 
-        if !Self::is_path_within_scope(&path_prefix, requested_path) {
+        if requested_path != "*" && !requested_path.is_empty() && !Self::is_path_within_scope(&path_prefix, requested_path) {
             return Err(AuthError::PathOutOfScope(
                 requested_path.to_string(),
                 path_prefix,
