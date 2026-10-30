@@ -970,3 +970,54 @@ fn test_audio_passthrough_and_stereo_downmix() {
     assert_eq!(strat_silent, AudioTranscodeStrategy::NoAudio);
     assert_eq!(strat_silent.ffmpeg_flags(128), vec!["-an"]);
 }
+
+#[tokio::test]
+async fn test_disk_cache_quota_and_lru_eviction() {
+    use aetherstream_server::transcode::pipeline::{DiskCacheConfig, DiskCacheSupervisor};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let scratch = temp_dir.path().to_path_buf();
+
+    // Create 5 dummy files of 100 KB each (total 500 KB)
+    let payload = vec![0xEEu8; 100 * 1024];
+
+    for i in 0..5 {
+        let file_path = scratch.join(format!("segment_{:02}.ts", i));
+        tokio::fs::write(&file_path, &payload).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(15)).await;
+    }
+
+    // Config: max quota 350 KB, target watermark 0.60 (target 210 KB)
+    // Should evict oldest files until <= 210 KB
+    let config = DiskCacheConfig {
+        scratch_dir: scratch.clone(),
+        max_cache_bytes: 350 * 1024,
+        ttl_seconds: 3600,
+        target_watermark_ratio: 0.60,
+    };
+
+    let (evicted_count, reclaimed_bytes) = DiskCacheSupervisor::sweep_cache(&config).await.unwrap();
+    assert!(evicted_count >= 2, "Must evict at least 2 files to reach quota");
+    assert!(reclaimed_bytes >= 200 * 1024, "Must reclaim at least 200 KB");
+
+    // Oldest segment_00.ts must be evicted, newest segment_04.ts must be preserved
+    assert!(
+        !scratch.join("segment_00.ts").exists(),
+        "Oldest file segment_00.ts must be evicted"
+    );
+    assert!(
+        scratch.join("segment_04.ts").exists(),
+        "Newest file segment_04.ts must be preserved"
+    );
+
+    // Test TTL expiration: config with 0 second TTL evicts all remaining files
+    let ttl_config = DiskCacheConfig {
+        scratch_dir: scratch.clone(),
+        max_cache_bytes: 10 * 1024 * 1024,
+        ttl_seconds: 0,
+        target_watermark_ratio: 0.80,
+    };
+    tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+    let (ttl_evicted, _) = DiskCacheSupervisor::sweep_cache(&ttl_config).await.unwrap();
+    assert!(ttl_evicted >= 1, "TTL sweep must purge all expired segments");
+}

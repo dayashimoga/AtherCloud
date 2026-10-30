@@ -873,3 +873,14 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Configured dynamic audio channel downmixing ensuring 5.1/7.1 surround compatibility across mobile devices.
 - **Verification Signature:** SHA256:VERIFIED_PASS
 - **Executor:** System Bootstrapper (AetherStream Automation Suite)
+
+### [2026-10-30T02:42:21Z] - STAGE_3 / PHASE_3.3 / SUBPHASE_3.3.1
+- **Stage ID:** STAGE_3
+- **Phase ID:** PHASE_3.3
+- **Subphase ID:** SUBPHASE_3.3.1
+- **Status:** COMPLETED
+- **Components Modified:**
+  - crates/server/src/transcode/pipeline.rs
+- **Atomic Delta Description:** Implemented background segment eviction actor maintaining transcode scratch storage within quota limits.
+- **Verification Signature:** SHA256:VERIFIED_PASS
+- **Executor:** System Bootstrapper (AetherStream Automation Suite)

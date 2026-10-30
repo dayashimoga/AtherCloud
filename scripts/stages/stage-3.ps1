@@ -130,10 +130,16 @@ function Test-Subphase-3-3-1 {
     Write-AetherLog "INFO" "Auditing Subphase 3.3.1: Automated Disk Cache Quota & LRU Eviction..."
     $pipelineFile = Join-Path $Script:RepoRoot "crates/server/src/transcode/pipeline.rs"
     $content = Get-Content $pipelineFile -Raw
-    if (-not ($content -match "spawn_cleanup_worker")) {
-        throw "Segment cleanup supervisor missing in pipeline.rs!"
+    if (-not ($content -match "spawn_cleanup_worker" -and $content -match "DiskCacheSupervisor")) {
+        throw "Segment cleanup supervisor or DiskCacheSupervisor missing in pipeline.rs!"
     }
-    Write-AetherLog "SUCCESS" "Automated segment TTL ring buffer sweeper verified."
+
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $testOut = cargo test --test security_tests test_disk_cache_quota_and_lru_eviction -- --nocapture 2>&1
+    $ErrorActionPreference = $prev
+    if ($LASTEXITCODE -ne 0) { throw "Disk cache quota and LRU eviction test failed: $testOut" }
+
+    Write-AetherLog "SUCCESS" "Automated segment TTL ring buffer sweeper and LRU quota supervisor verified."
     return $true
 }
 
