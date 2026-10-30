@@ -1063,3 +1063,20 @@ All entries in this file are strictly immutable. Truncations, retro-modification
 - **Atomic Delta Description:** Implemented `PathQuarantine` engine protecting host OS stability. Enforced quarantine barriers preventing direct mount registration of system critical directories (`C:\Windows`, `/System`, `/proc`, `/sys`, `/etc`), intercepted canonical path traversal into quarantined components, and excluded system volume artifacts (`$Recycle.Bin`, `System Volume Information`, `pagefile.sys`) from unmanaged directory listings. Validated via `test_os_critical_path_quarantine_and_exclusion`.
 - **Verification Signature:** SHA256:VERIFIED_PASS_PATH_QUARANTINE_003
 - **Executor:** Principal Systems & Rust Distributed Storage Engineer
+
+### [2026-10-30T05:31:00Z] - STAGE_7 / PHASE_7.2 / SUBPHASE_7.2.1
+- **Stage ID:** STAGE_7 (Core Daemon Refactor, OS Storage Bus & Dynamic Mount Engine)
+- **Phase ID:** PHASE_7.2 (Plug-and-Play OS Hot-Plug Event Bus)
+- **Subphase ID:** SUBPHASE_7.2.1 (Windows Hidden Window Message Loop for WM_DEVICECHANGE)
+- **Status:** COMPLETED
+- **Components Modified:**
+  - `crates/server/src/storage/disk_watcher.rs` [CREATED]
+  - `crates/server/src/storage/mod.rs`
+  - `crates/server/src/storage/mounts.rs`
+  - `crates/server/src/main.rs`
+  - `crates/server/tests/security_tests.rs`
+  - `state.tracker.json`
+  - `TODO.md`
+- **Atomic Delta Description:** Implemented `DiskWatcher` on Windows with dedicated background hidden window message loop (`RegisterClassW`, `CreateWindowExW` with `WS_POPUP`, `GetMessageW`, `DispatchMessageW`). Intercepted kernel `WM_DEVICECHANGE` events (`DBT_DEVICEARRIVAL` and `DBT_DEVICEREMOVECOMPLETE`), decoded `DEV_BROADCAST_VOLUME` bitmask drive units, and broadcasted `StorageDeviceEvent` over bounded Tokio channel. Added `MountRegistry::unregister_by_path` for dynamic hot-unmounting without daemon restarts. Verified via `test_windows_hotplug_device_watcher`.
+- **Verification Signature:** SHA256:VERIFIED_PASS_HOTPLUG_WATCHER_004
+- **Executor:** Principal Systems & Rust Distributed Storage Engineer

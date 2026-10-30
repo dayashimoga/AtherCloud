@@ -221,6 +221,26 @@ impl MountRegistry {
         Ok(())
     }
 
+    /// Dynamically unregisters a virtual mount by its mount identifier
+    pub fn unregister(&mut self, name: &str) -> Option<MountEntry> {
+        self.mounts.remove(name)
+    }
+
+    /// Dynamically unregisters any virtual mount matching or residing within the given physical path
+    pub fn unregister_by_path(&mut self, path: &Path) -> Option<String> {
+        let canonical = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let to_remove: Option<String> = self
+            .mounts
+            .iter()
+            .find(|(_, entry)| entry.base_path == canonical || entry.base_path.starts_with(&canonical))
+            .map(|(k, _)| k.clone());
+
+        if let Some(ref key) = to_remove {
+            self.mounts.remove(key);
+        }
+        to_remove
+    }
+
     pub fn list_mounts(&self) -> Vec<serde_json::Value> {
         self.mounts
             .iter()

@@ -1,3 +1,4 @@
+pub mod disk_watcher;
 pub mod indexer;
 pub mod mounts;
 pub mod quarantine;
@@ -5,6 +6,7 @@ pub mod stream;
 pub mod upload;
 pub mod volume_info;
 
+pub use disk_watcher::{DiskWatcher, StorageDeviceEvent};
 pub use indexer::FileTreeIndexer;
 pub use mounts::MountRegistry;
 pub use quarantine::PathQuarantine;

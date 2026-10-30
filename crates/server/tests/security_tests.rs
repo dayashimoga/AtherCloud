@@ -1304,3 +1304,82 @@ fn test_os_critical_path_quarantine_and_exclusion() {
     assert!(!entry_names.contains(&"System Volume Information".to_string()), "'System Volume Information' must be quarantined");
     assert!(!entry_names.contains(&"pagefile.sys".to_string()), "'pagefile.sys' must be quarantined");
 }
+
+#[tokio::test]
+async fn test_windows_hotplug_device_watcher() {
+    use aetherstream_server::storage::disk_watcher::{DiskWatcher, StorageDeviceEvent};
+    use aetherstream_server::storage::mounts::MountRegistry;
+    use aetherstream_server::storage::volume_info::{DiskMediaType, VolumeInfo};
+    use std::path::PathBuf;
+
+    let watcher = DiskWatcher::new();
+    let mut rx = watcher.subscribe();
+
+    // 1. Verify watcher starts background OS loop
+    assert!(watcher.start().is_ok(), "Watcher must start without error");
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(watcher.is_running(), "Watcher state must be running");
+
+    // 2. Simulate rapid device arrival (Plugged)
+    let plugged_volume = VolumeInfo {
+        name: "Ultra USB 3.0 (K:)".to_string(),
+        mount_point: PathBuf::from("K:\\"),
+        filesystem: "exFAT".to_string(),
+        filesystem_label: Some("Ultra USB".to_string()),
+        total_bytes: 64_000_000_000,
+        available_bytes: 58_000_000_000,
+        is_removable: true,
+        is_system: false,
+        media_type: DiskMediaType::RemovableUsb,
+        serial_number: Some("USB-ABCD-1234".to_string()),
+        is_read_only: false,
+    };
+
+    watcher.simulate_device_event(StorageDeviceEvent::Plugged(plugged_volume.clone()));
+
+    let received = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+        .await
+        .expect("Must receive Plugged event within 1s")
+        .expect("Event receive failed");
+
+    match received {
+        StorageDeviceEvent::Plugged(vol) => {
+            assert_eq!(vol.name, "Ultra USB 3.0 (K:)");
+            assert_eq!(vol.mount_point, PathBuf::from("K:\\"));
+            assert_eq!(vol.media_type, DiskMediaType::RemovableUsb);
+            assert_eq!(vol.serial_number, Some("USB-ABCD-1234".to_string()));
+            println!("[HOTPLUG VERIFIED] Received Plugged Event: {:?}", vol);
+        }
+        _ => panic!("Expected StorageDeviceEvent::Plugged"),
+    }
+
+    // 3. Mount Registry dynamic unmount simulation upon Unplugged event
+    let mut registry = MountRegistry::new();
+    let temp_usb = tempfile::tempdir().unwrap();
+    let usb_path = temp_usb.path().to_path_buf();
+    assert!(registry.register("usb_drive", usb_path.clone(), false, Some("Plugged USB".into())).is_ok());
+    assert_eq!(registry.list_mounts().len(), 1);
+
+    // Simulate device removal (Unplugged)
+    watcher.simulate_device_event(StorageDeviceEvent::Unplugged(usb_path.to_string_lossy().to_string()));
+
+    let received_unplug = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+        .await
+        .expect("Must receive Unplugged event within 1s")
+        .expect("Event receive failed");
+
+    match received_unplug {
+        StorageDeviceEvent::Unplugged(path_str) => {
+            let unmounted = registry.unregister_by_path(&PathBuf::from(&path_str));
+            assert_eq!(unmounted, Some("usb_drive".to_string()), "Registry must unmount disconnected device");
+            assert_eq!(registry.list_mounts().len(), 0, "Registry must now have 0 mounts");
+            println!("[HOTPLUG VERIFIED] Dynamic Unmount Succeeded for: {}", path_str);
+        }
+        _ => panic!("Expected StorageDeviceEvent::Unplugged"),
+    }
+
+    // 4. Clean shutdown of hidden window and message loop
+    watcher.stop();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!watcher.is_running(), "Watcher must not be running after stop()");
+}

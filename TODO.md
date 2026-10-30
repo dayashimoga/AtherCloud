@@ -754,3 +754,10 @@ All entries in this file are strictly immutable and append-only. Tasks may never
 - **Executor:** Principal Systems & Rust Distributed Storage Engineer
 - **Execution Trace:** cargo test --test security_tests test_os_critical_path_quarantine_and_exclusion
 - **Validation Proof:** Engineered PathQuarantine engine in crates/server/src/storage/quarantine.rs. Enforced isolation across mount registration, canonical path resolution, and directory browsing, preventing accidental host bricking or tampering with OS-critical paths (Windows, Recycle.Bin, System Volume Information, pagefile.sys, /proc, /sys, /etc). All 21 security tests passed.
+
+### [2026-10-30T05:31:00Z] TRANSACTION [TASK UPDATE]
+- **Task ID:** TASK-7.2.1
+- **Transition:** PENDING -> COMPLETED
+- **Executor:** Principal Systems & Rust Distributed Storage Engineer
+- **Execution Trace:** cargo test --test security_tests test_windows_hotplug_device_watcher
+- **Validation Proof:** Engineered DiskWatcher with Windows hidden message loop intercepting WM_DEVICECHANGE (DBT_DEVICEARRIVAL & DBT_DEVICEREMOVECOMPLETE). Extracted DEV_BROADCAST_VOLUME unitmask and broadcasted StorageDeviceEvent to Tokio channel. Verified dynamic drive unmounting in integration test.

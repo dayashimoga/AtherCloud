@@ -25,6 +25,7 @@ mod transcode;
 
 use config::ServerConfig;
 use security::hmac_auth::HmacTokenValidator;
+use storage::disk_watcher::DiskWatcher;
 use storage::mounts::MountRegistry;
 use storage::stream::RangeRequestEngine;
 use storage::upload::ResumableUploadManager;
@@ -49,6 +50,7 @@ pub struct AppState {
     pub mounts: Arc<MountRegistry>,
     pub hw_accel: HardwareAccel,
     pub upload_manager: Arc<ResumableUploadManager>,
+    pub disk_watcher: Arc<DiskWatcher>,
 }
 
 #[tokio::main]
@@ -89,6 +91,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Launch background segment cleanup sweeper
     TranscodePipeline::spawn_cleanup_worker(config.scratch_dir.clone(), 60).await;
 
+    // Initialize OS Storage Bus & Disk Watcher
+    let disk_watcher = Arc::new(DiskWatcher::new());
+    if let Err(e) = disk_watcher.start() {
+        warn!("Failed to initialize OS disk watcher: {}", e);
+    } else {
+        info!("OS Storage Bus & Hot-Plug Event Watcher active");
+    }
+
     let upload_manager = Arc::new(ResumableUploadManager::new());
 
     let app_state = AppState {
@@ -96,6 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         mounts: Arc::new(mounts),
         hw_accel,
         upload_manager,
+        disk_watcher,
     };
 
     // CORS configuration
